@@ -1,0 +1,20 @@
+{
+  "name": "@repo/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./convex/_generated/api": "./src/convex/_generated/api.js",
+    "./convex/*": "./src/convex/*",
+    "./models/*": "./src/convex/models/*"
+  },
+  "scripts": {
+    "deploy:dev": "convex dev --once",
+    "deploy:prod": "convex deploy -y"
+  },
+  "dependencies": {
+    "@convex-dev/auth": "^0.0.80",
+    "@auth/core": "^0.37.0",
+    "convex": "^1.17.0"
+  }
+}
