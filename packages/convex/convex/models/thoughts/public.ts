@@ -22,17 +22,20 @@ export const listRecent = query({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
+    let results;
     if (args.type) {
-      return await ctx.db
+      results = await ctx.db
         .query("thoughts")
         .withIndex("by_userId_and_type", (q) =>
           q.eq("userId", userId).eq("metadata.type", args.type!),
         )
         .order("desc")
         .take(args.limit ?? 20);
+    } else {
+      results = await _listByUser(ctx, userId, args.limit ?? 20);
     }
 
-    return await _listByUser(ctx, userId, args.limit ?? 20);
+    return results.map(({ embedding: _, ...rest }) => rest);
   },
 });
 

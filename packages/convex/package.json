@@ -9,6 +9,7 @@
     "./models/*": "./convex/models/*"
   },
   "scripts": {
+    "dev": "convex dev",
     "deploy:dev": "convex dev --once",
     "deploy:prod": "convex deploy -y"
   },

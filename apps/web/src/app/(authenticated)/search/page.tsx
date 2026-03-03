@@ -33,7 +33,8 @@ export default function SearchPage() {
     try {
       const res = await searchThoughts({ query: query.trim() });
       setResults(res as unknown as SearchResult[]);
-    } catch {
+    } catch (err) {
+      console.error("Search failed:", err);
       setResults([]);
     } finally {
       setLoading(false);

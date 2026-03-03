@@ -21,7 +21,8 @@ export const listByUser = query({
     }),
   ),
   handler: async (ctx, args) => {
-    return await _listByUser(ctx, args.userId, args.limit ?? 20);
+    const results = await _listByUser(ctx, args.userId, args.limit ?? 20);
+    return results.map(({ embedding: _, ...rest }) => rest);
   },
 });
 
