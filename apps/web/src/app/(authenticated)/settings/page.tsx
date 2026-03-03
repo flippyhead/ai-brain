@@ -153,7 +153,7 @@ export default function SettingsPage() {
               </td>
             </tr>
           ) : (
-            apiKeys.map((key) => (
+            apiKeys.map((key: { _id: any; _creationTime: number; keyPrefix: string; name: string; lastUsedAt?: number }) => (
               <tr key={key._id} style={{ borderBottom: "1px solid #eee" }}>
                 <td style={{ padding: 8 }}>{key.name}</td>
                 <td style={{ padding: 8 }}>

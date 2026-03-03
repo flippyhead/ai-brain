@@ -1,11 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ConvexHttpClient } from "convex/browser";
-import { internal } from "@repo/db/convex/_generated/api";
+import { api } from "@repo/db/convex/_generated/api";
 import { z } from "zod";
 
 export function createMcpServer(userId: string) {
   const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-  convex.setAdminAuth(process.env.CONVEX_DEPLOYMENT!);
 
   const server = new McpServer({
     name: "open-brain",
@@ -31,8 +30,15 @@ export function createMcpServer(userId: string) {
         .describe("Max results to return"),
     },
     async ({ query, threshold, limit }) => {
-      const results = await convex.action(
-        internal.models.thoughts.actions.searchByVector,
+      type SearchResult = {
+        _id: string;
+        content: string;
+        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        score: number;
+        createdAt: number;
+      };
+      const results: SearchResult[] = await convex.action(
+        api.models.thoughts.mcpActions.search,
         {
           userId: userId as never,
           query,
@@ -96,8 +102,15 @@ export function createMcpServer(userId: string) {
       topic: z.string().optional().describe("Filter by topic keyword"),
     },
     async ({ limit, type, topic }) => {
-      const results = await convex.query(
-        internal.models.thoughts.private.listByUser,
+      type Thought = {
+        _id: string;
+        _creationTime: number;
+        content: string;
+        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        userId: string;
+      };
+      const results: Thought[] = await convex.query(
+        api.models.thoughts.mcpQueries.listByUser,
         { userId: userId as never, limit },
       );
 
@@ -149,42 +162,10 @@ export function createMcpServer(userId: string) {
     "Get overview statistics of what's stored in your brain",
     {},
     async () => {
-      const thoughts = await convex.query(
-        internal.models.thoughts.private.listByUser,
-        { userId: userId as never, limit: 10000 },
+      const stats = await convex.query(
+        api.models.thoughts.mcpQueries.getStats,
+        { userId: userId as never },
       );
-
-      const typeCounts = new Map<string, number>();
-      const topicCounts = new Map<string, number>();
-      const peopleCounts = new Map<string, number>();
-
-      for (const t of thoughts) {
-        typeCounts.set(
-          t.metadata.type,
-          (typeCounts.get(t.metadata.type) ?? 0) + 1,
-        );
-        for (const topic of t.metadata.topics) {
-          topicCounts.set(topic, (topicCounts.get(topic) ?? 0) + 1);
-        }
-        for (const person of t.metadata.people) {
-          peopleCounts.set(person, (peopleCounts.get(person) ?? 0) + 1);
-        }
-      }
-
-      const stats = {
-        totalThoughts: thoughts.length,
-        byType: [...typeCounts.entries()]
-          .map(([type, count]) => ({ type, count }))
-          .sort((a, b) => b.count - a.count),
-        topTopics: [...topicCounts.entries()]
-          .map(([topic, count]) => ({ topic, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 10),
-        topPeople: [...peopleCounts.entries()]
-          .map(([person, count]) => ({ person, count }))
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 10),
-      };
 
       return {
         content: [
@@ -204,8 +185,12 @@ export function createMcpServer(userId: string) {
       content: z.string().describe("The thought content to save"),
     },
     async ({ content }) => {
-      const result = await convex.action(
-        internal.models.thoughts.actions.captureThought,
+      type CaptureResult = {
+        thoughtId: string;
+        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+      };
+      const result: CaptureResult = await convex.action(
+        api.models.thoughts.mcpActions.capture,
         { userId: userId as never, content },
       );
 

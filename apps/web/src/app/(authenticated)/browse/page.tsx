@@ -14,13 +14,17 @@ const TYPES = [
   "reference",
 ] as const;
 
-export default function BrowsePage() {
-  const [typeFilter, setTypeFilter] = useState<string>("");
+type ThoughtType = (typeof TYPES)[number];
 
-  const thoughts = useQuery(api.models.thoughts.public.listRecent, {
-    limit: 50,
-    ...(typeFilter ? { type: typeFilter as (typeof TYPES)[number] } : {}),
-  });
+export default function BrowsePage() {
+  const [typeFilter, setTypeFilter] = useState<ThoughtType | "">("");
+
+  const thoughts = useQuery(
+    api.models.thoughts.public.listRecent,
+    typeFilter
+      ? { limit: 50, type: typeFilter }
+      : { limit: 50 },
+  );
 
   return (
     <div>
@@ -35,7 +39,7 @@ export default function BrowsePage() {
         <h1 style={{ margin: 0 }}>Browse</h1>
         <select
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
+          onChange={(e) => setTypeFilter(e.target.value as ThoughtType | "")}
           style={{ padding: 8, borderRadius: 4, border: "1px solid #ddd" }}
         >
           <option value="">All types</option>
@@ -53,7 +57,7 @@ export default function BrowsePage() {
         <p style={{ color: "#666" }}>No thoughts found.</p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {thoughts.map((thought) => (
+          {thoughts.map((thought: { _id: string; _creationTime: number; content: string; metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string }; userId: string }) => (
             <ThoughtCard key={thought._id} thought={thought} />
           ))}
         </div>

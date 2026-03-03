@@ -38,7 +38,7 @@ export default function DashboardPage() {
             </div>
             <div style={{ color: "#666" }}>thoughts</div>
           </div>
-          {stats.byType.slice(0, 3).map((t) => (
+          {stats.byType.slice(0, 3).map((t: { type: string; count: number }) => (
             <div
               key={t.type}
               style={{
@@ -67,7 +67,7 @@ export default function DashboardPage() {
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {recent.map((thought) => (
+          {recent.map((thought: { _id: string; _creationTime: number; content: string; metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string }; userId: string }) => (
             <ThoughtCard key={thought._id} thought={thought} />
           ))}
         </div>

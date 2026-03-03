@@ -1,5 +1,5 @@
 import { ConvexHttpClient } from "convex/browser";
-import { api, internal } from "@repo/db/convex/_generated/api";
+import { api } from "@repo/db/convex/_generated/api";
 
 const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
 
@@ -18,23 +18,16 @@ export async function authenticateApiKey(
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  // Look up via internal query — requires admin auth
-  // Using the Convex admin client with CONVEX_DEPLOYMENT env var
-  const adminClient = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
-  adminClient.setAdminAuth(process.env.CONVEX_DEPLOYMENT!);
-
-  const apiKey = await adminClient.query(
-    internal.models.apiKeys.private.findByHash,
+  const result = await convex.query(
+    api.models.apiKeys.mcpAuth.validateKeyHash,
     { keyHash },
   );
-  if (!apiKey) return null;
+  if (!result) return null;
 
   // Update last used (fire and forget)
-  adminClient
-    .mutation(internal.models.apiKeys.private.updateLastUsed, {
-      id: apiKey._id,
-    })
+  convex
+    .mutation(api.models.apiKeys.mcpAuth.touchKey, { keyId: result.keyId })
     .catch(() => {});
 
-  return { userId: apiKey.userId, keyId: apiKey._id };
+  return { userId: result.userId, keyId: result.keyId };
 }
