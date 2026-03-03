@@ -8,13 +8,23 @@
  * @module
  */
 
+import type * as auth from "../auth.js";
+import type * as http from "../http.js";
+import type * as models_apiKeys_validators from "../models/apiKeys/validators.js";
+import type * as models_thoughts_validators from "../models/thoughts/validators.js";
+
 import type {
   ApiFromModules,
   FilterApi,
   FunctionReference,
 } from "convex/server";
 
-declare const fullApi: ApiFromModules<{}>;
+declare const fullApi: ApiFromModules<{
+  auth: typeof auth;
+  http: typeof http;
+  "models/apiKeys/validators": typeof models_apiKeys_validators;
+  "models/thoughts/validators": typeof models_thoughts_validators;
+}>;
 
 /**
  * A utility for referencing Convex functions in your app's public API.
