@@ -10,7 +10,15 @@
 
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as models_apiKeys_model from "../models/apiKeys/model.js";
+import type * as models_apiKeys_private from "../models/apiKeys/private.js";
+import type * as models_apiKeys_public from "../models/apiKeys/public.js";
 import type * as models_apiKeys_validators from "../models/apiKeys/validators.js";
+import type * as models_thoughts_actions from "../models/thoughts/actions.js";
+import type * as models_thoughts_model from "../models/thoughts/model.js";
+import type * as models_thoughts_private from "../models/thoughts/private.js";
+import type * as models_thoughts_public from "../models/thoughts/public.js";
+import type * as models_thoughts_publicActions from "../models/thoughts/publicActions.js";
 import type * as models_thoughts_validators from "../models/thoughts/validators.js";
 
 import type {
@@ -22,7 +30,15 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
+  "models/apiKeys/model": typeof models_apiKeys_model;
+  "models/apiKeys/private": typeof models_apiKeys_private;
+  "models/apiKeys/public": typeof models_apiKeys_public;
   "models/apiKeys/validators": typeof models_apiKeys_validators;
+  "models/thoughts/actions": typeof models_thoughts_actions;
+  "models/thoughts/model": typeof models_thoughts_model;
+  "models/thoughts/private": typeof models_thoughts_private;
+  "models/thoughts/public": typeof models_thoughts_public;
+  "models/thoughts/publicActions": typeof models_thoughts_publicActions;
   "models/thoughts/validators": typeof models_thoughts_validators;
 }>;
 
