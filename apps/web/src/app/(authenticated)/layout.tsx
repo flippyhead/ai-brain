@@ -23,6 +23,7 @@ function Nav() {
       <Link href="/search">Search</Link>
       <Link href="/browse">Browse</Link>
       <Link href="/settings">Settings</Link>
+      <Link href="/getting-started">Getting Started</Link>
       <div style={{ marginLeft: "auto" }}>
         <button onClick={() => signOut()} style={{ cursor: "pointer" }}>
           Sign Out

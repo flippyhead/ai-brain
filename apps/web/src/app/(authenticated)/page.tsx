@@ -63,7 +63,11 @@ export default function DashboardPage() {
       ) : recent.length === 0 ? (
         <p style={{ color: "#666" }}>
           No thoughts yet. Capture your first one above, or connect an AI client
-          via MCP.
+          via MCP.{" "}
+          <a href="/getting-started" style={{ color: "#0070f3" }}>
+            Check out the Getting Started guide
+          </a>{" "}
+          to seed your brain.
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

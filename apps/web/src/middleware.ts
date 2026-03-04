@@ -5,7 +5,7 @@ import {
 } from "@convex-dev/auth/nextjs/server";
 
 const isSignInPage = createRouteMatcher(["/sign-in", "/sign-up"]);
-const isPublicRoute = createRouteMatcher(["/sign-in", "/sign-up", "/api/mcp"]);
+const isPublicRoute = createRouteMatcher(["/sign-in", "/sign-up", "/api/mcp(.*)", "/mcp/authorize"]);
 
 export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
   if (isSignInPage(request) && (await convexAuth.isAuthenticated())) {

@@ -3,12 +3,17 @@ import { createMcpServer } from "@/lib/mcp/server";
 import { authenticateApiKey } from "@/lib/mcp/auth";
 
 export async function POST(req: Request) {
-  // Authenticate via API key
+  // Authenticate via API key (Bearer token from OAuth flow or direct)
   const auth = await authenticateApiKey(req.headers.get("authorization"));
   if (!auth) {
+    const url = new URL(req.url);
+    const baseUrl = `${url.protocol}//${url.host}`;
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
+      },
     });
   }
 
