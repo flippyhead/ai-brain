@@ -4,6 +4,52 @@ import { useQuery, useMutation } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
 import { useState } from "react";
 
+function CopyableCode({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        alignItems: "center",
+        marginTop: 4,
+        marginBottom: 4,
+      }}
+    >
+      <code
+        style={{
+          flex: 1,
+          padding: 8,
+          backgroundColor: "#f5f5f5",
+          borderRadius: 4,
+          fontSize: 13,
+          wordBreak: "break-all",
+        }}
+      >
+        {text}
+      </code>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        style={{
+          padding: "4px 12px",
+          cursor: "pointer",
+          borderRadius: 4,
+          border: "1px solid #ddd",
+          background: "white",
+          fontSize: "0.85rem",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {copied ? "Copied!" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const apiKeys = useQuery(api.models.apiKeys.public.list);
   const createKey = useMutation(api.models.apiKeys.public.create);
@@ -187,6 +233,21 @@ export default function SettingsPage() {
       </table>
 
       <h2>Connect AI Clients</h2>
+      <p style={{ color: "#666" }}>
+        Your MCP endpoint:{" "}
+        <code
+          style={{
+            fontSize: 13,
+            backgroundColor: "#f5f5f5",
+            padding: "2px 6px",
+            borderRadius: 4,
+          }}
+        >
+          {typeof window !== "undefined"
+            ? `${window.location.origin}/api/mcp`
+            : "/api/mcp"}
+        </code>
+      </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div
           style={{
@@ -195,24 +256,53 @@ export default function SettingsPage() {
             borderRadius: 8,
           }}
         >
-          <h3 style={{ marginTop: 0 }}>Claude Code</h3>
-          <code style={{ fontSize: 13 }}>
-            claude mcp add --transport http open-brain
-            https://your-app.vercel.app/api/mcp --header
-            &quot;Authorization: Bearer YOUR_KEY&quot;
-          </code>
-        </div>
-        <div
-          style={{
-            padding: 16,
-            border: "1px solid #eee",
-            borderRadius: 8,
-          }}
-        >
           <h3 style={{ marginTop: 0 }}>Claude Desktop</h3>
-          <p>
-            Settings &rarr; Connectors &rarr; Add custom connector &rarr; paste
-            your MCP endpoint URL
+          <p style={{ marginBottom: 8 }}>
+            Uses OAuth &mdash; no API key needed. You&apos;ll sign in with your
+            email and password.
+          </p>
+          <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>
+              Open Claude Desktop &rarr; Settings &rarr; Integrations &rarr; Add
+              More
+            </li>
+            <li>Select &quot;Add custom integration&quot;</li>
+            <li>
+              Paste your MCP endpoint URL:
+              <CopyableCode
+                text={
+                  typeof window !== "undefined"
+                    ? `${window.location.origin}/api/mcp`
+                    : "https://ai-brain-pi.vercel.app/api/mcp"
+                }
+              />
+            </li>
+            <li>
+              A browser window will open &mdash; sign in and click
+              &quot;Authorize&quot;
+            </li>
+          </ol>
+        </div>
+        <div
+          style={{
+            padding: 16,
+            border: "1px solid #eee",
+            borderRadius: 8,
+          }}
+        >
+          <h3 style={{ marginTop: 0 }}>Claude Code</h3>
+          <p style={{ marginBottom: 8 }}>
+            Uses an API key for authentication. Generate one above, then run:
+          </p>
+          <CopyableCode
+            text={
+              typeof window !== "undefined"
+                ? `claude mcp add --transport http open-brain ${window.location.origin}/api/mcp --header "Authorization: Bearer YOUR_API_KEY"`
+                : `claude mcp add --transport http open-brain https://ai-brain-pi.vercel.app/api/mcp --header "Authorization: Bearer YOUR_API_KEY"`
+            }
+          />
+          <p style={{ color: "#666", fontSize: "0.85rem", marginBottom: 0 }}>
+            Replace <code>YOUR_API_KEY</code> with the key you generated above.
           </p>
         </div>
         <div
@@ -222,11 +312,28 @@ export default function SettingsPage() {
             borderRadius: 8,
           }}
         >
-          <h3 style={{ marginTop: 0 }}>ChatGPT</h3>
-          <p>
-            Settings &rarr; Apps &amp; Connectors &rarr; Developer Mode ON
-            &rarr; Create connector &rarr; paste URL (requires paid plan)
+          <h3 style={{ marginTop: 0 }}>Cursor</h3>
+          <p style={{ marginBottom: 8 }}>
+            Uses an API key. Generate one above, then:
           </p>
+          <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.8 }}>
+            <li>
+              Open Cursor &rarr; Settings &rarr; MCP &rarr; Add new MCP server
+            </li>
+            <li>
+              URL:
+              <CopyableCode
+                text={
+                  typeof window !== "undefined"
+                    ? `${window.location.origin}/api/mcp`
+                    : "https://ai-brain-pi.vercel.app/api/mcp"
+                }
+              />
+            </li>
+            <li>
+              Set header: <code>Authorization: Bearer YOUR_API_KEY</code>
+            </li>
+          </ol>
         </div>
       </div>
     </div>
