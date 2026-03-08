@@ -138,7 +138,7 @@ export const updateInsightStatus = mutation({
       updatedAt: Date.now(),
     });
 
-    if (args.dismissText) {
+    if (args.status === "dismissed" && args.dismissText) {
       await ctx.scheduler.runAfter(
         0,
         internal.models.thoughts.actions.captureThought,
