@@ -1,5 +1,5 @@
 import { QueryCtx, MutationCtx } from "../../_generated/server";
-import { Id } from "../../_generated/dataModel";
+import { Doc, Id } from "../../_generated/dataModel";
 
 export async function _findReportById(ctx: QueryCtx, id: Id<"reports">) {
   return await ctx.db.get(id);
@@ -86,7 +86,7 @@ export async function _insertInsight(
 
 export async function _updateInsightStatus(
   ctx: MutationCtx,
-  id: Id<"insights">,
+  insight: Doc<"insights">,
   fields: {
     status: "new" | "noted" | "done" | "dismissed";
     dismissTag?: "already-fixed" | "not-relevant" | "already-knew" | "incorrect";
@@ -94,5 +94,28 @@ export async function _updateInsightStatus(
     updatedAt?: number;
   },
 ) {
-  return await ctx.db.patch(id, fields);
+  const { _id, _creationTime, ...rest } = insight;
+  const next = {
+    ...rest,
+    status: fields.status,
+    updatedAt: fields.updatedAt,
+  };
+
+  if (fields.status === "dismissed") {
+    if (fields.dismissTag) {
+      next.dismissTag = fields.dismissTag;
+    } else {
+      delete next.dismissTag;
+    }
+    if (fields.dismissText) {
+      next.dismissText = fields.dismissText;
+    } else {
+      delete next.dismissText;
+    }
+  } else {
+    delete next.dismissTag;
+    delete next.dismissText;
+  }
+
+  return await ctx.db.replace(_id, next);
 }

@@ -126,7 +126,7 @@ export const updateInsightStatus = mutation({
     if (!insight) throw new Error("Insight not found");
     if (insight.userId !== userId) throw new Error("Not authorized");
 
-    await _updateInsightStatus(ctx, args.insightId, {
+    await _updateInsightStatus(ctx, insight, {
       status: args.status,
       dismissTag: args.dismissTag,
       dismissText: args.dismissText,
