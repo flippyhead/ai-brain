@@ -52,14 +52,23 @@ export async function _listInsightsByUserAndStatus(
   userId: Id<"users">,
   status: "new" | "noted" | "done" | "dismissed",
   limit: number = 50,
+  category?:
+    | "feature-discovery"
+    | "anti-pattern"
+    | "productivity"
+    | "automation",
 ) {
-  return await ctx.db
+  let query = ctx.db
     .query("insights")
     .withIndex("by_userId_and_status", (q) =>
       q.eq("userId", userId).eq("status", status),
-    )
-    .order("desc")
-    .take(limit);
+    );
+
+  if (category) {
+    query = query.filter((q) => q.eq(q.field("category"), category));
+  }
+
+  return await query.order("desc").take(limit);
 }
 
 export async function _insertInsight(

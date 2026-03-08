@@ -14,6 +14,7 @@ import {
   _listReportsByUser,
   _listInsightsByReport,
   _listInsightsByUserAndStatus,
+  _findReportById,
   _findInsightById,
   _updateInsightStatus,
 } from "./model";
@@ -82,6 +83,10 @@ export const listInsightsByReport = query({
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
+
+    const report = await _findReportById(ctx, args.reportId);
+    if (!report) throw new Error("Report not found");
+    if (report.userId !== userId) throw new Error("Not authorized");
 
     return await _listInsightsByReport(ctx, args.reportId);
   },

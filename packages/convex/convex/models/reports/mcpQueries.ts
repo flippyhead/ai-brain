@@ -41,14 +41,21 @@ export const listInsights = query({
         args.userId,
         args.status,
         limit,
+        args.category,
       );
     } else {
       const [newInsights, notedInsights, doneInsights, dismissedInsights] =
         await Promise.all([
-          _listInsightsByUserAndStatus(ctx, args.userId, "new"),
-          _listInsightsByUserAndStatus(ctx, args.userId, "noted"),
-          _listInsightsByUserAndStatus(ctx, args.userId, "done"),
-          _listInsightsByUserAndStatus(ctx, args.userId, "dismissed"),
+          _listInsightsByUserAndStatus(ctx, args.userId, "new", undefined, args.category),
+          _listInsightsByUserAndStatus(ctx, args.userId, "noted", undefined, args.category),
+          _listInsightsByUserAndStatus(ctx, args.userId, "done", undefined, args.category),
+          _listInsightsByUserAndStatus(
+            ctx,
+            args.userId,
+            "dismissed",
+            undefined,
+            args.category,
+          ),
         ]);
 
       const combined = [
@@ -59,10 +66,6 @@ export const listInsights = query({
       ];
       combined.sort((a, b) => b._creationTime - a._creationTime);
       results = combined.slice(0, limit);
-    }
-
-    if (args.category) {
-      results = results.filter((i) => i.category === args.category);
     }
 
     return results;
