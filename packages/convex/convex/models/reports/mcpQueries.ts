@@ -46,14 +46,14 @@ export const listInsights = query({
     } else {
       const [newInsights, notedInsights, doneInsights, dismissedInsights] =
         await Promise.all([
-          _listInsightsByUserAndStatus(ctx, args.userId, "new", undefined, args.category),
-          _listInsightsByUserAndStatus(ctx, args.userId, "noted", undefined, args.category),
-          _listInsightsByUserAndStatus(ctx, args.userId, "done", undefined, args.category),
+          _listInsightsByUserAndStatus(ctx, args.userId, "new", limit, args.category),
+          _listInsightsByUserAndStatus(ctx, args.userId, "noted", limit, args.category),
+          _listInsightsByUserAndStatus(ctx, args.userId, "done", limit, args.category),
           _listInsightsByUserAndStatus(
             ctx,
             args.userId,
             "dismissed",
-            undefined,
+            limit,
             args.category,
           ),
         ]);

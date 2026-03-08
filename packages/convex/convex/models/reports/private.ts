@@ -1,14 +1,10 @@
-import { internalMutation, internalQuery } from "../../_generated/server";
+import { internalMutation } from "../../_generated/server";
 import { v } from "convex/values";
 import {
-  reportFields,
-  insightFields,
   insightCategory,
-  insightStatus,
   projectActive,
-  dismissTag,
 } from "./validators";
-import { _findReportById, _insertReport, _insertInsight } from "./model";
+import { _insertReport, _insertInsight } from "./model";
 
 export const insertReport = internalMutation({
   args: {
@@ -48,17 +44,3 @@ export const insertInsight = internalMutation({
   },
 });
 
-export const getReportById = internalQuery({
-  args: { id: v.id("reports") },
-  returns: v.union(
-    v.object({
-      _id: v.id("reports"),
-      _creationTime: v.number(),
-      ...reportFields,
-    }),
-    v.null(),
-  ),
-  handler: async (ctx, args) => {
-    return await _findReportById(ctx, args.id);
-  },
-});
