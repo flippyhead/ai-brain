@@ -4,7 +4,11 @@ import { api } from "@repo/db/convex/_generated/api";
 import { z } from "zod";
 
 export function createMcpServer(userId: string) {
-  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  }
+  const convex = new ConvexHttpClient(convexUrl);
 
   const server = new McpServer({
     name: "open-brain",

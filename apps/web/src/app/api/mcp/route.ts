@@ -2,6 +2,8 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createMcpServer } from "@/lib/mcp/server";
 import { authenticateApiKey } from "@/lib/mcp/auth";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: Request) {
   // Authenticate via API key (Bearer token from OAuth flow or direct)
   const auth = await authenticateApiKey(req.headers.get("authorization"));
