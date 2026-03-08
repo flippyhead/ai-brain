@@ -57,6 +57,7 @@ export function InsightCard({ insight }: InsightCardProps) {
 
   const handleStatus = async (status: "noted" | "done") => {
     setShowDismiss(false);
+    resetDismissForm();
     await updateStatus({ insightId: insight._id, status });
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
