@@ -50,6 +50,11 @@ export function InsightCard({ insight }: InsightCardProps) {
 
   const isResolved = insight.status === "done" || insight.status === "dismissed";
 
+  const resetDismissForm = () => {
+    setSelectedTag("");
+    setDismissText("");
+  };
+
   const handleStatus = async (status: "noted" | "done") => {
     setShowDismiss(false);
     await updateStatus({ insightId: insight._id, status });
@@ -65,17 +70,15 @@ export function InsightCard({ insight }: InsightCardProps) {
       dismissTag: selectedTag as "already-fixed" | "not-relevant" | "already-knew" | "incorrect",
       dismissText: dismissText || undefined,
     });
+    resetDismissForm();
     setShowDismiss(false);
-    setSelectedTag("");
-    setDismissText("");
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
 
   const handleUndo = async () => {
     await updateStatus({ insightId: insight._id, status: "noted" });
-    setSelectedTag("");
-    setDismissText("");
+    resetDismissForm();
   };
 
   return (
