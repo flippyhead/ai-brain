@@ -66,12 +66,16 @@ export function InsightCard({ insight }: InsightCardProps) {
       dismissText: dismissText || undefined,
     });
     setShowDismiss(false);
+    setSelectedTag("");
+    setDismissText("");
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
 
   const handleUndo = async () => {
     await updateStatus({ insightId: insight._id, status: "noted" });
+    setSelectedTag("");
+    setDismissText("");
   };
 
   return (
