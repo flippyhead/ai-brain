@@ -212,5 +212,140 @@ export function createMcpServer(userId: string) {
     },
   );
 
+  server.tool(
+    "create_report",
+    "Create a workflow analysis report with structured insights",
+    {
+      startDate: z.string().describe("Report period start date (ISO format)"),
+      endDate: z.string().describe("Report period end date (ISO format)"),
+      sessionsAnalyzed: z.number().describe("Number of sessions analyzed"),
+      totalPrompts: z.number().describe("Total prompts in period"),
+      totalToolCalls: z.number().describe("Total tool calls in period"),
+      projectsActive: z
+        .array(z.object({ path: z.string(), sessions: z.number() }))
+        .describe("Active projects with session counts"),
+      modelUsage: z
+        .record(z.string(), z.number())
+        .describe("Model usage counts keyed by model name"),
+      insights: z
+        .array(
+          z.object({
+            category: z.enum([
+              "feature-discovery",
+              "anti-pattern",
+              "productivity",
+              "automation",
+            ]),
+            observation: z.string(),
+            recommendation: z.string(),
+            evidence: z.string(),
+          }),
+        )
+        .describe("Structured insights from the analysis"),
+    },
+    async (args) => {
+      type CreateReportResult = {
+        reportId: string;
+        insightIds: string[];
+      };
+      const result: CreateReportResult = await convex.action(
+        api.models.reports.mcpActions.createReport,
+        { userId: userId as never, ...args },
+      );
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              "Report created successfully.",
+              "",
+              `Report ID: ${result.reportId}`,
+              `Insights created: ${result.insightIds.length}`,
+              `Period: ${args.startDate} to ${args.endDate}`,
+            ].join("\n"),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    "get_insights",
+    "Get workflow insights, optionally filtered by status or category",
+    {
+      status: z
+        .enum(["new", "noted", "done", "dismissed"])
+        .optional()
+        .describe("Filter by insight status"),
+      category: z
+        .enum([
+          "feature-discovery",
+          "anti-pattern",
+          "productivity",
+          "automation",
+        ])
+        .optional()
+        .describe("Filter by insight category"),
+      limit: z
+        .number()
+        .min(1)
+        .max(100)
+        .default(50)
+        .describe("Max results to return"),
+    },
+    async ({ status, category, limit }) => {
+      type Insight = {
+        _id: string;
+        _creationTime: number;
+        category: string;
+        observation: string;
+        recommendation: string;
+        evidence: string;
+        status: string;
+        dismissTag?: string;
+        dismissText?: string;
+      };
+      const results: Insight[] = await convex.query(
+        api.models.reports.mcpQueries.listInsights,
+        { userId: userId as never, status, category, limit },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No insights found matching the criteria.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              results.map((i) => ({
+                id: i._id,
+                category: i.category,
+                observation: i.observation,
+                recommendation: i.recommendation,
+                evidence: i.evidence,
+                status: i.status,
+                dismissTag: i.dismissTag,
+                dismissText: i.dismissText,
+                createdAt: new Date(i._creationTime).toISOString(),
+              })),
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
   return server;
 }
