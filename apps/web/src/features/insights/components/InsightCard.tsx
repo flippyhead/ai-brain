@@ -107,7 +107,7 @@ export function InsightCard({ insight }: InsightCardProps) {
         {isResolved && (
           <span style={{ fontSize: 12, color: "#999" }}>
             {insight.status}
-            {insight.dismissTag && ` — ${insight.dismissTag.replace("-", " ")}`}
+            {insight.dismissTag && ` — ${insight.dismissTag.replaceAll("-", " ")}`}
           </span>
         )}
         {saved && (
