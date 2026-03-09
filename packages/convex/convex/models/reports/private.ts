@@ -31,6 +31,9 @@ export const insertInsight = internalMutation({
     observation: v.string(),
     recommendation: v.string(),
     evidence: v.string(),
+    links: v.optional(
+      v.array(v.object({ label: v.string(), url: v.string() })),
+    ),
   },
   returns: v.id("insights"),
   handler: async (ctx, args) => {

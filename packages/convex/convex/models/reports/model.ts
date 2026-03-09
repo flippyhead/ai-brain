@@ -86,6 +86,7 @@ export async function _insertInsight(
     observation: string;
     recommendation: string;
     evidence: string;
+    links?: { label: string; url: string }[];
     status: "new" | "noted" | "done" | "dismissed";
     dismissTag?: "already-fixed" | "not-relevant" | "already-knew" | "incorrect";
     dismissText?: string;

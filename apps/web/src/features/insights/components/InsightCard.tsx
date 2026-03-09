@@ -36,6 +36,7 @@ interface InsightCardProps {
     observation: string;
     recommendation: string;
     evidence: string;
+    links?: { label: string; url: string }[];
     status: string;
     dismissTag?: string;
     dismissText?: string;
@@ -135,6 +136,43 @@ export function InsightCard({ insight }: InsightCardProps) {
       <p style={{ margin: "0 0 8px", lineHeight: 1.5, color: "#333" }}>
         {insight.recommendation}
       </p>
+
+      {/* Links */}
+      {insight.links && insight.links.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            marginBottom: 8,
+          }}
+        >
+          {insight.links.map((link) => (
+            <a
+              key={link.url}
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 10px",
+                borderRadius: 4,
+                border: "1px solid #ddd",
+                backgroundColor: "#f8f9fa",
+                color: "#1565c0",
+                fontSize: 12,
+                textDecoration: "none",
+                lineHeight: 1.4,
+              }}
+            >
+              {link.label}
+              <span style={{ fontSize: 10 }}>&#x2197;</span>
+            </a>
+          ))}
+        </div>
+      )}
 
       {/* Evidence (collapsible) */}
       <button

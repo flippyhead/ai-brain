@@ -244,6 +244,15 @@ export function createMcpServer(userId: string) {
             observation: z.string(),
             recommendation: z.string(),
             evidence: z.string(),
+            links: z
+              .array(
+                z.object({
+                  label: z.string().describe("Display text for the link"),
+                  url: z.string().describe("URL to link to"),
+                }),
+              )
+              .optional()
+              .describe("Related links (docs, plugins, tools)"),
           }),
         )
         .describe("Structured insights from the analysis"),
@@ -308,6 +317,7 @@ export function createMcpServer(userId: string) {
         observation: string;
         recommendation: string;
         evidence: string;
+        links?: { label: string; url: string }[];
         status: string;
         dismissTag?: string;
         dismissText?: string;
@@ -339,6 +349,7 @@ export function createMcpServer(userId: string) {
                 observation: i.observation,
                 recommendation: i.recommendation,
                 evidence: i.evidence,
+                links: i.links,
                 status: i.status,
                 dismissTag: i.dismissTag,
                 dismissText: i.dismissText,

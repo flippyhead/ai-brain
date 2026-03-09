@@ -44,6 +44,9 @@ const insightReturn = v.object({
   observation: v.string(),
   recommendation: v.string(),
   evidence: v.string(),
+  links: v.optional(
+    v.array(v.object({ label: v.string(), url: v.string() })),
+  ),
   status: insightStatus,
   dismissTag: v.optional(dismissTag),
   dismissText: v.optional(v.string()),
