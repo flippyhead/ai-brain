@@ -10,6 +10,7 @@ const categoryColors: Record<string, string> = {
   "feature-discovery": "#e3f2fd",
   productivity: "#e8f5e9",
   automation: "#f3e5f5",
+  ecosystem: "#e0f2f1",
 };
 
 const categoryTextColors: Record<string, string> = {
@@ -17,6 +18,7 @@ const categoryTextColors: Record<string, string> = {
   "feature-discovery": "#1565c0",
   productivity: "#2e7d32",
   automation: "#6a1b9a",
+  ecosystem: "#00695c",
 };
 
 const DISMISS_TAGS = [
