@@ -24,6 +24,9 @@ export const createReport = action({
         observation: v.string(),
         recommendation: v.string(),
         evidence: v.string(),
+        links: v.optional(
+          v.array(v.object({ label: v.string(), url: v.string() })),
+        ),
       }),
     ),
   },

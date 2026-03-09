@@ -45,6 +45,9 @@ export const insightFields = {
   recommendation: v.string(),
   evidence: v.string(),
   status: insightStatus,
+  links: v.optional(
+    v.array(v.object({ label: v.string(), url: v.string() })),
+  ),
   dismissTag: v.optional(dismissTag),
   dismissText: v.optional(v.string()),
   updatedAt: v.optional(v.number()),
