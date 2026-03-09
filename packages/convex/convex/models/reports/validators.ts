@@ -5,6 +5,7 @@ export const insightCategory = v.union(
   v.literal("anti-pattern"),
   v.literal("productivity"),
   v.literal("automation"),
+  v.literal("ecosystem"),
 );
 
 export const insightStatus = v.union(
