@@ -1,7 +1,11 @@
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@repo/db/convex/_generated/api";
 
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+function getConvex() {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!url) throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
+  return new ConvexHttpClient(url);
+}
 
 export async function authenticateApiKey(
   authHeader: string | null,
@@ -18,6 +22,7 @@ export async function authenticateApiKey(
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+  const convex = getConvex();
   const result = await convex.query(
     api.models.apiKeys.mcpAuth.validateKeyHash,
     { keyHash },

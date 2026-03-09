@@ -20,6 +20,7 @@ function Nav() {
     >
       <strong>Open Brain</strong>
       <Link href="/">Dashboard</Link>
+      <Link href="/insights">Insights</Link>
       <Link href="/search">Search</Link>
       <Link href="/browse">Browse</Link>
       <Link href="/settings">Settings</Link>
