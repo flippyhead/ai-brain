@@ -239,6 +239,7 @@ export function createMcpServer(userId: string) {
               "anti-pattern",
               "productivity",
               "automation",
+              "ecosystem",
             ]),
             observation: z.string(),
             recommendation: z.string(),
@@ -288,6 +289,7 @@ export function createMcpServer(userId: string) {
           "anti-pattern",
           "productivity",
           "automation",
+          "ecosystem",
         ])
         .optional()
         .describe("Filter by insight category"),
