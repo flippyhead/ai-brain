@@ -452,7 +452,10 @@ function inferTechStack(sessionsData) {
       // Convert encoded path back — session parser encodes / as -
       // The path looks like /Users/peterbrown/Development/project
       // but stored as -Users-peterbrown-Development-project
-      const decoded = '/' + projectPath.replace(/^\/+/, '');
+      let decoded = projectPath.replace(/-/g, '/');
+      if (!decoded.startsWith('/')) {
+        decoded = `/${decoded}`;
+      }
       if (existsSync(decoded)) {
         projectPaths.push(decoded);
       }
