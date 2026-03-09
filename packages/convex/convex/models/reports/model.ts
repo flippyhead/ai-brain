@@ -56,7 +56,8 @@ export async function _listInsightsByUserAndStatus(
     | "feature-discovery"
     | "anti-pattern"
     | "productivity"
-    | "automation",
+    | "automation"
+    | "ecosystem",
 ) {
   let query = ctx.db
     .query("insights")
@@ -80,7 +81,8 @@ export async function _insertInsight(
       | "feature-discovery"
       | "anti-pattern"
       | "productivity"
-      | "automation";
+      | "automation"
+      | "ecosystem";
     observation: string;
     recommendation: string;
     evidence: string;
