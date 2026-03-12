@@ -40,7 +40,16 @@ export async function POST(req: Request) {
   await server.connect(transport);
 
   // Let the transport handle the request and return a Response
-  return transport.handleRequest(req);
+  const response = await transport.handleRequest(req);
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 export async function GET() {
