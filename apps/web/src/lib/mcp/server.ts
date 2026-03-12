@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@repo/db/convex/_generated/api";
 import { z } from "zod";
+import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
 export function createMcpServer(userId: string) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -16,7 +17,7 @@ export function createMcpServer(userId: string) {
   });
 
   server.tool(
-    "search_thoughts",
+    MCP_TOOL_NAMES.searchThoughts,
     "Semantic search across all stored thoughts by meaning",
     {
       query: z.string().describe("Natural language search query"),
@@ -83,7 +84,7 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
-    "browse_recent",
+    MCP_TOOL_NAMES.browseRecent,
     "Browse most recent thoughts, optionally filtered by type or topic",
     {
       limit: z
@@ -162,7 +163,7 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
-    "get_stats",
+    MCP_TOOL_NAMES.getStats,
     "Get overview statistics of what's stored in your brain",
     {},
     async () => {
@@ -183,7 +184,7 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
-    "capture_thought",
+    MCP_TOOL_NAMES.captureThought,
     "Save a new thought, decision, note, or idea to your brain",
     {
       content: z.string().describe("The thought content to save"),
@@ -217,7 +218,7 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
-    "create_report",
+    MCP_TOOL_NAMES.createReport,
     "Create a workflow analysis report with structured insights",
     {
       startDate: z.string().describe("Report period start date (ISO format)"),
@@ -285,7 +286,7 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
-    "get_insights",
+    MCP_TOOL_NAMES.getInsights,
     "Get workflow insights, optionally filtered by status or category",
     {
       status: z

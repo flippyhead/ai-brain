@@ -1,8 +1,17 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createCorsHeaders, createCorsOptionsResponse } from "@/lib/mcp/cors";
 import { createMcpServer } from "@/lib/mcp/server";
 import { authenticateApiKey } from "@/lib/mcp/auth";
 
 export const dynamic = "force-dynamic";
+
+const CORS_HEADERS: Record<string, string> = createCorsHeaders("POST, OPTIONS", {
+  exposeHeaders: "WWW-Authenticate, Allow",
+});
+
+export async function OPTIONS() {
+  return createCorsOptionsResponse(CORS_HEADERS);
+}
 
 export async function POST(req: Request) {
   // Authenticate via API key (Bearer token from OAuth flow or direct)
@@ -13,6 +22,7 @@ export async function POST(req: Request) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: {
+        ...CORS_HEADERS,
         "Content-Type": "application/json",
         "WWW-Authenticate": `Bearer resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
       },
@@ -28,14 +38,46 @@ export async function POST(req: Request) {
 
   await server.connect(transport);
 
-  // Let the transport handle the request and return a Response
-  return transport.handleRequest(req);
+  // Let the transport handle the request, then add CORS headers
+  const response = await transport.handleRequest(req);
+  const headers = new Headers(response.headers);
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    headers.set(key, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 export async function GET() {
-  return new Response(null, { status: 405 });
+  return new Response(
+    JSON.stringify({
+      error: "Method Not Allowed",
+      message: "This is an MCP endpoint. Use POST with a valid MCP client.",
+    }),
+    {
+      status: 405,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/json",
+        Allow: "POST, OPTIONS",
+      },
+    }
+  );
 }
 
 export async function DELETE() {
-  return new Response(null, { status: 405 });
+  return new Response(
+    JSON.stringify({ error: "Method Not Allowed" }),
+    {
+      status: 405,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/json",
+        Allow: "POST, OPTIONS",
+      },
+    }
+  );
 }
