@@ -1,18 +1,16 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createCorsHeaders, createCorsOptionsResponse } from "@/lib/mcp/cors";
 import { createMcpServer } from "@/lib/mcp/server";
 import { authenticateApiKey } from "@/lib/mcp/auth";
 
 export const dynamic = "force-dynamic";
 
-const CORS_HEADERS: Record<string, string> = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
-  "Access-Control-Expose-Headers": "WWW-Authenticate, Allow",
-};
+const CORS_HEADERS: Record<string, string> = createCorsHeaders("POST, OPTIONS", {
+  exposeHeaders: "WWW-Authenticate, Allow",
+});
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+  return createCorsOptionsResponse(CORS_HEADERS);
 }
 
 export async function POST(req: Request) {

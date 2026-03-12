@@ -1,11 +1,9 @@
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type",
-};
+import { createCorsHeaders, createCorsOptionsResponse } from "@/lib/mcp/cors";
+
+const CORS_HEADERS = createCorsHeaders("GET, OPTIONS");
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: CORS_HEADERS });
+  return createCorsOptionsResponse(CORS_HEADERS);
 }
 
 export async function GET(req: Request) {
