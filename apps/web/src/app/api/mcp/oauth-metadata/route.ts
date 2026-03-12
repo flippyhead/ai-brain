@@ -1,3 +1,13 @@
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type",
+};
+
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: CORS_HEADERS });
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const baseUrl = `${url.protocol}//${url.host}`;
@@ -13,5 +23,5 @@ export async function GET(req: Request) {
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: ["open-brain"],
     service_documentation: `${baseUrl}/getting-started`,
-  });
+  }, { headers: CORS_HEADERS });
 }

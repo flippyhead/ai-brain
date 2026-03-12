@@ -4,10 +4,11 @@ import { authenticateApiKey } from "@/lib/mcp/auth";
 
 export const dynamic = "force-dynamic";
 
-const CORS_HEADERS = {
+const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type",
+  "Access-Control-Expose-Headers": "WWW-Authenticate, Allow",
 };
 
 export async function OPTIONS() {
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
 
   await server.connect(transport);
 
-  // Let the transport handle the request and return a Response
+  // Let the transport handle the request, then add CORS headers
   const response = await transport.handleRequest(req);
   const headers = new Headers(response.headers);
   for (const [key, value] of Object.entries(CORS_HEADERS)) {
