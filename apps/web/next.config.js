@@ -10,6 +10,10 @@ const nextConfig = {
         source: "/.well-known/oauth-protected-resource",
         destination: "/api/mcp/oauth-protected-resource",
       },
+      {
+        source: "/.well-known/mcp.json",
+        destination: "/api/mcp/discovery",
+      },
     ];
   },
 };

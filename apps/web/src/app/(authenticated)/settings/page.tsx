@@ -292,17 +292,20 @@ export default function SettingsPage() {
         >
           <h3 style={{ marginTop: 0 }}>Claude Code</h3>
           <p style={{ marginBottom: 8 }}>
-            Uses an API key for authentication. Generate one above, then run:
+            Uses OAuth &mdash; no API key needed. Run this command to add Open
+            Brain to all your projects:
           </p>
           <CopyableCode
             text={
               typeof window !== "undefined"
-                ? `claude mcp add --transport http open-brain ${window.location.origin}/api/mcp --header "Authorization: Bearer YOUR_API_KEY"`
-                : `claude mcp add --transport http open-brain https://ai-brain-pi.vercel.app/api/mcp --header "Authorization: Bearer YOUR_API_KEY"`
+                ? `claude mcp add --transport http --scope user open-brain ${window.location.origin}/api/mcp`
+                : `claude mcp add --transport http --scope user open-brain https://ai-brain-pi.vercel.app/api/mcp`
             }
           />
           <p style={{ color: "#666", fontSize: "0.85rem", marginBottom: 0 }}>
-            Replace <code>YOUR_API_KEY</code> with the key you generated above.
+            A browser window will open for you to sign in and authorize. Use{" "}
+            <code>--scope project</code> instead if you only want it in the
+            current project.
           </p>
         </div>
         <div
