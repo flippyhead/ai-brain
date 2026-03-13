@@ -22,4 +22,5 @@ export const thoughtFields = {
   embedding: v.array(v.float64()),
   metadata: thoughtMetadata,
   userId: v.id("users"),
+  updatedAt: v.optional(v.number()),
 };
