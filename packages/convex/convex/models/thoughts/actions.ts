@@ -41,6 +41,11 @@ export const captureThought = internalAction({
       { text: args.content },
     );
 
+    const metadataPromise = ctx.runAction(
+      internal.models.thoughts.helpers.extractMetadata,
+      { text: args.content },
+    );
+
     // Step 2: Search for similar existing thoughts
     const similarResults = await ctx.vectorSearch("thoughts", "by_embedding", {
       vector: embedding,
@@ -144,14 +149,21 @@ export const captureThought = internalAction({
             );
           }
         } else if (op.action === "DELETE") {
-          console.log(
-            `[Smart Save] Deleting thought ${op.thoughtId}. Reason: ${op.reason}`,
-          );
-          await ctx.runMutation(
-            internal.models.thoughts.private.deleteOne,
-            { id: op.thoughtId as any },
-          );
-          summaryParts.push(`Removed 1 redundant thought (${op.reason})`);
+          try {
+            console.log(
+              `[Smart Save] Deleting thought ${op.thoughtId}. Reason: ${op.reason}`,
+            );
+            await ctx.runMutation(
+              internal.models.thoughts.private.deleteOne,
+              { id: op.thoughtId as any },
+            );
+            summaryParts.push(`Removed 1 redundant thought (${op.reason})`);
+          } catch (error) {
+            console.error(
+              `[Smart Save] DELETE failed for thought ${op.thoughtId}, continuing:`,
+              error,
+            );
+          }
         }
       }
     }
@@ -161,10 +173,7 @@ export const captureThought = internalAction({
     let metadata: any;
 
     if (!classification || classification.addNew !== false || forceAddNew) {
-      metadata = await ctx.runAction(
-        internal.models.thoughts.helpers.extractMetadata,
-        { text: args.content },
-      );
+      metadata = await metadataPromise;
 
       thoughtId = await ctx.runMutation(
         internal.models.thoughts.private.insertOne,
@@ -197,10 +206,7 @@ export const captureThought = internalAction({
         };
       } else {
         // Shouldn't happen, but fallback: just add it
-        metadata = await ctx.runAction(
-          internal.models.thoughts.helpers.extractMetadata,
-          { text: args.content },
-        );
+        metadata = await metadataPromise;
 
         thoughtId = await ctx.runMutation(
           internal.models.thoughts.private.insertOne,
