@@ -156,9 +156,19 @@ export const classifyThought = internalAction({
         return true;
       });
 
+      const shouldAddNew =
+        parsed.addNew ||
+        (parsed.operations.length > 0 && validatedOps.length === 0);
+
+      if (shouldAddNew && !parsed.addNew) {
+        console.warn(
+          "Classification returned only invalid operations; forcing addNew",
+        );
+      }
+
       return {
         operations: validatedOps,
-        addNew: parsed.addNew,
+        addNew: shouldAddNew,
       };
     } catch (error) {
       console.error("Classification error:", error);
