@@ -225,15 +225,23 @@ export const captureThought = internalAction({
           internal.models.thoughts.private.getById,
           { id: topCandidate._id },
         );
-        thoughtId = topCandidate._id;
-        metadata = existing?.metadata ?? {
-          type: "reference" as const,
-          topics: [],
-          people: [],
-          actionItems: [],
-          summary: args.content.slice(0, 100),
-        };
-        summaryParts.push("Thought already captured — no changes made");
+        if (existing) {
+          thoughtId = topCandidate._id;
+          metadata = existing.metadata;
+          summaryParts.push("Thought already captured — no changes made");
+        } else {
+          // Candidate no longer exists (e.g. just deleted); add as new.
+          metadata = await metadataPromise;
+          thoughtId = await ctx.runMutation(
+            internal.models.thoughts.private.insertOne,
+            {
+              content: args.content,
+              embedding,
+              metadata,
+              userId: args.userId,
+            },
+          );
+        }
       } else {
         // Safety fallback: no candidates available, add as new
         metadata = await metadataPromise;
