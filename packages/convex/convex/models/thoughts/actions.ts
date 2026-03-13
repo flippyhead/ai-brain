@@ -41,6 +41,7 @@ export const captureThought = internalAction({
       { text: args.content },
     );
 
+    // Start metadata extraction in parallel with vector search
     const metadataPromise = ctx.runAction(
       internal.models.thoughts.helpers.extractMetadata,
       { text: args.content },
@@ -99,6 +100,7 @@ export const captureThought = internalAction({
     // Step 4: Execute operations
     const summaryParts: string[] = [];
     let forceAddNew = false;
+    let updatedThoughtId: string | undefined;
 
     if (classification && classification.operations.length > 0) {
       for (const op of classification.operations) {
@@ -139,15 +141,16 @@ export const captureThought = internalAction({
                 updatedAt: Date.now(),
               },
             );
+            updatedThoughtId = op.thoughtId;
             summaryParts.push(`Updated 1 existing thought (${op.reason})`);
           } catch (error) {
-            // Per spec: if re-embedding or re-metadata fails, keep old thought unchanged
-            // The new content will be added as a separate thought below
-            forceAddNew = true;
+            // Per spec: if UPDATE fails, keep old thought unchanged
+            // and force-add the new content as a separate thought
             console.error(
               `[Smart Save] UPDATE failed for thought ${op.thoughtId}, will ADD instead:`,
               error,
             );
+            forceAddNew = true;
           }
         } else if (op.action === "DELETE") {
           try {
@@ -160,8 +163,9 @@ export const captureThought = internalAction({
             );
             summaryParts.push(`Removed 1 redundant thought (${op.reason})`);
           } catch (error) {
+            // DELETE failure is non-fatal — log and continue
             console.error(
-              `[Smart Save] DELETE failed for thought ${op.thoughtId}, continuing:`,
+              `[Smart Save] DELETE failed for thought ${op.thoughtId}, skipping:`,
               error,
             );
           }
@@ -173,7 +177,12 @@ export const captureThought = internalAction({
     let thoughtId: any;
     let metadata: any;
 
-    if (!classification || classification.addNew !== false || forceAddNew) {
+    const shouldAddNew =
+      !classification ||
+      classification.addNew !== false ||
+      forceAddNew;
+
+    if (shouldAddNew) {
       metadata = await metadataPromise;
 
       thoughtId = await ctx.runMutation(
@@ -185,28 +194,40 @@ export const captureThought = internalAction({
           userId: args.userId,
         },
       );
+    } else if (updatedThoughtId) {
+      // addNew is false and UPDATE succeeded — return the updated thought
+      const updated = await ctx.runQuery(
+        internal.models.thoughts.private.getById,
+        { id: updatedThoughtId as any },
+      );
+      thoughtId = updatedThoughtId;
+      metadata = updated?.metadata ?? {
+        type: "reference" as const,
+        topics: [],
+        people: [],
+        actionItems: [],
+        summary: args.content.slice(0, 100),
+      };
     } else {
-      // addNew is false — content was merged into an existing thought
-      // Return the first updated thought's ID and re-fetch its metadata
-      const updatedId = classification.operations.find(
-        (op) => op.action === "UPDATE",
-      )?.thoughtId;
-
-      if (updatedId) {
-        const updated = await ctx.runQuery(
+      // NOOP: addNew is false, no UPDATE ops (content already captured)
+      // Return the top similarity candidate
+      const topCandidate = candidates[0];
+      if (topCandidate) {
+        const existing = await ctx.runQuery(
           internal.models.thoughts.private.getById,
-          { id: updatedId as any },
+          { id: topCandidate._id },
         );
-        thoughtId = updatedId;
-        metadata = updated?.metadata ?? {
+        thoughtId = topCandidate._id;
+        metadata = existing?.metadata ?? {
           type: "reference" as const,
           topics: [],
           people: [],
           actionItems: [],
           summary: args.content.slice(0, 100),
         };
+        summaryParts.push("Thought already captured — no changes made");
       } else {
-        // Shouldn't happen, but fallback: just add it
+        // Safety fallback: no candidates available, add as new
         metadata = await metadataPromise;
 
         thoughtId = await ctx.runMutation(
