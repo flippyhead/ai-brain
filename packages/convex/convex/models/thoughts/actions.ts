@@ -45,6 +45,7 @@ export const captureThought = internalAction({
       internal.models.thoughts.helpers.extractMetadata,
       { text: args.content },
     );
+    void metadataPromise.catch(() => undefined);
 
     // Step 2: Search for similar existing thoughts
     const similarResults = await ctx.vectorSearch("thoughts", "by_embedding", {
