@@ -1,7 +1,7 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
 import { thoughtMetadata } from "./validators";
-import { _findById, _insertOne, _listByUser } from "./model";
+import { _findById, _insertOne, _listByUser, _updateOne, _deleteOne } from "./model";
 
 export const getById = internalQuery({
   args: { id: v.id("thoughts") },
@@ -53,5 +53,36 @@ export const insertOne = internalMutation({
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
     return await _insertOne(ctx, args);
+  },
+});
+
+export const updateOne = internalMutation({
+  args: {
+    id: v.id("thoughts"),
+    content: v.string(),
+    embedding: v.array(v.float64()),
+    metadata: thoughtMetadata,
+    updatedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await _updateOne(ctx, args.id, {
+      content: args.content,
+      embedding: args.embedding,
+      metadata: args.metadata,
+      updatedAt: args.updatedAt,
+    });
+    return null;
+  },
+});
+
+export const deleteOne = internalMutation({
+  args: {
+    id: v.id("thoughts"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await _deleteOne(ctx, args.id);
+    return null;
   },
 });
