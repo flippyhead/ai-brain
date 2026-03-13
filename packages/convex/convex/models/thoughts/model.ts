@@ -40,3 +40,32 @@ export async function _insertOne(
 ) {
   return await ctx.db.insert("thoughts", fields);
 }
+
+export async function _updateOne(
+  ctx: MutationCtx,
+  id: Id<"thoughts">,
+  fields: {
+    content: string;
+    embedding: number[];
+    metadata: {
+      type:
+        | "decision"
+        | "person_note"
+        | "idea"
+        | "meeting_note"
+        | "task"
+        | "reference";
+      topics: string[];
+      people: string[];
+      actionItems: string[];
+      summary: string;
+    };
+    updatedAt: number;
+  },
+) {
+  await ctx.db.patch(id, fields);
+}
+
+export async function _deleteOne(ctx: MutationCtx, id: Id<"thoughts">) {
+  await ctx.db.delete(id);
+}

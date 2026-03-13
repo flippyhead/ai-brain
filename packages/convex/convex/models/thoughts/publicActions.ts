@@ -14,6 +14,7 @@ export const capture = action({
   returns: v.object({
     thoughtId: v.id("thoughts"),
     metadata: thoughtMetadata,
+    operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);

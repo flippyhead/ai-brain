@@ -18,6 +18,7 @@ export const listByUser = query({
       content: v.string(),
       metadata: thoughtMetadata,
       userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
     }),
   ),
   handler: async (ctx, args) => {

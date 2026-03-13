@@ -193,18 +193,26 @@ export function createMcpServer(userId: string) {
       type CaptureResult = {
         thoughtId: string;
         metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        operationSummary?: string;
       };
       const result: CaptureResult = await convex.action(
         api.models.thoughts.mcpActions.capture,
         { userId: userId as never, content },
       );
 
+      const noopSummary = "Thought already captured — no changes made";
+      const statusLine = result.operationSummary
+        ? result.operationSummary === noopSummary
+          ? `${result.operationSummary}.`
+          : `Thought captured. ${result.operationSummary}.`
+        : "Thought captured successfully.";
+
       return {
         content: [
           {
             type: "text" as const,
             text: [
-              "Thought captured successfully.",
+              statusLine,
               "",
               `Type: ${result.metadata.type}`,
               `Topics: ${result.metadata.topics.join(", ") || "none"}`,
