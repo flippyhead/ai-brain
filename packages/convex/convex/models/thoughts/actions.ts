@@ -92,6 +92,7 @@ export const captureThought = internalAction({
 
     // Step 4: Execute operations
     const summaryParts: string[] = [];
+    let forceAddNew = false;
 
     if (classification && classification.operations.length > 0) {
       for (const op of classification.operations) {
@@ -136,6 +137,7 @@ export const captureThought = internalAction({
           } catch (error) {
             // Per spec: if re-embedding or re-metadata fails, keep old thought unchanged
             // The new content will be added as a separate thought below
+            forceAddNew = true;
             console.error(
               `[Smart Save] UPDATE failed for thought ${op.thoughtId}, will ADD instead:`,
               error,
@@ -158,7 +160,7 @@ export const captureThought = internalAction({
     let thoughtId: any;
     let metadata: any;
 
-    if (!classification || classification.addNew !== false) {
+    if (!classification || classification.addNew !== false || forceAddNew) {
       metadata = await ctx.runAction(
         internal.models.thoughts.helpers.extractMetadata,
         { text: args.content },
