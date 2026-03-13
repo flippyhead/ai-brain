@@ -96,42 +96,51 @@ export const captureThought = internalAction({
     if (classification && classification.operations.length > 0) {
       for (const op of classification.operations) {
         if (op.action === "UPDATE") {
-          const contentToStore = op.mergedContent ?? args.content;
+          try {
+            const contentToStore = op.mergedContent ?? args.content;
 
-          // Log previous content for safety during rollout
-          const existing = await ctx.runQuery(
-            internal.models.thoughts.private.getById,
-            { id: op.thoughtId as any },
-          );
-          if (existing) {
-            console.log(
-              `[Smart Save] Overwriting thought ${op.thoughtId}. Previous content: ${existing.content}`,
+            // Log previous content for safety during rollout
+            const existing = await ctx.runQuery(
+              internal.models.thoughts.private.getById,
+              { id: op.thoughtId as any },
+            );
+            if (existing) {
+              console.log(
+                `[Smart Save] Overwriting thought ${op.thoughtId}. Previous content: ${existing.content}`,
+              );
+            }
+
+            // Re-embed and re-extract metadata for the updated content
+            const [newEmbedding, newMetadata] = await Promise.all([
+              ctx.runAction(
+                internal.models.thoughts.helpers.generateEmbedding,
+                { text: contentToStore },
+              ),
+              ctx.runAction(
+                internal.models.thoughts.helpers.extractMetadata,
+                { text: contentToStore },
+              ),
+            ]);
+
+            await ctx.runMutation(
+              internal.models.thoughts.private.updateOne,
+              {
+                id: op.thoughtId as any,
+                content: contentToStore,
+                embedding: newEmbedding,
+                metadata: newMetadata,
+                updatedAt: Date.now(),
+              },
+            );
+            summaryParts.push(`Updated 1 existing thought (${op.reason})`);
+          } catch (error) {
+            // Per spec: if re-embedding or re-metadata fails, keep old thought unchanged
+            // The new content will be added as a separate thought below
+            console.error(
+              `[Smart Save] UPDATE failed for thought ${op.thoughtId}, will ADD instead:`,
+              error,
             );
           }
-
-          // Re-embed and re-extract metadata for the updated content
-          const [newEmbedding, newMetadata] = await Promise.all([
-            ctx.runAction(
-              internal.models.thoughts.helpers.generateEmbedding,
-              { text: contentToStore },
-            ),
-            ctx.runAction(
-              internal.models.thoughts.helpers.extractMetadata,
-              { text: contentToStore },
-            ),
-          ]);
-
-          await ctx.runMutation(
-            internal.models.thoughts.private.updateOne,
-            {
-              id: op.thoughtId as any,
-              content: contentToStore,
-              embedding: newEmbedding,
-              metadata: newMetadata,
-              updatedAt: Date.now(),
-            },
-          );
-          summaryParts.push(`Updated 1 existing thought (${op.reason})`);
         } else if (op.action === "DELETE") {
           console.log(
             `[Smart Save] Deleting thought ${op.thoughtId}. Reason: ${op.reason}`,
