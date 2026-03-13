@@ -13,6 +13,7 @@ export const getById = internalQuery({
       embedding: v.array(v.float64()),
       metadata: thoughtMetadata,
       userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
     }),
     v.null(),
   ),
@@ -34,6 +35,7 @@ export const listByUser = internalQuery({
       embedding: v.array(v.float64()),
       metadata: thoughtMetadata,
       userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
     }),
   ),
   handler: async (ctx, args) => {
