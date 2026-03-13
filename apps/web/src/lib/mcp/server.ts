@@ -200,8 +200,11 @@ export function createMcpServer(userId: string) {
         { userId: userId as never, content },
       );
 
+      const noopSummary = "Thought already captured — no changes made";
       const statusLine = result.operationSummary
-        ? `Thought captured. ${result.operationSummary}.`
+        ? result.operationSummary === noopSummary
+          ? `${result.operationSummary}.`
+          : `Thought captured. ${result.operationSummary}.`
         : "Thought captured successfully.";
 
       return {

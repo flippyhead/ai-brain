@@ -90,10 +90,18 @@ export const captureThought = internalAction({
       );
 
       if (validCandidates.length > 0) {
-        classification = await ctx.runAction(
-          internal.models.thoughts.classify.classifyThought,
-          { newContent: args.content, candidates: validCandidates },
-        );
+        try {
+          classification = await ctx.runAction(
+            internal.models.thoughts.classify.classifyThought,
+            { newContent: args.content, candidates: validCandidates },
+          );
+        } catch (error) {
+          console.error(
+            "[Smart Save] Classification failed, falling back to ADD:",
+            error,
+          );
+          classification = null;
+        }
       }
     }
 
