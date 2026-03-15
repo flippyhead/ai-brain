@@ -78,14 +78,15 @@ export async function _itemsByList(
 export async function _openItemsByUser(
   ctx: QueryCtx,
   userId: Id<"users">,
-  limit: number = 50,
+  limit?: number,
 ) {
-  return await ctx.db
+  const query = ctx.db
     .query("listItems")
     .withIndex("by_userId_and_status", (q) =>
       q.eq("userId", userId).eq("status", "open"),
-    )
-    .take(limit);
+    );
+
+  return limit === undefined ? await query.collect() : await query.take(limit);
 }
 
 export async function _insertItem(

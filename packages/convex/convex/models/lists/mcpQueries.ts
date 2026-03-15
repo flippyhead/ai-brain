@@ -74,7 +74,8 @@ export const getOpenItems = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const items = await _openItemsByUser(ctx, args.userId, args.limit ?? 50);
+    const limit = args.limit ?? 50;
+    const items = await _openItemsByUser(ctx, args.userId);
 
     // Fetch list names and filter out items from archived lists
     const listCache = new Map<string, { name: string; archived: boolean }>();
@@ -109,6 +110,6 @@ export const getOpenItems = query({
       return a.position - b.position;
     });
 
-    return results;
+    return results.slice(0, limit);
   },
 });

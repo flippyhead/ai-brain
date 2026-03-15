@@ -137,7 +137,7 @@ export const updateListItem = mutation({
       title: args.title ?? item.title,
       status: args.status ?? item.status,
       position: args.position ?? item.position,
-      completedAt: args.status === "done" ? update.completedAt : item.completedAt,
+      completedAt: args.status !== undefined ? update.completedAt : item.completedAt,
     };
   },
 });
