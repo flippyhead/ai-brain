@@ -128,7 +128,7 @@ export const updateItem = internalMutation({
     title: v.optional(v.string()),
     status: v.optional(listItemStatus),
     position: v.optional(v.number()),
-    completedAt: v.optional(v.number()),
+    completedAt: v.optional(v.union(v.number(), v.null())),
   },
   handler: async (ctx, args) => {
     const { id, ...fields } = args;
@@ -136,7 +136,10 @@ export const updateItem = internalMutation({
     if (fields.title !== undefined) update.title = fields.title;
     if (fields.status !== undefined) update.status = fields.status;
     if (fields.position !== undefined) update.position = fields.position;
-    if (fields.completedAt !== undefined) update.completedAt = fields.completedAt;
+    if (fields.completedAt !== undefined) {
+      update.completedAt =
+        fields.completedAt === null ? undefined : fields.completedAt;
+    }
     await _updateItem(ctx, id, update);
   },
 });
