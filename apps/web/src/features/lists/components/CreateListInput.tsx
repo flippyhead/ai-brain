@@ -18,7 +18,7 @@ export function CreateListInput({ onDone }: CreateListInputProps) {
   const handleCreate = async () => {
     if (creatingInFlight.current) return;
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || loading) return;
 
     creatingInFlight.current = true;
     setLoading(true);

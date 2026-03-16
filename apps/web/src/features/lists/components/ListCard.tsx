@@ -73,9 +73,9 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
     const trimmed = newItemTitle.trim();
     if (!trimmed) return;
     addingItemInFlight.current = true;
+    setNewItemTitle("");
     try {
       await createItem({ listId: list._id, title: trimmed });
-      setNewItemTitle("");
     } catch (err) {
       console.error("Failed to add item:", err);
     } finally {
