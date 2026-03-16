@@ -200,10 +200,12 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
             <p style={{ color: "#999", fontSize: 14, margin: "8px 0" }}>
               Loading...
             </p>
-          ) : listDetail.items.length === 0 ? (
+          ) : listDetail.items.length === 0 && list.counts.done === 0 ? (
             <p style={{ color: "#999", fontSize: 14, margin: "8px 0" }}>
               No items yet.
             </p>
+          ) : listDetail.items.length === 0 ? (
+            null
           ) : (
             listDetail.items.map((item) => (
               <ListItemRow key={item._id} item={item} />
