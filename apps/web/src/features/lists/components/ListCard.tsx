@@ -23,6 +23,7 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
   const [renameName, setRenameName] = useState(list.name);
   const [newItemTitle, setNewItemTitle] = useState("");
   const renamingInFlight = useRef(false);
+  const cancelRename = useRef(false);
   const addingItemInFlight = useRef(false);
 
   const updateList = useMutation(api.models.lists.public.updateList);
@@ -113,10 +114,17 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
               type="text"
               value={renameName}
               onChange={(e) => setRenameName(e.target.value)}
-              onBlur={handleRename}
+              onBlur={() => {
+                if (cancelRename.current) {
+                  cancelRename.current = false;
+                  return;
+                }
+                handleRename();
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") handleRename();
                 if (e.key === "Escape") {
+                  cancelRename.current = true;
                   setRenameName(list.name);
                   setRenaming(false);
                 }
@@ -159,6 +167,7 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
         >
           <span
             onClick={() => {
+              cancelRename.current = false;
               setRenameName(list.name);
               setRenaming(true);
             }}

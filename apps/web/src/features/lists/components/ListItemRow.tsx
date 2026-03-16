@@ -20,6 +20,7 @@ export function ListItemRow({ item }: ListItemRowProps) {
   const [editTitle, setEditTitle] = useState(item.title);
   const [loading, setLoading] = useState(false);
   const savingTitle = useRef(false);
+  const cancelEdit = useRef(false);
 
   const isDone = item.status === "done";
 
@@ -85,10 +86,17 @@ export function ListItemRow({ item }: ListItemRowProps) {
           type="text"
           value={editTitle}
           onChange={(e) => setEditTitle(e.target.value)}
-          onBlur={saveTitle}
+          onBlur={() => {
+            if (cancelEdit.current) {
+              cancelEdit.current = false;
+              return;
+            }
+            saveTitle();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") saveTitle();
             if (e.key === "Escape") {
+              cancelEdit.current = true;
               setEditTitle(item.title);
               setEditing(false);
             }
@@ -108,6 +116,7 @@ export function ListItemRow({ item }: ListItemRowProps) {
         <span
           onClick={() => {
             if (!isDone) {
+              cancelEdit.current = false;
               setEditTitle(item.title);
               setEditing(true);
             }
