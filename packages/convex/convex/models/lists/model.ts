@@ -47,7 +47,11 @@ export async function _insertList(
 export async function _updateList(
   ctx: MutationCtx,
   id: Id<"lists">,
-  fields: Partial<{ name: string; pinned: boolean; archivedAt: number }>,
+  fields: Partial<{
+    name: string;
+    pinned: boolean;
+    archivedAt: number | undefined;
+  }>,
 ) {
   await ctx.db.patch(id, fields);
 }

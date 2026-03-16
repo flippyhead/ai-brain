@@ -100,54 +100,58 @@ export default function BrowsePage() {
 
           {lists === undefined ? (
             <p style={{ color: "#666" }}>Loading...</p>
-          ) : lists.length === 0 && !showCreateList ? (
-            <p style={{ color: "#666" }}>
-              No lists yet. Create one to start tracking goals and todos.
-            </p>
           ) : (
             <>
-              {/* Pinned section */}
-              {pinnedLists.length > 0 && (
+              {lists.length === 0 && !showCreateList ? (
+                <p style={{ color: "#666" }}>
+                  No lists yet. Create one to start tracking goals and todos.
+                </p>
+              ) : (
                 <>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      textTransform: "uppercase",
-                      letterSpacing: 1,
-                      color: "#999",
-                      marginBottom: 8,
-                    }}
-                  >
-                    Pinned
-                  </div>
-                  {pinnedLists.map((list) => (
-                    <ListCard
-                      key={list._id}
-                      list={list}
-                      defaultExpanded={true}
-                    />
-                  ))}
-                  <div style={{ marginBottom: 16 }} />
-                </>
-              )}
+                  {/* Pinned section */}
+                  {pinnedLists.length > 0 && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          textTransform: "uppercase",
+                          letterSpacing: 1,
+                          color: "#999",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Pinned
+                      </div>
+                      {pinnedLists.map((list) => (
+                        <ListCard
+                          key={list._id}
+                          list={list}
+                          defaultExpanded={true}
+                        />
+                      ))}
+                      <div style={{ marginBottom: 16 }} />
+                    </>
+                  )}
 
-              {/* Other lists section */}
-              {otherLists.length > 0 && (
-                <>
-                  <div
-                    style={{
-                      fontSize: 11,
-                      textTransform: "uppercase",
-                      letterSpacing: 1,
-                      color: "#999",
-                      marginBottom: 8,
-                    }}
-                  >
-                    Other Lists
-                  </div>
-                  {otherLists.map((list) => (
-                    <ListCard key={list._id} list={list} />
-                  ))}
+                  {/* Other lists section */}
+                  {otherLists.length > 0 && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          textTransform: "uppercase",
+                          letterSpacing: 1,
+                          color: "#999",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Other Lists
+                      </div>
+                      {otherLists.map((list) => (
+                        <ListCard key={list._id} list={list} />
+                      ))}
+                    </>
+                  )}
                 </>
               )}
 

@@ -147,7 +147,7 @@ export const unarchiveList = mutation({
     if (!list || list.userId !== userId) {
       throw new Error("List not found");
     }
-    await ctx.db.patch(args.listId, { archivedAt: undefined });
+    await _updateList(ctx, args.listId, { archivedAt: undefined });
   },
 });
 
