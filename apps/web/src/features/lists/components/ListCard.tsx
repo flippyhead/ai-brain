@@ -23,6 +23,7 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
   const [renameName, setRenameName] = useState(list.name);
   const [newItemTitle, setNewItemTitle] = useState("");
   const renamingInFlight = useRef(false);
+  const addingItemInFlight = useRef(false);
 
   const updateList = useMutation(api.models.lists.public.updateList);
   const archiveList = useMutation(api.models.lists.public.archiveList);
@@ -68,13 +69,17 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
   };
 
   const handleAddItem = async () => {
+    if (addingItemInFlight.current) return;
     const trimmed = newItemTitle.trim();
     if (!trimmed) return;
+    addingItemInFlight.current = true;
     try {
       await createItem({ listId: list._id, title: trimmed });
       setNewItemTitle("");
     } catch (err) {
       console.error("Failed to add item:", err);
+    } finally {
+      addingItemInFlight.current = false;
     }
   };
 

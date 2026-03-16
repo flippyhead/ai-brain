@@ -2,7 +2,7 @@
 
 import { useMutation } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface CreateListInputProps {
   onDone: () => void;
@@ -13,11 +13,14 @@ export function CreateListInput({ onDone }: CreateListInputProps) {
   const [name, setName] = useState("");
   const [pinned, setPinned] = useState(false);
   const [loading, setLoading] = useState(false);
+  const creatingInFlight = useRef(false);
 
   const handleCreate = async () => {
+    if (creatingInFlight.current) return;
     const trimmed = name.trim();
     if (!trimmed) return;
 
+    creatingInFlight.current = true;
     setLoading(true);
     try {
       await createList({ name: trimmed, pinned });
@@ -28,6 +31,7 @@ export function CreateListInput({ onDone }: CreateListInputProps) {
       console.error("Failed to create list:", err);
     } finally {
       setLoading(false);
+      creatingInFlight.current = false;
     }
   };
 
