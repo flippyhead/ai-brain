@@ -58,6 +58,7 @@ export async function POST(req: Request) {
     {
       access_token: data.apiKey,
       token_type: "Bearer",
+      expires_in: 31536000, // 1 year in seconds; API keys don't actually expire
     },
     {
       headers: { "Cache-Control": "no-store" },
