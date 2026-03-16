@@ -2,7 +2,7 @@
 
 import { useMutation } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Id } from "@repo/db/convex/_generated/dataModel";
 
 interface ListItemRowProps {
@@ -19,6 +19,7 @@ export function ListItemRow({ item }: ListItemRowProps) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(item.title);
   const [loading, setLoading] = useState(false);
+  const savingTitle = useRef(false);
 
   const isDone = item.status === "done";
 
@@ -37,17 +38,21 @@ export function ListItemRow({ item }: ListItemRowProps) {
   };
 
   const saveTitle = async () => {
+    if (savingTitle.current) return;
+    savingTitle.current = true;
     const trimmed = editTitle.trim();
-    if (trimmed && trimmed !== item.title) {
-      try {
+    try {
+      if (trimmed && trimmed !== item.title) {
         await updateItem({ itemId: item._id, title: trimmed });
-      } catch (err) {
-        console.error("Failed to update title:", err);
+      } else {
+        setEditTitle(item.title);
       }
-    } else {
-      setEditTitle(item.title);
+    } catch (err) {
+      console.error("Failed to update title:", err);
+    } finally {
+      setEditing(false);
+      savingTitle.current = false;
     }
-    setEditing(false);
   };
 
   const handleDelete = async () => {

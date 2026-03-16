@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Id } from "@repo/db/convex/_generated/dataModel";
 import { ListItemRow } from "./ListItemRow";
 
@@ -22,6 +22,7 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
   const [renaming, setRenaming] = useState(false);
   const [renameName, setRenameName] = useState(list.name);
   const [newItemTitle, setNewItemTitle] = useState("");
+  const renamingInFlight = useRef(false);
 
   const updateList = useMutation(api.models.lists.public.updateList);
   const archiveList = useMutation(api.models.lists.public.archiveList);
@@ -33,17 +34,21 @@ export function ListCard({ list, defaultExpanded = false }: ListCardProps) {
   );
 
   const handleRename = async () => {
+    if (renamingInFlight.current) return;
+    renamingInFlight.current = true;
     const trimmed = renameName.trim();
-    if (trimmed && trimmed !== list.name) {
-      try {
+    try {
+      if (trimmed && trimmed !== list.name) {
         await updateList({ listId: list._id, name: trimmed });
-      } catch (err) {
-        console.error("Failed to rename:", err);
+      } else {
+        setRenameName(list.name);
       }
-    } else {
-      setRenameName(list.name);
+    } catch (err) {
+      console.error("Failed to rename:", err);
+    } finally {
+      setRenaming(false);
+      renamingInFlight.current = false;
     }
-    setRenaming(false);
   };
 
   const handleTogglePin = async () => {
