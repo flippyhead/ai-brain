@@ -373,5 +373,303 @@ export function createMcpServer(userId: string) {
     },
   );
 
+  // --- Lists ---
+
+  server.tool(
+    MCP_TOOL_NAMES.createList,
+    "Create a new named list for tracking items (todos, goals, etc.)",
+    {
+      name: z.string().describe("Name for the list (e.g., 'This Week', 'Q2 Goals')"),
+      pinned: z
+        .boolean()
+        .default(false)
+        .describe("If true, this list is loaded proactively by AI tools at session start"),
+    },
+    async ({ name, pinned }) => {
+      const result = await convex.mutation(
+        api.models.lists.mcpActions.createList,
+        { userId: userId as never, name, pinned },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `List created: "${result.name}"${result.pinned ? " (pinned)" : ""}\nList ID: ${result.listId}`,
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.updateList,
+    "Update a list's name or pinned status",
+    {
+      listId: z.string().describe("The list ID to update"),
+      name: z.string().optional().describe("New name for the list"),
+      pinned: z.boolean().optional().describe("Set pinned status"),
+    },
+    async ({ listId, name, pinned }) => {
+      const result = await convex.mutation(
+        api.models.lists.mcpActions.updateList,
+        { userId: userId as never, listId: listId as never, name, pinned },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `List updated: "${result.name}"${result.pinned ? " (pinned)" : ""}`,
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.getLists,
+    "Get all lists with item counts, optionally filtered to pinned only",
+    {
+      pinned: z
+        .boolean()
+        .optional()
+        .describe("Filter to pinned lists only"),
+      includeArchived: z
+        .boolean()
+        .default(false)
+        .describe("Include archived lists"),
+    },
+    async ({ pinned, includeArchived }) => {
+      type ListResult = {
+        listId: string;
+        name: string;
+        pinned: boolean;
+        archivedAt?: number;
+        counts: { total: number; open: number; done: number };
+      };
+      const results: ListResult[] = await convex.query(
+        api.models.lists.mcpQueries.getLists,
+        { userId: userId as never, pinned, includeArchived },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No lists found.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(results, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.getList,
+    "Get a single list with its ordered items",
+    {
+      listId: z.string().describe("The list ID to fetch"),
+      includeCompleted: z
+        .boolean()
+        .default(false)
+        .describe("Include completed items (excluded by default)"),
+    },
+    async ({ listId, includeCompleted }) => {
+      type ListDetail = {
+        listId: string;
+        name: string;
+        pinned: boolean;
+        items: Array<{
+          itemId: string;
+          title: string;
+          status: string;
+          position: number;
+          completedAt?: number;
+        }>;
+      };
+      const result: ListDetail = await convex.query(
+        api.models.lists.mcpQueries.getList,
+        { userId: userId as never, listId: listId as never, includeCompleted },
+      );
+
+      const itemLines = result.items.length > 0
+        ? result.items.map(
+            (i) =>
+              `${i.status === "done" ? "[x]" : "[ ]"} ${i.title} (id: ${i.itemId})`,
+          )
+        : ["(no items)"];
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: [
+              `${result.name}${result.pinned ? " (pinned)" : ""}`,
+              `List ID: ${result.listId}`,
+              "",
+              ...itemLines,
+            ].join("\n"),
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.archiveList,
+    "Archive a list (soft delete — items remain intact for review)",
+    {
+      listId: z.string().describe("The list ID to archive"),
+    },
+    async ({ listId }) => {
+      await convex.mutation(
+        api.models.lists.mcpActions.archiveList,
+        { userId: userId as never, listId: listId as never },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "List archived.",
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.createListItem,
+    "Add an item to a list",
+    {
+      listId: z.string().describe("The list to add the item to"),
+      title: z.string().describe("The item text"),
+    },
+    async ({ listId, title }) => {
+      const result = await convex.mutation(
+        api.models.lists.mcpActions.createListItem,
+        { userId: userId as never, listId: listId as never, title },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Added: "${result.title}" (id: ${result.itemId})`,
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.updateListItem,
+    "Update a list item — change title, mark done/open, or reorder",
+    {
+      itemId: z.string().describe("The item ID to update"),
+      title: z.string().optional().describe("New title text"),
+      status: z
+        .enum(["open", "done"])
+        .optional()
+        .describe("Set status (done = check off, open = reopen)"),
+      position: z
+        .number()
+        .optional()
+        .describe("New position for reordering"),
+    },
+    async ({ itemId, title, status, position }) => {
+      const result = await convex.mutation(
+        api.models.lists.mcpActions.updateListItem,
+        {
+          userId: userId as never,
+          itemId: itemId as never,
+          title,
+          status,
+          position,
+        },
+      );
+
+      const statusText = result.status === "done" ? " [done]" : "";
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Updated: "${result.title}"${statusText}`,
+          },
+        ],
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.getOpenItems,
+    "Get all open items across all active (non-archived) lists",
+    {
+      limit: z
+        .number()
+        .min(1)
+        .max(200)
+        .default(50)
+        .describe("Max items to return"),
+    },
+    async ({ limit }) => {
+      type OpenItem = {
+        itemId: string;
+        title: string;
+        position: number;
+        listId: string;
+        listName: string;
+      };
+      const results: OpenItem[] = await convex.query(
+        api.models.lists.mcpQueries.getOpenItems,
+        { userId: userId as never, limit },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No open items.",
+            },
+          ],
+        };
+      }
+
+      // Group by list name for readable output
+      const byList = new Map<string, OpenItem[]>();
+      for (const item of results) {
+        const group = byList.get(item.listName) ?? [];
+        group.push(item);
+        byList.set(item.listName, group);
+      }
+
+      const lines: string[] = [];
+      for (const [listName, items] of byList) {
+        lines.push(`## ${listName}`);
+        for (const item of items) {
+          lines.push(`- [ ] ${item.title} (id: ${item.itemId})`);
+        }
+        lines.push("");
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: lines.join("\n"),
+          },
+        ],
+      };
+    },
+  );
+
   return server;
 }
