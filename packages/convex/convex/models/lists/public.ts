@@ -20,12 +20,13 @@ import {
 export const getLists = query({
   args: {
     pinned: v.optional(v.boolean()),
+    includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    const lists = await _listsByUser(ctx, userId, { pinned: args.pinned });
+    const lists = await _listsByUser(ctx, userId, { pinned: args.pinned, includeArchived: args.includeArchived });
     const listsWithCounts = await Promise.all(
       lists.map(async (list) => {
         const counts = await _countItemsByList(ctx, list._id);
@@ -131,6 +132,22 @@ export const archiveList = mutation({
       throw new Error("List not found");
     }
     await _updateList(ctx, args.listId, { archivedAt: Date.now() });
+  },
+});
+
+export const unarchiveList = mutation({
+  args: {
+    listId: v.id("lists"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const list = await _findListById(ctx, args.listId);
+    if (!list || list.userId !== userId) {
+      throw new Error("List not found");
+    }
+    await _updateList(ctx, args.listId, { archivedAt: undefined });
   },
 });
 
