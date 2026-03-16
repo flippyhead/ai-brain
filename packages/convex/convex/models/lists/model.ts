@@ -115,6 +115,10 @@ export async function _updateItem(
   await ctx.db.patch(id, fields);
 }
 
+export async function _deleteItem(ctx: MutationCtx, id: Id<"listItems">) {
+  await ctx.db.delete(id);
+}
+
 export async function _countItemsByList(
   ctx: QueryCtx,
   listId: Id<"lists">,
