@@ -1,25 +1,31 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useQuery, useMutation } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
 import { useState } from "react";
 import { ListCard } from "@/features/lists/components/ListCard";
 import { CreateListInput } from "@/features/lists/components/CreateListInput";
 import { ThoughtsView } from "@/features/thoughts/components/ThoughtsView";
+import { Id } from "@repo/db/convex/_generated/dataModel";
 
 type View = "lists" | "thoughts";
 
 export default function BrowsePage() {
   const [view, setView] = useState<View>("lists");
   const [showCreateList, setShowCreateList] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   const lists = useQuery(
     api.models.lists.public.getLists,
-    view === "lists" ? {} : "skip",
+    view === "lists" ? { includeArchived: showArchived } : "skip",
   );
 
-  const pinnedLists = lists?.filter((l) => l.pinned) ?? [];
-  const otherLists = lists?.filter((l) => !l.pinned) ?? [];
+  const unarchiveList = useMutation(api.models.lists.public.unarchiveList);
+
+  const activeLists = lists?.filter((l) => !l.archivedAt) ?? [];
+  const archivedLists = lists?.filter((l) => l.archivedAt) ?? [];
+  const pinnedLists = activeLists.filter((l) => l.pinned);
+  const otherLists = activeLists.filter((l) => !l.pinned);
 
   return (
     <div>
@@ -141,6 +147,75 @@ export default function BrowsePage() {
                   </div>
                   {otherLists.map((list) => (
                     <ListCard key={list._id} list={list} />
+                  ))}
+                </>
+              )}
+
+              {/* Archived section */}
+              <div style={{ marginTop: 24 }}>
+                <span
+                  onClick={() => setShowArchived(!showArchived)}
+                  style={{
+                    fontSize: 12,
+                    color: "#0070f3",
+                    cursor: "pointer",
+                  }}
+                >
+                  {showArchived ? "Hide archived" : "Show archived lists"}
+                </span>
+              </div>
+
+              {showArchived && archivedLists.length > 0 && (
+                <>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      color: "#999",
+                      marginBottom: 8,
+                      marginTop: 12,
+                    }}
+                  >
+                    Archived
+                  </div>
+                  {archivedLists.map((list) => (
+                    <div
+                      key={list._id}
+                      style={{
+                        border: "1px solid #e0e0e0",
+                        borderRadius: 8,
+                        marginBottom: 8,
+                        backgroundColor: "#fafafa",
+                        padding: "12px 16px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontWeight: 500, fontSize: 15, color: "#999" }}>
+                          {list.name}
+                        </span>
+                        <span style={{ color: "#999", fontSize: 12 }}>
+                          {list.counts.total} items
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => unarchiveList({ listId: list._id as Id<"lists"> })}
+                        style={{
+                          padding: "4px 12px",
+                          background: "none",
+                          border: "1px solid #ddd",
+                          borderRadius: 4,
+                          fontSize: 12,
+                          cursor: "pointer",
+                          color: "#666",
+                        }}
+                      >
+                        Restore
+                      </button>
+                    </div>
                   ))}
                 </>
               )}
