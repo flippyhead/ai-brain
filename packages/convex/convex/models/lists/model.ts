@@ -52,6 +52,66 @@ export async function _updateList(
   await ctx.db.patch(id, fields);
 }
 
+function _buildListUpdate(args: { name?: string; pinned?: boolean }) {
+  const update: Partial<{ name: string; pinned: boolean }> = {};
+  if (args.name !== undefined) update.name = args.name;
+  if (args.pinned !== undefined) update.pinned = args.pinned;
+  return update;
+}
+
+async function _requireListOwner(
+  ctx: QueryCtx,
+  listId: Id<"lists">,
+  userId: Id<"users">,
+) {
+  const list = await _findListById(ctx, listId);
+  if (!list || list.userId !== userId) {
+    throw new Error("List not found");
+  }
+  return list;
+}
+
+export async function _createListForUser(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; name: string; pinned: boolean },
+) {
+  const listId = await _insertList(ctx, {
+    name: args.name,
+    pinned: args.pinned,
+    userId: args.userId,
+  });
+  return { listId, name: args.name, pinned: args.pinned };
+}
+
+export async function _updateListForUser(
+  ctx: MutationCtx,
+  args: {
+    userId: Id<"users">;
+    listId: Id<"lists">;
+    name?: string;
+    pinned?: boolean;
+  },
+) {
+  const list = await _requireListOwner(ctx, args.listId, args.userId);
+  const update = _buildListUpdate(args);
+  await _updateList(ctx, args.listId, update);
+  return {
+    list,
+    resolved: {
+      name: args.name ?? list.name,
+      pinned: args.pinned ?? list.pinned,
+    },
+  };
+}
+
+export async function _archiveListForUser(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; listId: Id<"lists"> },
+) {
+  await _requireListOwner(ctx, args.listId, args.userId);
+  await _updateList(ctx, args.listId, { archivedAt: Date.now() });
+}
+
 // --- List Items ---
 
 export async function _findItemById(ctx: QueryCtx, id: Id<"listItems">) {
@@ -73,6 +133,14 @@ export async function _itemsByList(
     : items.filter((i) => i.status === "open");
 
   return filtered.sort((a, b) => a.position - b.position);
+}
+
+async function _getNextItemPosition(ctx: QueryCtx, listId: Id<"lists">) {
+  const items = await _itemsByList(ctx, listId, { includeCompleted: true });
+  const maxPosition = items.length > 0
+    ? Math.max(...items.map((i) => i.position))
+    : 0;
+  return maxPosition + 1;
 }
 
 export async function _openItemsByUser(
@@ -100,6 +168,78 @@ export async function _insertItem(
   },
 ) {
   return await ctx.db.insert("listItems", fields);
+}
+
+function _buildItemUpdate(args: {
+  title?: string;
+  status?: "open" | "done";
+  position?: number;
+}) {
+  const update: Partial<{
+    title: string;
+    status: "open" | "done";
+    position: number;
+    completedAt: number | undefined;
+  }> = {};
+  if (args.title !== undefined) update.title = args.title;
+  if (args.position !== undefined) update.position = args.position;
+  if (args.status !== undefined) {
+    update.status = args.status;
+    update.completedAt = args.status === "done" ? Date.now() : undefined;
+  }
+  return update;
+}
+
+async function _requireItemOwner(
+  ctx: QueryCtx,
+  itemId: Id<"listItems">,
+  userId: Id<"users">,
+) {
+  const item = await _findItemById(ctx, itemId);
+  if (!item || item.userId !== userId) {
+    throw new Error("Item not found");
+  }
+  return item;
+}
+
+export async function _createListItemForUser(
+  ctx: MutationCtx,
+  args: { userId: Id<"users">; listId: Id<"lists">; title: string },
+) {
+  await _requireListOwner(ctx, args.listId, args.userId);
+  const position = await _getNextItemPosition(ctx, args.listId);
+  const itemId = await _insertItem(ctx, {
+    title: args.title,
+    status: "open",
+    position,
+    listId: args.listId,
+    userId: args.userId,
+  });
+  return { itemId, title: args.title, status: "open" as const, position };
+}
+
+export async function _updateListItemForUser(
+  ctx: MutationCtx,
+  args: {
+    userId: Id<"users">;
+    itemId: Id<"listItems">;
+    title?: string;
+    status?: "open" | "done";
+    position?: number;
+  },
+) {
+  const item = await _requireItemOwner(ctx, args.itemId, args.userId);
+  const update = _buildItemUpdate(args);
+  await _updateItem(ctx, args.itemId, update);
+  return {
+    item,
+    resolved: {
+      title: args.title ?? item.title,
+      status: args.status ?? item.status,
+      position: args.position ?? item.position,
+      completedAt: args.status !== undefined ? update.completedAt : item.completedAt,
+    },
+  };
 }
 
 export async function _updateItem(

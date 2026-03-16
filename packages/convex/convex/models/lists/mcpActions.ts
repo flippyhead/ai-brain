@@ -2,13 +2,11 @@ import { mutation } from "../../_generated/server";
 import { v } from "convex/values";
 import { listItemStatus } from "./validators";
 import {
-  _insertList,
-  _findListById,
-  _updateList,
-  _insertItem,
-  _findItemById,
-  _updateItem,
-  _itemsByList,
+  _createListForUser,
+  _updateListForUser,
+  _archiveListForUser,
+  _createListItemForUser,
+  _updateListItemForUser,
 } from "./model";
 
 export const createList = mutation({
@@ -18,12 +16,11 @@ export const createList = mutation({
     pinned: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const listId = await _insertList(ctx, {
+    return await _createListForUser(ctx, {
+      userId: args.userId,
       name: args.name,
       pinned: args.pinned,
-      userId: args.userId,
     });
-    return { listId, name: args.name, pinned: args.pinned };
   },
 });
 
@@ -35,20 +32,16 @@ export const updateList = mutation({
     pinned: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
-      throw new Error("List not found");
-    }
-
-    const update: Partial<{ name: string; pinned: boolean }> = {};
-    if (args.name !== undefined) update.name = args.name;
-    if (args.pinned !== undefined) update.pinned = args.pinned;
-    await _updateList(ctx, args.listId, update);
-
+    const { resolved } = await _updateListForUser(ctx, {
+      userId: args.userId,
+      listId: args.listId,
+      name: args.name,
+      pinned: args.pinned,
+    });
     return {
       listId: args.listId,
-      name: args.name ?? list.name,
-      pinned: args.pinned ?? list.pinned,
+      name: resolved.name,
+      pinned: resolved.pinned,
     };
   },
 });
@@ -59,11 +52,7 @@ export const archiveList = mutation({
     listId: v.id("lists"),
   },
   handler: async (ctx, args) => {
-    const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
-      throw new Error("List not found");
-    }
-    await _updateList(ctx, args.listId, { archivedAt: Date.now() });
+    await _archiveListForUser(ctx, { userId: args.userId, listId: args.listId });
     return { success: true };
   },
 });
@@ -75,30 +64,19 @@ export const createListItem = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
-      throw new Error("List not found");
-    }
-
-    // Get max position in list
-    const items = await _itemsByList(ctx, args.listId, { includeCompleted: true });
-    const maxPosition = items.length > 0
-      ? Math.max(...items.map((i) => i.position))
-      : 0;
-
-    const itemId = await _insertItem(ctx, {
-      title: args.title,
-      status: "open",
-      position: maxPosition + 1,
-      listId: args.listId,
-      userId: args.userId,
-    });
-
+    const { itemId, title, status, position } = await _createListItemForUser(
+      ctx,
+      {
+        userId: args.userId,
+        listId: args.listId,
+        title: args.title,
+      },
+    );
     return {
       itemId,
-      title: args.title,
-      status: "open" as const,
-      position: maxPosition + 1,
+      title,
+      status,
+      position,
     };
   },
 });
@@ -112,32 +90,19 @@ export const updateListItem = mutation({
     position: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const item = await _findItemById(ctx, args.itemId);
-    if (!item || item.userId !== args.userId) {
-      throw new Error("Item not found");
-    }
-
-    const update: Record<string, unknown> = {};
-    if (args.title !== undefined) update.title = args.title;
-    if (args.position !== undefined) update.position = args.position;
-
-    if (args.status !== undefined) {
-      update.status = args.status;
-      if (args.status === "done") {
-        update.completedAt = Date.now();
-      } else {
-        update.completedAt = undefined;
-      }
-    }
-
-    await _updateItem(ctx, args.itemId, update);
-
+    const { resolved } = await _updateListItemForUser(ctx, {
+      userId: args.userId,
+      itemId: args.itemId,
+      title: args.title,
+      status: args.status,
+      position: args.position,
+    });
     return {
       itemId: args.itemId,
-      title: args.title ?? item.title,
-      status: args.status ?? item.status,
-      position: args.position ?? item.position,
-      completedAt: args.status !== undefined ? update.completedAt : item.completedAt,
+      title: resolved.title,
+      status: resolved.status,
+      position: resolved.position,
+      completedAt: resolved.completedAt,
     };
   },
 });
