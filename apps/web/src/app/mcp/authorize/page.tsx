@@ -134,13 +134,11 @@ function AuthorizeFlow() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
-                  if (loading) {
-                    return;
-                  }
+                  if (loading) return;
                   setMode("signUp");
                   setError("");
                 }}
-                style={{ color: "#0070f3" }}
+                style={{ color: loading ? "#999" : "#0070f3", pointerEvents: loading ? "none" : "auto" }}
               >
                 Sign up
               </a>
@@ -152,13 +150,11 @@ function AuthorizeFlow() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
-                  if (loading) {
-                    return;
-                  }
+                  if (loading) return;
                   setMode("signIn");
                   setError("");
                 }}
-                style={{ color: "#0070f3" }}
+                style={{ color: loading ? "#999" : "#0070f3", pointerEvents: loading ? "none" : "auto" }}
               >
                 Sign in
               </a>
