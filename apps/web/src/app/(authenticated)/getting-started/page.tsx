@@ -23,9 +23,18 @@ const SETUP_STEPS = [
       {
         platform: "Claude Desktop / Cowork",
         steps: [
-          "Go to Settings \u2192 Connectors \u2192 Add Custom Connector",
-          "Enter URL: https://ai-brain-pi.vercel.app/api/mcp",
-          "Sign in when prompted to authorize the connection.",
+          "Go to Settings \u2192 Integrations \u2192 Add More \u2192 Add custom integration",
+          `Enter URL: ${typeof globalThis.window !== "undefined" ? globalThis.window.location.origin : "https://ai-brain-pi.vercel.app"}/api/mcp`,
+          "A browser window will open \u2014 sign in and click Authorize.",
+        ],
+      },
+      {
+        platform: "Cursor",
+        steps: [
+          "Go to Settings and generate an API key.",
+          "Open Cursor \u2192 Settings \u2192 MCP \u2192 Add new MCP server",
+          `Enter URL: ${typeof globalThis.window !== "undefined" ? globalThis.window.location.origin : "https://ai-brain-pi.vercel.app"}/api/mcp`,
+          "Set header: Authorization: Bearer YOUR_API_KEY",
         ],
       },
     ],
