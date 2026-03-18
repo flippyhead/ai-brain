@@ -10,6 +10,7 @@ function AuthorizeFlow() {
   const { signIn } = useAuthActions();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
 
   const clientId = searchParams.get("client_id") || "";
   const redirectUri = searchParams.get("redirect_uri") || "";
@@ -59,7 +60,9 @@ function AuthorizeFlow() {
 
       <Unauthenticated>
         <p style={{ color: "#666", marginTop: 0 }}>
-          Sign in to authorize this MCP client.
+          {mode === "signIn"
+            ? "Sign in to authorize this MCP client."
+            : "Create an account to authorize this MCP client."}
         </p>
         <form
           onSubmit={async (e) => {
@@ -70,7 +73,11 @@ function AuthorizeFlow() {
             try {
               await signIn("password", formData);
             } catch {
-              setError("Invalid email or password");
+              setError(
+                mode === "signIn"
+                  ? "Invalid email or password"
+                  : "Could not create account. Try a different email."
+              );
             } finally {
               setLoading(false);
             }
@@ -103,15 +110,61 @@ function AuthorizeFlow() {
               name="password"
               type="password"
               required
+              {...(mode === "signUp" ? { minLength: 8 } : {})}
               style={inputStyle}
             />
           </div>
-          <input type="hidden" name="flow" value="signIn" />
+          <input type="hidden" name="flow" value={mode} />
           {error && <p style={{ color: "#dc2626" }}>{error}</p>}
           <button type="submit" disabled={loading} style={buttonStyle}>
-            {loading ? "Signing in..." : "Sign In"}
+            {loading
+              ? mode === "signIn"
+                ? "Signing in..."
+                : "Creating account..."
+              : mode === "signIn"
+                ? "Sign In"
+                : "Sign Up"}
           </button>
         </form>
+        <p style={{ marginTop: 16, textAlign: "center", color: "#666" }}>
+          {mode === "signIn" ? (
+            <>
+              Don&apos;t have an account?{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (loading) {
+                    return;
+                  }
+                  setMode("signUp");
+                  setError("");
+                }}
+                style={{ color: "#0070f3" }}
+              >
+                Sign up
+              </a>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (loading) {
+                    return;
+                  }
+                  setMode("signIn");
+                  setError("");
+                }}
+                style={{ color: "#0070f3" }}
+              >
+                Sign in
+              </a>
+            </>
+          )}
+        </p>
       </Unauthenticated>
 
       <Authenticated>
