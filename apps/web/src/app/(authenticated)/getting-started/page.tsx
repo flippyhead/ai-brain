@@ -7,23 +7,23 @@ type Tab = "setup" | "prompts";
 const SETUP_STEPS = [
   {
     step: 1,
-    title: "Connect Open Brain",
+    title: "Install the Open Brain Plugin",
     description:
-      "Add the Open Brain connector so your AI assistant can save and search your knowledge.",
+      "The plugin connects your AI assistant to Open Brain and gives you skills for onboarding, project sync, and weekly reviews.",
     instructions: [
       {
         platform: "Claude Code",
         steps: [
           "Run: /plugin marketplace add flippyhead/claude-workflow-analyst",
-          "Run: /plugin install workflow-analyst@claude-workflow-analyst",
-          "The plugin bundles the Open Brain connector automatically.",
+          "Run: /plugin install open-brain@claude-workflow-analyst",
+          "The Open Brain connector is bundled automatically.",
           "On first use, you'll be prompted to sign in to Open Brain in your browser.",
         ],
       },
       {
         platform: "Claude Desktop / Cowork",
         steps: [
-          'Go to Settings \u2192 Connectors \u2192 Add Custom Connector',
+          "Go to Settings \u2192 Connectors \u2192 Add Custom Connector",
           "Enter URL: https://ai-brain-pi.vercel.app/api/mcp",
           "Sign in when prompted to authorize the connection.",
         ],
@@ -32,31 +32,29 @@ const SETUP_STEPS = [
   },
   {
     step: 2,
-    title: "Start Capturing",
+    title: "Run /brain-init",
     description:
-      "Your AI assistant can now save thoughts to Open Brain. Try it by telling your assistant something worth remembering.",
+      "Automatically bootstrap your brain from your connected tools (email, calendar, ClickUp, GitHub, etc.) and Claude's memory. No manual data entry needed.",
     example:
-      '"Save this to my brain: We decided to use Postgres over MongoDB because our data is highly relational."',
+      "/brain-init",
+    skills: [
+      "/brain-init \u2014 Auto-discover connectors, pull meta-knowledge, build your profile",
+      "/brain-sync \u2014 Sync a project's context (README, git state, docs) into your brain",
+      "/weekly-review \u2014 Weekly synthesis of thoughts, workflow insights, and goals",
+    ],
   },
   {
     step: 3,
-    title: "Enable Workflow Insights",
+    title: "Add Workflow Insights (optional)",
     description:
-      "Automatically analyze your Claude Code and Cowork sessions for actionable insights. Requires the plugin from Step 1.",
+      "Analyze your Claude Code and Cowork sessions for actionable insights. This is a separate plugin that enhances Open Brain with session-level analysis.",
     instructions: [
       {
-        platform: "Claude Code",
+        platform: "Install",
         steps: [
-          "Run: /workflow-analyst",
+          "Run: /plugin install workflow-analyst@claude-workflow-analyst",
+          "Then run: /workflow-analyst",
           "Or for a longer period: /workflow-analyst --days 14",
-          "Insights are published to your /insights page with feedback controls.",
-        ],
-      },
-      {
-        platform: "Standalone (without Claude Code)",
-        steps: [
-          "Run: npx @flippyhead/workflow-analyzer run --since 7 --llm claude-api",
-          "Requires ANTHROPIC_API_KEY environment variable.",
         ],
       },
     ],
@@ -70,29 +68,6 @@ const SETUP_STEPS = [
 ];
 
 const PROMPTS = [
-  {
-    title: "Memory Migration",
-    description:
-      "Extract everything your AI already knows about you and save it to Open Brain.",
-    prompt: `You are a memory migration assistant. Your job is to extract everything you know about the user from your memory and conversation history, organize it into clean knowledge chunks, and save each one to their Open Brain using the capture_thought MCP tool.
-
-Work through these categories systematically:
-
-1. People \u2014 names, roles, relationships, preferences you've learned
-2. Projects \u2014 active and past projects, goals, status, key decisions
-3. Preferences \u2014 communication style, tools, workflows, opinions
-4. Decisions \u2014 choices the user has made and the reasoning behind them
-5. Recurring topics \u2014 themes that come up repeatedly in conversations
-6. Professional context \u2014 job, company, industry, skills, career goals
-7. Personal context \u2014 hobbies, interests, values, life circumstances
-
-For each piece of knowledge:
-- Write it as a standalone statement that would make sense to someone with no context
-- Include relevant details and nuance, not just surface-level facts
-- Use the capture_thought tool to save it immediately
-
-Start by telling the user what categories you'll cover, then work through each one. Ask clarifying questions if needed.`,
-  },
   {
     title: "Second Brain Migration",
     description:
@@ -207,34 +182,6 @@ Format:
 
 Example:
 "AI helped me write a database migration rollback strategy. Key output: step-by-step rollback procedure for the users table migration. Context: preparing for our v2 schema migration next sprint. Reuse: reference this pattern for any future breaking schema changes."`,
-  },
-  {
-    title: "Weekly Review",
-    description:
-      "Review your captured thoughts from the past week and surface patterns.",
-    prompt: `You are a personal knowledge analyst who reviews a week's worth of captured thoughts and surfaces patterns, gaps, and connections.
-
-Start by using the search_thoughts MCP tool to find all thoughts from the past 7 days. Then produce this report:
-
-## Week at a Glance
-A 2-3 sentence summary of what the user's week looked like based on their captured thoughts.
-
-## Themes
-The 3-5 dominant topics or areas of focus. For each, note how many thoughts touched it and whether it's a new theme or recurring.
-
-## Open Loops
-Decisions mentioned but not resolved, questions asked but not answered, action items captured but likely not completed. These are things that might need attention.
-
-## Connections
-Surprising links between thoughts from different contexts. "You mentioned X in a work context and Y in a personal note \u2014 these might be related because..."
-
-## Gaps
-Areas of the user's life or work that had no captured thoughts this week. Based on past patterns, flag anything that seems like an unusual absence.
-
-## Suggested Focus
-Based on the above, recommend 1-2 things to focus on next week. Be specific and actionable.
-
-End with: "What resonated? Anything I should dig deeper on?"`,
   },
 ];
 
@@ -371,7 +318,7 @@ function SetupSection() {
                         style={{
                           fontSize: "0.9rem",
                           lineHeight: 1.5,
-                          fontFamily: s.startsWith("Run:") || s.startsWith("Enter URL:")
+                          fontFamily: s.startsWith("Run:") || s.startsWith("Enter URL:") || s.startsWith("Then run:")
                             ? "monospace"
                             : "inherit",
                         }}
@@ -403,6 +350,24 @@ function SetupSection() {
             </pre>
           )}
 
+          {step.skills && (
+            <ul
+              style={{
+                marginTop: 16,
+                paddingLeft: 20,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+              }}
+            >
+              {step.skills.map((skill, i) => (
+                <li key={i} style={{ fontSize: "0.9rem", lineHeight: 1.5, fontFamily: "monospace" }}>
+                  {skill}
+                </li>
+              ))}
+            </ul>
+          )}
+
           {step.insights && (
             <ul
               style={{
@@ -430,7 +395,8 @@ function PromptsSection() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <p style={{ color: "#666", maxWidth: 600, margin: 0 }}>
-        Copy any prompt and paste it into your AI assistant to get started.
+        These prompts are for workflows that aren't available as plugin skills
+        yet. Copy and paste them into your AI assistant.
       </p>
       {PROMPTS.map((p) => (
         <div
