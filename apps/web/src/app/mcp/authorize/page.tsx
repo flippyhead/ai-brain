@@ -134,6 +134,9 @@ function AuthorizeFlow() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
+                  if (loading) {
+                    return;
+                  }
                   setMode("signUp");
                   setError("");
                 }}
@@ -149,6 +152,9 @@ function AuthorizeFlow() {
                 href="#"
                 onClick={(e) => {
                   e.preventDefault();
+                  if (loading) {
+                    return;
+                  }
                   setMode("signIn");
                   setError("");
                 }}
