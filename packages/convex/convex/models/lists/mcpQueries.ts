@@ -63,6 +63,9 @@ export const getList = query({
         status: item.status,
         position: item.position,
         completedAt: item.completedAt,
+        url: item.url,
+        description: item.description,
+        properties: item.properties,
       })),
     };
   },
@@ -99,6 +102,9 @@ export const getOpenItems = query({
           position: item.position,
           listId: item.listId,
           listName: listInfo.name,
+          url: item.url,
+          description: item.description,
+          properties: item.properties,
         });
       }
     }
