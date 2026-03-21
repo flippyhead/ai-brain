@@ -19,4 +19,7 @@ export const listItemFields = {
   listId: v.id("lists"),
   userId: v.id("users"),
   completedAt: v.optional(v.number()),
+  url: v.optional(v.string()),
+  description: v.optional(v.string()),
+  properties: v.optional(v.record(v.string(), v.any())),
 };
