@@ -73,6 +73,9 @@ export const createListItem = mutation({
     userId: v.id("users"),
     listId: v.id("lists"),
     title: v.string(),
+    url: v.optional(v.string()),
+    description: v.optional(v.string()),
+    properties: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
     const list = await _findListById(ctx, args.listId);
@@ -92,6 +95,9 @@ export const createListItem = mutation({
       position: maxPosition + 1,
       listId: args.listId,
       userId: args.userId,
+      url: args.url,
+      description: args.description,
+      properties: args.properties,
     });
 
     return {
@@ -99,6 +105,9 @@ export const createListItem = mutation({
       title: args.title,
       status: "open" as const,
       position: maxPosition + 1,
+      url: args.url,
+      description: args.description,
+      properties: args.properties,
     };
   },
 });
@@ -110,6 +119,9 @@ export const updateListItem = mutation({
     title: v.optional(v.string()),
     status: v.optional(listItemStatus),
     position: v.optional(v.number()),
+    url: v.optional(v.string()),
+    description: v.optional(v.string()),
+    properties: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
     const item = await _findItemById(ctx, args.itemId);
@@ -120,6 +132,9 @@ export const updateListItem = mutation({
     const update: Record<string, unknown> = {};
     if (args.title !== undefined) update.title = args.title;
     if (args.position !== undefined) update.position = args.position;
+    if (args.url !== undefined) update.url = args.url;
+    if (args.description !== undefined) update.description = args.description;
+    if (args.properties !== undefined) update.properties = args.properties;
 
     if (args.status !== undefined) {
       update.status = args.status;
@@ -138,6 +153,9 @@ export const updateListItem = mutation({
       status: args.status ?? item.status,
       position: args.position ?? item.position,
       completedAt: args.status !== undefined ? update.completedAt : item.completedAt,
+      url: args.url ?? item.url,
+      description: args.description ?? item.description,
+      properties: args.properties ?? item.properties,
     };
   },
 });
