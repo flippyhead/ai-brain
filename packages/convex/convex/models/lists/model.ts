@@ -101,6 +101,9 @@ export async function _insertItem(
     position: number;
     listId: Id<"lists">;
     userId: Id<"users">;
+    url?: string;
+    description?: string;
+    properties?: Record<string, unknown>;
   },
 ) {
   return await ctx.db.insert("listItems", fields);
@@ -114,6 +117,9 @@ export async function _updateItem(
     status: "open" | "done";
     position: number;
     completedAt: number | undefined;
+    url: string | undefined;
+    description: string | undefined;
+    properties: Record<string, unknown> | undefined;
   }>,
 ) {
   await ctx.db.patch(id, fields);
