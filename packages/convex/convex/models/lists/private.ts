@@ -115,6 +115,9 @@ export const insertItem = internalMutation({
     position: v.number(),
     listId: v.id("lists"),
     userId: v.id("users"),
+    url: v.optional(v.string()),
+    description: v.optional(v.string()),
+    properties: v.optional(v.record(v.string(), v.any())),
   },
   returns: v.id("listItems"),
   handler: async (ctx, args) => {
@@ -129,6 +132,9 @@ export const updateItem = internalMutation({
     status: v.optional(listItemStatus),
     position: v.optional(v.number()),
     completedAt: v.optional(v.union(v.number(), v.null())),
+    url: v.optional(v.string()),
+    description: v.optional(v.string()),
+    properties: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
     const { id, ...fields } = args;
@@ -140,6 +146,9 @@ export const updateItem = internalMutation({
       update.completedAt =
         fields.completedAt === null ? undefined : fields.completedAt;
     }
+    if (fields.url !== undefined) update.url = fields.url;
+    if (fields.description !== undefined) update.description = fields.description;
+    if (fields.properties !== undefined) update.properties = fields.properties;
     await _updateItem(ctx, id, update);
   },
 });
