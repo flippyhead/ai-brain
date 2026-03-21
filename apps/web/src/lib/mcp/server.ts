@@ -494,6 +494,9 @@ export function createMcpServer(userId: string) {
           status: string;
           position: number;
           completedAt?: number;
+          url?: string;
+          description?: string;
+          properties?: Record<string, unknown>;
         }>;
       };
       const result: ListDetail = await convex.query(
@@ -502,10 +505,13 @@ export function createMcpServer(userId: string) {
       );
 
       const itemLines = result.items.length > 0
-        ? result.items.map(
-            (i) =>
-              `${i.status === "done" ? "[x]" : "[ ]"} ${i.title} (id: ${i.itemId})`,
-          )
+        ? result.items.map((i) => {
+            let line = `${i.status === "done" ? "[x]" : "[ ]"} ${i.title} (id: ${i.itemId})`;
+            if (i.url) line += `\n    URL: ${i.url}`;
+            if (i.description) line += `\n    ${i.description}`;
+            if (i.properties) line += `\n    Properties: ${JSON.stringify(i.properties)}`;
+            return line;
+          })
         : ["(no items)"];
 
       return {
@@ -552,11 +558,14 @@ export function createMcpServer(userId: string) {
     {
       listId: z.string().describe("The list to add the item to"),
       title: z.string().describe("The item text"),
+      url: z.string().optional().describe("Optional URL for the item"),
+      description: z.string().optional().describe("Optional description of the item"),
+      properties: z.record(z.string(), z.any()).optional().describe("Optional custom properties object"),
     },
-    async ({ listId, title }) => {
+    async ({ listId, title, url, description, properties }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.createListItem,
-        { userId: userId as never, listId: listId as never, title },
+        { userId: userId as never, listId: listId as never, title, url, description, properties },
       );
       return {
         content: [
@@ -583,8 +592,11 @@ export function createMcpServer(userId: string) {
         .number()
         .optional()
         .describe("New position for reordering"),
+      url: z.string().optional().describe("New URL for the item"),
+      description: z.string().optional().describe("New description for the item"),
+      properties: z.record(z.string(), z.any()).optional().describe("Custom properties object (replaces entire properties field — caller should merge with existing before sending)"),
     },
-    async ({ itemId, title, status, position }) => {
+    async ({ itemId, title, status, position, url, description, properties }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.updateListItem,
         {
@@ -593,6 +605,9 @@ export function createMcpServer(userId: string) {
           title,
           status,
           position,
+          url,
+          description,
+          properties,
         },
       );
 
@@ -626,6 +641,9 @@ export function createMcpServer(userId: string) {
         position: number;
         listId: string;
         listName: string;
+        url?: string;
+        description?: string;
+        properties?: Record<string, unknown>;
       };
       const results: OpenItem[] = await convex.query(
         api.models.lists.mcpQueries.getOpenItems,
@@ -655,7 +673,11 @@ export function createMcpServer(userId: string) {
       for (const [listName, items] of byList) {
         lines.push(`## ${listName}`);
         for (const item of items) {
-          lines.push(`- [ ] ${item.title} (id: ${item.itemId})`);
+          let line = `- [ ] ${item.title} (id: ${item.itemId})`;
+          if (item.url) line += `\n    URL: ${item.url}`;
+          if (item.description) line += `\n    ${item.description}`;
+          if (item.properties) line += `\n    Properties: ${JSON.stringify(item.properties)}`;
+          lines.push(line);
         }
         lines.push("");
       }
