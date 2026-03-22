@@ -4,7 +4,7 @@ import {
   insightCategory,
   projectActive,
 } from "./validators";
-import { _insertReport, _insertInsight } from "./model";
+import { _insertReport, _insertInsight, _deleteInsight } from "./model";
 
 export const insertReport = internalMutation({
   args: {
@@ -44,6 +44,17 @@ export const insertInsight = internalMutation({
       dismissText: undefined,
       updatedAt: undefined,
     });
+  },
+});
+
+export const deleteInsight = internalMutation({
+  args: {
+    insightId: v.id("insights"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await _deleteInsight(ctx, args.insightId);
+    return null;
   },
 });
 

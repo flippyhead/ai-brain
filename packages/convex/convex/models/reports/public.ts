@@ -155,3 +155,19 @@ export const updateInsightStatus = mutation({
     return null;
   },
 });
+
+export const deleteInsight = mutation({
+  args: {
+    insightId: v.id("insights"),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const insight = await ctx.db.get(args.insightId);
+    if (!insight || insight.userId !== userId) throw new Error("Insight not found");
+
+    await ctx.db.delete(args.insightId);
+    return null;
+  },
+});

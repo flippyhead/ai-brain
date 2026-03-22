@@ -131,3 +131,10 @@ export async function _updateInsightStatus(
 
   return await ctx.db.replace(_id, next);
 }
+
+export async function _deleteInsight(
+  ctx: MutationCtx,
+  id: Id<"insights">,
+) {
+  return await ctx.db.delete(id);
+}

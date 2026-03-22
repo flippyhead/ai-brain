@@ -5,6 +5,7 @@ export const MCP_TOOL_NAMES = {
   captureThought: "capture_thought",
   createReport: "create_report",
   getInsights: "get_insights",
+  deleteInsight: "delete_insight",
   // Lists
   createList: "create_list",
   updateList: "update_list",

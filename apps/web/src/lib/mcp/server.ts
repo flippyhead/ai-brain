@@ -373,6 +373,28 @@ export function createMcpServer(userId: string) {
     },
   );
 
+  server.tool(
+    MCP_TOOL_NAMES.deleteInsight,
+    "Delete a specific insight by ID",
+    {
+      insightId: z.string().describe("The ID of the insight to delete"),
+    },
+    async ({ insightId }) => {
+      await convex.mutation(
+        api.models.reports.public.deleteInsight,
+        { insightId: insightId as never },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: "Insight deleted successfully.",
+          },
+        ],
+      };
+    },
+  );
+
   // --- Lists ---
 
   server.tool(
