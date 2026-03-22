@@ -10,6 +10,8 @@ interface ListItemRowProps {
     _id: Id<"listItems">;
     title: string;
     status: "open" | "done";
+    url?: string;
+    description?: string;
   };
 }
 
@@ -68,7 +70,7 @@ export function ListItemRow({ item }: ListItemRowProps) {
     <div
       style={{
         display: "flex",
-        alignItems: "center",
+        alignItems: "flex-start",
         gap: 8,
         padding: "6px 0",
         borderBottom: "1px solid #f8f8f8",
@@ -79,59 +81,92 @@ export function ListItemRow({ item }: ListItemRowProps) {
         checked={isDone}
         disabled={loading}
         onChange={toggleStatus}
-        style={{ width: 16, height: 16, accentColor: "#16a34a", cursor: "pointer" }}
+        style={{ width: 16, height: 16, accentColor: "#16a34a", cursor: "pointer", marginTop: 2 }}
       />
-      {editing ? (
-        <input
-          type="text"
-          value={editTitle}
-          onChange={(e) => setEditTitle(e.target.value)}
-          onBlur={() => {
-            if (cancelEdit.current) {
-              cancelEdit.current = false;
-              return;
-            }
-            saveTitle();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") saveTitle();
-            if (e.key === "Escape") {
-              cancelEdit.current = true;
-              setEditTitle(item.title);
-              setEditing(false);
-            }
-          }}
-          autoFocus
-          style={{
-            flex: 1,
-            fontSize: 14,
-            padding: "2px 4px",
-            border: "1px solid #0070f3",
-            borderRadius: 4,
-            outline: "none",
-            fontFamily: "inherit",
-          }}
-        />
-      ) : (
-        <span
-          onClick={() => {
-            if (!isDone) {
-              cancelEdit.current = false;
-              setEditTitle(item.title);
-              setEditing(true);
-            }
-          }}
-          style={{
-            flex: 1,
-            fontSize: 14,
-            color: isDone ? "#999" : "#333",
-            textDecoration: isDone ? "line-through" : "none",
-            cursor: isDone ? "default" : "text",
-          }}
-        >
-          {item.title}
-        </span>
-      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        {editing ? (
+          <input
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onBlur={() => {
+              if (cancelEdit.current) {
+                cancelEdit.current = false;
+                return;
+              }
+              saveTitle();
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveTitle();
+              if (e.key === "Escape") {
+                cancelEdit.current = true;
+                setEditTitle(item.title);
+                setEditing(false);
+              }
+            }}
+            autoFocus
+            style={{
+              width: "100%",
+              fontSize: 14,
+              padding: "2px 4px",
+              border: "1px solid #0070f3",
+              borderRadius: 4,
+              outline: "none",
+              fontFamily: "inherit",
+            }}
+          />
+        ) : (
+          <span
+            onClick={() => {
+              if (!isDone) {
+                cancelEdit.current = false;
+                setEditTitle(item.title);
+                setEditing(true);
+              }
+            }}
+            style={{
+              fontSize: 14,
+              color: isDone ? "#999" : "#333",
+              textDecoration: isDone ? "line-through" : "none",
+              cursor: isDone ? "default" : "text",
+            }}
+          >
+            {item.title}
+          </span>
+        )}
+        {item.url && (
+          <a
+            href={item.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              display: "block",
+              fontSize: 12,
+              color: "#0070f3",
+              textDecoration: "none",
+              marginTop: 2,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {item.url}
+          </a>
+        )}
+        {item.description && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "#666",
+              margin: "2px 0 0",
+              lineHeight: 1.4,
+            }}
+          >
+            {item.description}
+          </p>
+        )}
+      </div>
       {isDone && (
         <span
           onClick={handleDelete}

@@ -72,6 +72,9 @@ export const getList = query({
         status: item.status,
         position: item.position,
         completedAt: item.completedAt,
+        url: item.url,
+        description: item.description,
+        properties: item.properties,
       })),
     };
   },
