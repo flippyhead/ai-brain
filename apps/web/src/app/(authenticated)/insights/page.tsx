@@ -23,6 +23,7 @@ export default function InsightsPage() {
     {},
   );
   const allReports = useQuery(api.models.reports.public.listReports, {});
+  const allInsights = useQuery(api.models.reports.public.listAllInsights, {});
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr + "T00:00:00");
@@ -31,13 +32,14 @@ export default function InsightsPage() {
 
   return (
     <div>
-      {/* Tabs */}
+      {/* Tabs + Clear All */}
       <div
         style={{
           display: "flex",
           gap: 0,
-          marginBottom: 24,
+          marginBottom: showClearAll ? 0 : 24,
           borderBottom: "1px solid #eee",
+          alignItems: "center",
         }}
       >
         <button
@@ -81,7 +83,80 @@ export default function InsightsPage() {
             </span>
           )}
         </button>
+        {allInsights && allInsights.length > 0 && (
+          <button
+            onClick={() => setShowClearAll(!showClearAll)}
+            style={{
+              marginLeft: "auto",
+              padding: "4px 12px",
+              borderRadius: 4,
+              border: "1px solid #ddd",
+              background: showClearAll ? "#ffebee" : "#fff",
+              color: "#d32f2f",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            Clear All ({allInsights.length})
+          </button>
+        )}
       </div>
+
+      {/* Clear All confirmation */}
+      {showClearAll && allInsights && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 12px",
+            marginBottom: 24,
+            backgroundColor: "#ffebee",
+            borderRadius: "0 0 4px 4px",
+            border: "1px solid #ef5350",
+            borderTop: "none",
+          }}
+        >
+          <span style={{ fontSize: 13, color: "#c62828" }}>
+            Permanently delete all {allInsights.length} insights (all statuses)?
+          </span>
+          <button
+            disabled={clearing}
+            onClick={async () => {
+              setClearing(true);
+              for (const insight of allInsights) {
+                await deleteInsight({ insightId: insight._id });
+              }
+              setClearing(false);
+              setShowClearAll(false);
+            }}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 4,
+              border: "none",
+              background: "#d32f2f",
+              color: "#fff",
+              cursor: clearing ? "wait" : "pointer",
+              fontSize: 13,
+            }}
+          >
+            {clearing ? "Deleting..." : "Confirm"}
+          </button>
+          <button
+            onClick={() => setShowClearAll(false)}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 4,
+              border: "1px solid #ddd",
+              background: "#fff",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* Latest Report Tab */}
       {tab === "latest" && (
@@ -172,82 +247,11 @@ export default function InsightsPage() {
           ) : unresolvedInsights.length === 0 ? (
             <p style={{ color: "#666" }}>All caught up! No unresolved insights.</p>
           ) : (
-            <>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                {!showClearAll ? (
-                  <button
-                    onClick={() => setShowClearAll(true)}
-                    style={{
-                      padding: "4px 12px",
-                      borderRadius: 4,
-                      border: "1px solid #ddd",
-                      background: "#fff",
-                      color: "#d32f2f",
-                      cursor: "pointer",
-                      fontSize: 13,
-                    }}
-                  >
-                    Clear All
-                  </button>
-                ) : (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "8px 12px",
-                      backgroundColor: "#ffebee",
-                      borderRadius: 4,
-                      border: "1px solid #ef5350",
-                    }}
-                  >
-                    <span style={{ fontSize: 13, color: "#c62828" }}>
-                      Delete all {unresolvedInsights.length} insights?
-                    </span>
-                    <button
-                      disabled={clearing}
-                      onClick={async () => {
-                        setClearing(true);
-                        for (const insight of unresolvedInsights) {
-                          await deleteInsight({ insightId: insight._id });
-                        }
-                        setClearing(false);
-                        setShowClearAll(false);
-                      }}
-                      style={{
-                        padding: "4px 12px",
-                        borderRadius: 4,
-                        border: "none",
-                        background: "#d32f2f",
-                        color: "#fff",
-                        cursor: clearing ? "wait" : "pointer",
-                        fontSize: 13,
-                      }}
-                    >
-                      {clearing ? "Deleting..." : "Confirm"}
-                    </button>
-                    <button
-                      onClick={() => setShowClearAll(false)}
-                      style={{
-                        padding: "4px 12px",
-                        borderRadius: 4,
-                        border: "1px solid #ddd",
-                        background: "#fff",
-                        cursor: "pointer",
-                        fontSize: 13,
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {unresolvedInsights.map((insight) => (
-                  <InsightCard key={insight._id} insight={insight} />
-                ))}
-              </div>
-            </>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {unresolvedInsights.map((insight) => (
+                <InsightCard key={insight._id} insight={insight} />
+              ))}
+            </div>
           )}
         </div>
       )}

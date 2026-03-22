@@ -114,6 +114,26 @@ export const listUnresolvedInsights = query({
   },
 });
 
+export const listAllInsights = query({
+  args: {},
+  returns: v.array(insightReturn),
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const [newI, notedI, doneI, dismissedI] = await Promise.all([
+      _listInsightsByUserAndStatus(ctx, userId, "new"),
+      _listInsightsByUserAndStatus(ctx, userId, "noted"),
+      _listInsightsByUserAndStatus(ctx, userId, "done"),
+      _listInsightsByUserAndStatus(ctx, userId, "dismissed"),
+    ]);
+
+    const combined = [...newI, ...notedI, ...doneI, ...dismissedI];
+    combined.sort((a, b) => b._creationTime - a._creationTime);
+    return combined;
+  },
+});
+
 export const updateInsightStatus = mutation({
   args: {
     insightId: v.id("insights"),
