@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
 import { useState } from "react";
 import { InsightCard } from "@/features/insights/components/InsightCard";
@@ -9,6 +9,9 @@ type Tab = "latest" | "unresolved";
 
 export default function InsightsPage() {
   const [tab, setTab] = useState<Tab>("latest");
+  const [showClearAll, setShowClearAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const deleteInsight = useMutation(api.models.reports.public.deleteInsight);
 
   const latestReport = useQuery(api.models.reports.public.getLatestReport, {});
   const reportInsights = useQuery(
@@ -169,11 +172,82 @@ export default function InsightsPage() {
           ) : unresolvedInsights.length === 0 ? (
             <p style={{ color: "#666" }}>All caught up! No unresolved insights.</p>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {unresolvedInsights.map((insight) => (
-                <InsightCard key={insight._id} insight={insight} />
-              ))}
-            </div>
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                {!showClearAll ? (
+                  <button
+                    onClick={() => setShowClearAll(true)}
+                    style={{
+                      padding: "4px 12px",
+                      borderRadius: 4,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                      color: "#d32f2f",
+                      cursor: "pointer",
+                      fontSize: 13,
+                    }}
+                  >
+                    Clear All
+                  </button>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      backgroundColor: "#ffebee",
+                      borderRadius: 4,
+                      border: "1px solid #ef5350",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, color: "#c62828" }}>
+                      Delete all {unresolvedInsights.length} insights?
+                    </span>
+                    <button
+                      disabled={clearing}
+                      onClick={async () => {
+                        setClearing(true);
+                        for (const insight of unresolvedInsights) {
+                          await deleteInsight({ insightId: insight._id });
+                        }
+                        setClearing(false);
+                        setShowClearAll(false);
+                      }}
+                      style={{
+                        padding: "4px 12px",
+                        borderRadius: 4,
+                        border: "none",
+                        background: "#d32f2f",
+                        color: "#fff",
+                        cursor: clearing ? "wait" : "pointer",
+                        fontSize: 13,
+                      }}
+                    >
+                      {clearing ? "Deleting..." : "Confirm"}
+                    </button>
+                    <button
+                      onClick={() => setShowClearAll(false)}
+                      style={{
+                        padding: "4px 12px",
+                        borderRadius: 4,
+                        border: "1px solid #ddd",
+                        background: "#fff",
+                        cursor: "pointer",
+                        fontSize: 13,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {unresolvedInsights.map((insight) => (
+                  <InsightCard key={insight._id} insight={insight} />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}

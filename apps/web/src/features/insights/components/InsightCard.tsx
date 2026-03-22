@@ -45,8 +45,10 @@ interface InsightCardProps {
 
 export function InsightCard({ insight }: InsightCardProps) {
   const updateStatus = useMutation(api.models.reports.public.updateInsightStatus);
+  const deleteInsightMutation = useMutation(api.models.reports.public.deleteInsight);
   const [showEvidence, setShowEvidence] = useState(false);
   const [showDismiss, setShowDismiss] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string>("");
   const [dismissText, setDismissText] = useState("");
   const [saved, setSaved] = useState(false);
@@ -83,6 +85,10 @@ export function InsightCard({ insight }: InsightCardProps) {
   const handleUndo = async () => {
     await updateStatus({ insightId: insight._id, status: "noted" });
     resetDismissForm();
+  };
+
+  const handleDelete = async () => {
+    await deleteInsightMutation({ insightId: insight._id });
   };
 
   return (
@@ -237,6 +243,21 @@ export function InsightCard({ insight }: InsightCardProps) {
           >
             Dismiss
           </button>
+          <button
+            onClick={() => setShowDeleteConfirm(!showDeleteConfirm)}
+            style={{
+              padding: "4px 12px",
+              borderRadius: 4,
+              border: "1px solid #ddd",
+              background: showDeleteConfirm ? "#ffebee" : "#fff",
+              cursor: "pointer",
+              fontSize: 13,
+              color: "#d32f2f",
+              marginLeft: "auto",
+            }}
+          >
+            Delete
+          </button>
         </div>
       )}
 
@@ -256,6 +277,52 @@ export function InsightCard({ insight }: InsightCardProps) {
           >
             Undo
           </button>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {showDeleteConfirm && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: 12,
+            backgroundColor: "#ffebee",
+            borderRadius: 4,
+            border: "1px solid #ef5350",
+          }}
+        >
+          <p style={{ margin: "0 0 8px", fontSize: 13, color: "#c62828" }}>
+            Delete this insight permanently?
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={handleDelete}
+              style={{
+                padding: "6px 16px",
+                borderRadius: 4,
+                border: "none",
+                background: "#d32f2f",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              Delete
+            </button>
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              style={{
+                padding: "6px 16px",
+                borderRadius: 4,
+                border: "1px solid #ddd",
+                background: "#fff",
+                cursor: "pointer",
+                fontSize: 13,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
