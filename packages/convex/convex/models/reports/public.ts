@@ -188,6 +188,41 @@ export const deleteInsight = mutation({
     if (!insight || insight.userId !== userId) throw new Error("Insight not found");
 
     await ctx.db.delete(args.insightId);
+
+    // If the report has no remaining insights, delete it too
+    const remainingInsights = await _listInsightsByReport(ctx, insight.reportId);
+    if (remainingInsights.length === 0) {
+      await ctx.db.delete(insight.reportId);
+    }
+
+    return null;
+  },
+});
+
+export const clearAllInsightsAndReports = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // Delete all insights
+    const [newI, notedI, doneI, dismissedI] = await Promise.all([
+      _listInsightsByUserAndStatus(ctx, userId, "new"),
+      _listInsightsByUserAndStatus(ctx, userId, "noted"),
+      _listInsightsByUserAndStatus(ctx, userId, "done"),
+      _listInsightsByUserAndStatus(ctx, userId, "dismissed"),
+    ]);
+    const allInsights = [...newI, ...notedI, ...doneI, ...dismissedI];
+    for (const insight of allInsights) {
+      await ctx.db.delete(insight._id);
+    }
+
+    // Delete all reports
+    const reports = await _listReportsByUser(ctx, userId);
+    for (const report of reports) {
+      await ctx.db.delete(report._id);
+    }
+
     return null;
   },
 });

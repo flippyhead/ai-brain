@@ -11,7 +11,7 @@ export default function InsightsPage() {
   const [tab, setTab] = useState<Tab>("latest");
   const [showClearAll, setShowClearAll] = useState(false);
   const [clearing, setClearing] = useState(false);
-  const deleteInsight = useMutation(api.models.reports.public.deleteInsight);
+  const clearAll = useMutation(api.models.reports.public.clearAllInsightsAndReports);
 
   const latestReport = useQuery(api.models.reports.public.getLatestReport, {});
   const reportInsights = useQuery(
@@ -118,15 +118,13 @@ export default function InsightsPage() {
           }}
         >
           <span style={{ fontSize: 13, color: "#c62828" }}>
-            Permanently delete all {allInsights.length} insights (all statuses)?
+            Permanently delete all {allInsights.length} insights and their reports?
           </span>
           <button
             disabled={clearing}
             onClick={async () => {
               setClearing(true);
-              for (const insight of allInsights) {
-                await deleteInsight({ insightId: insight._id });
-              }
+              await clearAll({});
               setClearing(false);
               setShowClearAll(false);
             }}
