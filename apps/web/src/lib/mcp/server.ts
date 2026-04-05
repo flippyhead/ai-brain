@@ -79,6 +79,7 @@ export function createMcpServer(userId: string) {
             ),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
       };
     },
   );
@@ -158,6 +159,7 @@ export function createMcpServer(userId: string) {
             ),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
       };
     },
   );
@@ -369,6 +371,7 @@ export function createMcpServer(userId: string) {
             ),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
       };
     },
   );
@@ -491,6 +494,7 @@ export function createMcpServer(userId: string) {
             text: JSON.stringify(results, null, 2),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 100000 },
       };
     },
   );
@@ -548,6 +552,7 @@ export function createMcpServer(userId: string) {
             ].join("\n"),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
       };
     },
   );
@@ -711,6 +716,7 @@ export function createMcpServer(userId: string) {
             text: lines.join("\n"),
           },
         ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
       };
     },
   );
