@@ -165,6 +165,70 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
+    MCP_TOOL_NAMES.getThoughts,
+    "Fetch full content for specific thought IDs. Use after `search_thoughts` to hydrate only the results that matter. Always batch multiple IDs in a single call.",
+    {
+      ids: z
+        .array(z.string())
+        .min(1)
+        .max(50)
+        .describe("Thought IDs (from a prior search_thoughts call)"),
+    },
+    async ({ ids }) => {
+      type Thought = {
+        _id: string;
+        content: string;
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
+        createdAt: number;
+        updatedAt?: number;
+      };
+      const results: Thought[] = await convex.action(
+        api.models.thoughts.mcpActions.getByIds,
+        { userId: userId as never, ids: ids as never },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No thoughts found for the provided IDs.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              results.map((r) => ({
+                id: r._id,
+                content: r.content,
+                metadata: r.metadata,
+                createdAt: new Date(r.createdAt).toISOString(),
+                updatedAt: r.updatedAt
+                  ? new Date(r.updatedAt).toISOString()
+                  : undefined,
+              })),
+              null,
+              2,
+            ),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
+      };
+    },
+  );
+
+  server.tool(
     MCP_TOOL_NAMES.getStats,
     "Get overview statistics of what's stored in your brain",
     {},
