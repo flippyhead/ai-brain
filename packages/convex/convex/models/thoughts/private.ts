@@ -116,3 +116,23 @@ export const searchByText = internalQuery({
     return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
+
+export const getByIds = internalQuery({
+  args: { ids: v.array(v.id("thoughts")) },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const docs = await Promise.all(args.ids.map((id) => ctx.db.get(id)));
+    return docs
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .map(({ embedding: _embedding, ...rest }) => rest);
+  },
+});
