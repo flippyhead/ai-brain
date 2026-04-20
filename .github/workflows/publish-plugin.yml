@@ -1,0 +1,97 @@
+name: Publish Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag (e.g. v3.0.0-rc.1)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine source ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout source (at tag)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.ref.outputs.tag }}
+          path: source
+
+      - name: Configure SSH for distribution repo
+        env:
+          DEPLOY_KEY: ${{ secrets.AI_BRAIN_PLUGIN_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Clone distribution repo
+        run: git clone git@github.com:flippyhead/ai-brain-plugin.git dist
+
+      - name: Clear distribution contents (preserve .git and README.md)
+        run: |
+          cd dist
+          shopt -s dotglob
+          for item in *; do
+            case "$item" in
+              .git|README.md) continue ;;
+              *) rm -rf -- "$item" ;;
+            esac
+          done
+
+      - name: Copy plugin source into distribution
+        run: |
+          cp -R source/plugins/ai-brain/. dist/
+
+      - name: Generate flat marketplace.json in distribution
+        run: |
+          cd source
+          node .github/scripts/generate-dist-marketplace.mjs ../dist/.claude-plugin/marketplace.json
+
+      - name: Configure git in dist
+        run: |
+          cd dist
+          git config user.name "ai-brain CI"
+          git config user.email "ci@ai-brain.local"
+
+      - name: Commit and tag
+        id: publish
+        run: |
+          cd dist
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes — skipping commit/tag."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAG="${{ steps.ref.outputs.tag }}"
+          git commit -m "release: ai-brain ${TAG} (from flippyhead/ai-brain@${TAG})"
+          git tag "${TAG}"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Push commit and tag to distribution
+        if: steps.publish.outputs.changed == 'true'
+        run: |
+          cd dist
+          git push origin main
+          git push origin "${{ steps.ref.outputs.tag }}"
+
+      - name: Summary
+        run: |
+          echo "Source tag: ${{ steps.ref.outputs.tag }}"
+          echo "Distribution: https://github.com/flippyhead/ai-brain-plugin"
+          echo "Changed: ${{ steps.publish.outputs.changed }}"
