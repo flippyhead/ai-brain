@@ -1,0 +1,19 @@
+{
+  "name": "ai-brain",
+  "description": "Personal AI memory — hybrid search, timeline retrieval, citable thoughts. Captures, syncs, and synthesizes your knowledge across sessions.",
+  "version": "3.0.0",
+  "author": {
+    "name": "Peter Brown",
+    "url": "https://ptb.io"
+  },
+  "repository": "https://github.com/flippyhead/ai-brain",
+  "license": "MIT",
+  "keywords": [
+    "brain",
+    "memory",
+    "knowledge",
+    "onboarding",
+    "review",
+    "mcp"
+  ]
+}

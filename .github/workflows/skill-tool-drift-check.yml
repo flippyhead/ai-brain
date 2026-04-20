@@ -1,0 +1,28 @@
+name: Skill-Tool Drift Check
+
+on:
+  pull_request:
+    paths:
+      - "plugins/ai-brain/**"
+      - "apps/web/src/lib/mcp/tools.ts"
+      - ".github/scripts/skill-tool-drift-check.mjs"
+      - ".github/workflows/skill-tool-drift-check.yml"
+  push:
+    branches: [main]
+    paths:
+      - "plugins/ai-brain/**"
+      - "apps/web/src/lib/mcp/tools.ts"
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run skill-tool drift check
+        run: node .github/scripts/skill-tool-drift-check.mjs

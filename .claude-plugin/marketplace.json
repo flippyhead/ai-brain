@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-brain",
+  "description": "AI Brain — personal memory layer for Claude Code.",
+  "owner": {
+    "name": "Peter Brown",
+    "email": "peter@wagglelabs.com"
+  },
+  "plugins": [
+    {
+      "name": "ai-brain",
+      "description": "Personal AI memory — hybrid search, timeline retrieval, citable thoughts.",
+      "version": "3.0.0",
+      "author": { "name": "Peter Brown" },
+      "source": "./plugins/ai-brain"
+    }
+  ]
+}
