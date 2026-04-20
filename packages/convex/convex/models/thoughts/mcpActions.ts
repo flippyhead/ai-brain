@@ -78,10 +78,12 @@ export const search = action({
     return hits.map((h) => ({
       _id: h._id,
       summary: h.metadata.summary,
-      snippet:
-        h.content.length > SNIPPET_CHARS
-          ? h.content.slice(0, SNIPPET_CHARS) + "…"
-          : h.content,
+      snippet: (() => {
+        const chars = Array.from(h.content);
+        return chars.length > SNIPPET_CHARS
+          ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
+          : h.content;
+      })(),
       type: h.metadata.type,
       topics: h.metadata.topics,
       score: h.score,
