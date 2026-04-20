@@ -23,11 +23,15 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 async function readRegisteredTools() {
   const toolsPath = join(repoRoot, "apps/web/src/lib/mcp/tools.ts");
   const src = await readFile(toolsPath, "utf-8");
-  // Extract string values from MCP_TOOL_NAMES: e.g. searchThoughts: "search_thoughts"
-  const regex = /:\s*"([a-z_]+)"/g;
+  const blockMatch = src.match(/MCP_TOOL_NAMES\s*=\s*\{([\s\S]*?)\}/);
+  if (!blockMatch) {
+    throw new Error(`Could not find MCP_TOOL_NAMES block in ${toolsPath}`);
+  }
+  // Match string values inside MCP_TOOL_NAMES: e.g. searchThoughts: "search_thoughts"
+  const regex = /:\s*"([a-z0-9_]+)"/g;
   const registered = new Set();
   let match;
-  while ((match = regex.exec(src)) !== null) {
+  while ((match = regex.exec(blockMatch[1])) !== null) {
     registered.add(match[1]);
   }
   if (registered.size === 0) {
@@ -61,8 +65,8 @@ async function collectHookFiles() {
 }
 
 function extractSkillToolRefs(src) {
-  // Matches mcp__ai-brain__<tool_name> with tool names being snake_case
-  const regex = /mcp__ai-brain__([a-z_]+)/g;
+  // Matches mcp__ai-brain__<tool_name> with tool names being snake_case (digits allowed)
+  const regex = /mcp__ai-brain__([a-z0-9_]+)/g;
   const refs = new Set();
   let match;
   while ((match = regex.exec(src)) !== null) {
@@ -72,8 +76,8 @@ function extractSkillToolRefs(src) {
 }
 
 function extractHookToolRefs(src) {
-  // Matches name: "tool_name" in tools/call params
-  const regex = /name:\s*"([a-z_]+)"/g;
+  // Only match `name: "tool_name"` when preceded by `method: "tools/call"` within the same call params.
+  const regex = /method:\s*"tools\/call"[\s\S]{0,500}?name:\s*"([a-z0-9_]+)"/g;
   const refs = new Set();
   let match;
   while ((match = regex.exec(src)) !== null) {
