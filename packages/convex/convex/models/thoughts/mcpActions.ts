@@ -9,6 +9,15 @@ import { thoughtMetadata } from "./validators";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const internal = _internal as any;
 
+const SNIPPET_CHARS = 240;
+
+function truncateSnippet(content: string): string {
+  const chars = Array.from(content);
+  return chars.length > SNIPPET_CHARS
+    ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
+    : content;
+}
+
 // Public actions for MCP endpoint — accept userId as parameter
 // (auth is handled by API key validation in the Next.js API route)
 
@@ -58,7 +67,6 @@ export const search = action({
     }),
   ),
   handler: async (ctx, args) => {
-    const SNIPPET_CHARS = 240;
     const hits: Array<{
       _id: Id<"thoughts">;
       content: string;
@@ -78,12 +86,7 @@ export const search = action({
     return hits.map((h) => ({
       _id: h._id,
       summary: h.metadata.summary,
-      snippet: (() => {
-        const chars = Array.from(h.content);
-        return chars.length > SNIPPET_CHARS
-          ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
-          : h.content;
-      })(),
+      snippet: truncateSnippet(h.content),
       type: h.metadata.type,
       topics: h.metadata.topics,
       score: h.score,
@@ -161,13 +164,13 @@ export const timeline = action({
     }),
   ),
   handler: async (ctx, args) => {
-    const SNIPPET_CHARS = 240;
-    const before = args.before ?? 5;
-    const after = args.after ?? 5;
+    const MAX_WINDOW = 50;
+    const before = Math.min(args.before ?? 5, MAX_WINDOW);
+    const after = Math.min(args.after ?? 5, MAX_WINDOW);
 
     // Resolve pivot timestamp
     let aroundMs = args.aroundMs;
-    if (!aroundMs) {
+    if (aroundMs === undefined) {
       if (!args.seedId) {
         throw new Error("Either seedId or aroundMs is required");
       }
@@ -200,12 +203,7 @@ export const timeline = action({
     return docs.map((d) => ({
       _id: d._id,
       summary: d.metadata.summary,
-      snippet: (() => {
-        const chars = Array.from(d.content);
-        return chars.length > SNIPPET_CHARS
-          ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
-          : d.content;
-      })(),
+      snippet: truncateSnippet(d.content),
       type: d.metadata.type,
       topics: d.metadata.topics,
       createdAt: d._creationTime,
