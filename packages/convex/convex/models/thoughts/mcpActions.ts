@@ -2,7 +2,8 @@
 
 import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
-import { v } from "convex/values";
+import type { Id } from "../../_generated/dataModel";
+import { v, type Infer } from "convex/values";
 import { thoughtMetadata } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -74,16 +75,10 @@ export const getByIds = action({
   ),
   handler: async (ctx, args) => {
     const docs: Array<{
-      _id: string;
+      _id: Id<"thoughts">;
       _creationTime: number;
       content: string;
-      metadata: {
-        type: "decision" | "person_note" | "idea" | "meeting_note" | "task" | "reference";
-        topics: string[];
-        people: string[];
-        actionItems: string[];
-        summary: string;
-      };
+      metadata: Infer<typeof thoughtMetadata>;
       userId: string;
       updatedAt?: number;
     }> = await ctx.runQuery(
@@ -95,7 +90,7 @@ export const getByIds = action({
     return docs
       .filter((d) => d.userId === args.userId)
       .map((d) => ({
-        _id: d._id as any,
+        _id: d._id,
         content: d.content,
         metadata: d.metadata,
         createdAt: d._creationTime,
