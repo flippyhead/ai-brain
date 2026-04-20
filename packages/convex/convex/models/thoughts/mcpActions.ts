@@ -57,3 +57,49 @@ export const search = action({
     );
   },
 });
+
+export const getByIds = action({
+  args: {
+    userId: v.id("users"),
+    ids: v.array(v.id("thoughts")),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      createdAt: v.number(),
+      updatedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const docs: Array<{
+      _id: string;
+      _creationTime: number;
+      content: string;
+      metadata: {
+        type: "decision" | "person_note" | "idea" | "meeting_note" | "task" | "reference";
+        topics: string[];
+        people: string[];
+        actionItems: string[];
+        summary: string;
+      };
+      userId: string;
+      updatedAt?: number;
+    }> = await ctx.runQuery(
+      internal.models.thoughts.private.getByIds,
+      { ids: args.ids },
+    );
+
+    // Enforce ownership — drop any doc that doesn't belong to caller
+    return docs
+      .filter((d) => d.userId === args.userId)
+      .map((d) => ({
+        _id: d._id as any,
+        content: d.content,
+        metadata: d.metadata,
+        createdAt: d._creationTime,
+        updatedAt: d.updatedAt,
+      }));
+  },
+});
