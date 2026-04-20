@@ -136,3 +136,52 @@ export const getByIds = internalQuery({
       .map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
+
+export const listAroundTime = internalQuery({
+  args: {
+    userId: v.id("users"),
+    aroundMs: v.number(),
+    before: v.number(),
+    after: v.number(),
+    type: v.optional(thoughtType),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const indexName = args.type ? "by_userId_and_type" : "by_userId";
+
+    const buildIndex = (q: any) => {
+      if (args.type) {
+        return q.eq("userId", args.userId).eq("metadata.type", args.type);
+      }
+      return q.eq("userId", args.userId);
+    };
+
+    // Older-than-or-equal-to aroundMs, most recent first, take `before`
+    const earlier = await ctx.db
+      .query("thoughts")
+      .withIndex(indexName, buildIndex)
+      .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
+      .order("desc")
+      .take(args.before);
+
+    // Strictly newer than aroundMs, oldest first, take `after`
+    const later = await ctx.db
+      .query("thoughts")
+      .withIndex(indexName, buildIndex)
+      .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
+      .order("asc")
+      .take(args.after);
+
+    const combined = [...earlier.reverse(), ...later];
+    return combined.map(({ embedding: _embedding, ...rest }) => rest);
+  },
+});
