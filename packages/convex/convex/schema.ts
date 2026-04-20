@@ -14,6 +14,10 @@ export default defineSchema({
       vectorField: "embedding",
       dimensions: 1536,
       filterFields: ["userId"],
+    })
+    .searchIndex("by_content", {
+      searchField: "content",
+      filterFields: ["userId", "metadata.type"],
     }),
   apiKeys: defineTable(apiKeyFields)
     .index("by_keyHash", ["keyHash"])
