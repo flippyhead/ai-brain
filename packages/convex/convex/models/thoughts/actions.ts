@@ -265,65 +265,6 @@ export const captureThought = internalAction({
   },
 });
 
-export const searchByVector = internalAction({
-  args: {
-    userId: v.id("users"),
-    query: v.string(),
-    threshold: v.optional(v.number()),
-    limit: v.optional(v.number()),
-  },
-  returns: v.array(
-    v.object({
-      _id: v.id("thoughts"),
-      content: v.string(),
-      metadata: thoughtMetadata,
-      score: v.float64(),
-      createdAt: v.number(),
-    }),
-  ),
-  handler: async (ctx, args) => {
-    const threshold = args.threshold ?? 0.5;
-    const limit = args.limit ?? 10;
-
-    const embedding = await ctx.runAction(
-      internal.models.thoughts.helpers.generateEmbedding,
-      { text: args.query },
-    );
-
-    const results = await ctx.vectorSearch("thoughts", "by_embedding", {
-      vector: embedding,
-      limit: 256,
-      filter: (q) => q.eq("userId", args.userId),
-    });
-
-    // Post-filter by threshold and limit
-    const filtered = results
-      .filter((r) => r._score >= threshold)
-      .slice(0, limit);
-
-    // Fetch full documents
-    const docs = await Promise.all(
-      filtered.map(async (r) => {
-        const doc = await ctx.runQuery(
-          internal.models.thoughts.private.getById,
-          { id: r._id },
-        );
-        return doc
-          ? {
-              _id: r._id,
-              content: doc.content,
-              metadata: doc.metadata,
-              score: r._score,
-              createdAt: doc._creationTime,
-            }
-          : null;
-      }),
-    );
-
-    return docs.filter((d): d is NonNullable<typeof d> => d !== null);
-  },
-});
-
 export const hybridSearch = internalAction({
   args: {
     userId: v.id("users"),

@@ -30,7 +30,6 @@ export const capture = action({
 export const search = action({
   args: {
     query: v.string(),
-    threshold: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
   returns: v.array(
@@ -47,11 +46,10 @@ export const search = action({
     if (!userId) throw new Error("Not authenticated");
 
     return await ctx.runAction(
-      internal.models.thoughts.actions.searchByVector,
+      internal.models.thoughts.actions.hybridSearch,
       {
         userId,
         query: args.query,
-        threshold: args.threshold,
         limit: args.limit,
       },
     );
