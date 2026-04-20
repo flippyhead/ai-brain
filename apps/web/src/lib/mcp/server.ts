@@ -287,6 +287,17 @@ export function createMcpServer(userId: string) {
           isError: true,
         };
       }
+      if (seedId && aroundMs !== undefined) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: provide only one of `seedId` or `aroundMs`, not both.",
+            },
+          ],
+          isError: true,
+        };
+      }
 
       type IndexRow = {
         _id: string;

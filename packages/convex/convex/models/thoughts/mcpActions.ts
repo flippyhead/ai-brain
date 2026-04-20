@@ -172,6 +172,10 @@ export const timeline = action({
     const before = Math.min(args.before ?? 5, MAX_WINDOW);
     const after = Math.min(args.after ?? 5, MAX_WINDOW);
 
+    if (args.seedId !== undefined && args.aroundMs !== undefined) {
+      throw new Error("Provide only one of seedId or aroundMs, not both");
+    }
+
     // Resolve pivot timestamp. If seedId is provided, also keep the seed
     // doc so we can splice it into the result (listAroundTime uses strict
     // < / > bounds and excludes the anchor).
