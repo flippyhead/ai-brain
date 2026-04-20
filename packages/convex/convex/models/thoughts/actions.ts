@@ -2,8 +2,9 @@
 
 import { internalAction } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
-import { v } from "convex/values";
-import { thoughtMetadata } from "./validators";
+import type { Id } from "../../_generated/dataModel";
+import { v, type Infer } from "convex/values";
+import { thoughtMetadata, thoughtType } from "./validators";
 import {
   SIMILARITY_THRESHOLD,
   MAX_CANDIDATES,
@@ -265,11 +266,11 @@ export const captureThought = internalAction({
   },
 });
 
-export const searchByVector = internalAction({
+export const hybridSearch = internalAction({
   args: {
     userId: v.id("users"),
     query: v.string(),
-    threshold: v.optional(v.number()),
+    type: v.optional(thoughtType),
     limit: v.optional(v.number()),
   },
   returns: v.array(
@@ -282,44 +283,96 @@ export const searchByVector = internalAction({
     }),
   ),
   handler: async (ctx, args) => {
-    const threshold = args.threshold ?? 0.5;
     const limit = args.limit ?? 10;
+    const candidateCap = 50;
+    const K = 60; // RRF constant
 
+    // Generate embedding once; run vector + text in parallel
     const embedding = await ctx.runAction(
       internal.models.thoughts.helpers.generateEmbedding,
       { text: args.query },
     );
 
-    const results = await ctx.vectorSearch("thoughts", "by_embedding", {
-      vector: embedding,
-      limit: 256,
-      filter: (q) => q.eq("userId", args.userId),
+    const [vectorHits, textHits] = await Promise.all([
+      ctx.vectorSearch("thoughts", "by_embedding", {
+        vector: embedding,
+        limit: candidateCap,
+        filter: (q) => q.eq("userId", args.userId),
+      }),
+      ctx.runQuery(internal.models.thoughts.private.searchByText, {
+        userId: args.userId,
+        query: args.query,
+        type: args.type,
+        limit: candidateCap,
+      }),
+    ]);
+
+    // If type filter is set, we need vector hits' types too. Convex
+    // vectorSearch does not support filtering on object fields like
+    // metadata.type, so we post-filter. Text hits already respect the
+    // type filter. Batch-fetch via getByIds to avoid N+1 round-trips.
+    let filteredVectorHits = vectorHits;
+    if (args.type) {
+      const vectorIds = vectorHits.map((h) => h._id);
+      const fetchedDocs: Array<{
+        _id: Id<"thoughts">;
+        _creationTime: number;
+        content: string;
+        metadata: Infer<typeof thoughtMetadata>;
+        userId: string;
+        updatedAt?: number;
+      }> = await ctx.runQuery(
+        internal.models.thoughts.private.getByIds,
+        { ids: vectorIds },
+      );
+      const docById = new Map(fetchedDocs.map((d) => [d._id as string, d]));
+      filteredVectorHits = vectorHits.filter(
+        (h) => docById.get(h._id)?.metadata.type === args.type,
+      );
+    }
+
+    // Reciprocal Rank Fusion: score = Σ 1 / (K + rank) across result lists
+    const rrf = new Map<string, number>();
+    filteredVectorHits.forEach((h, rank) => {
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
+    });
+    // Cast narrows textHits to _id only; upstream `internal as any` collapses the runQuery return type.
+    (textHits as Array<{ _id: string }>).forEach((h, rank) => {
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
     });
 
-    // Post-filter by threshold and limit
-    const filtered = results
-      .filter((r) => r._score >= threshold)
-      .slice(0, limit);
+    const rankedIds = [...rrf.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([id]) => id);
 
-    // Fetch full documents
-    const docs = await Promise.all(
-      filtered.map(async (r) => {
-        const doc = await ctx.runQuery(
-          internal.models.thoughts.private.getById,
-          { id: r._id },
-        );
+    // Hydrate final ranked results with a single batch query.
+    const hydrated: Array<{
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+      userId: string;
+      updatedAt?: number;
+    }> = await ctx.runQuery(
+      internal.models.thoughts.private.getByIds,
+      { ids: rankedIds as Array<Id<"thoughts">> },
+    );
+    const hydratedById = new Map(hydrated.map((d) => [d._id as string, d]));
+
+    return rankedIds
+      .map((id) => {
+        const doc = hydratedById.get(id);
         return doc
           ? {
-              _id: r._id,
+              _id: doc._id,
               content: doc.content,
               metadata: doc.metadata,
-              score: r._score,
+              score: rrf.get(id)!,
               createdAt: doc._creationTime,
             }
           : null;
-      }),
-    );
-
-    return docs.filter((d): d is NonNullable<typeof d> => d !== null);
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
   },
 });

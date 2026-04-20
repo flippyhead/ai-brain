@@ -18,15 +18,20 @@ export function createMcpServer(userId: string) {
 
   server.tool(
     MCP_TOOL_NAMES.searchThoughts,
-    "Semantic search across all stored thoughts by meaning",
+    "Search stored thoughts by meaning AND keyword (hybrid). Returns a compact index — `id`, summary, short snippet, type, topics, score. Use `get_thoughts` to fetch full content for the IDs you care about. Cite sources as `thought:<id>` when referencing them in your response.",
     {
-      query: z.string().describe("Natural language search query"),
-      threshold: z
-        .number()
-        .min(0)
-        .max(1)
-        .default(0.5)
-        .describe("Similarity threshold (0-1)"),
+      query: z.string().describe("Natural language or keyword query"),
+      type: z
+        .enum([
+          "decision",
+          "person_note",
+          "idea",
+          "meeting_note",
+          "task",
+          "reference",
+        ])
+        .optional()
+        .describe("Optional type filter"),
       limit: z
         .number()
         .min(1)
@@ -34,20 +39,22 @@ export function createMcpServer(userId: string) {
         .default(10)
         .describe("Max results to return"),
     },
-    async ({ query, threshold, limit }) => {
-      type SearchResult = {
+    async ({ query, type, limit }) => {
+      type IndexRow = {
         _id: string;
-        content: string;
-        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        summary: string;
+        snippet: string;
+        type: string;
+        topics: string[];
         score: number;
         createdAt: number;
       };
-      const results: SearchResult[] = await convex.action(
+      const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.search,
         {
           userId: userId as never,
           query,
-          threshold,
+          type,
           limit,
         },
       );
@@ -69,9 +76,12 @@ export function createMcpServer(userId: string) {
             type: "text" as const,
             text: JSON.stringify(
               results.map((r) => ({
-                content: r.content,
-                metadata: r.metadata,
-                similarityScore: r.score,
+                id: r._id,
+                summary: r.summary,
+                snippet: r.snippet,
+                type: r.type,
+                topics: r.topics,
+                score: r.score,
                 createdAt: new Date(r.createdAt).toISOString(),
               })),
               null,
@@ -79,14 +89,14 @@ export function createMcpServer(userId: string) {
             ),
           },
         ],
-        _meta: { "anthropic/maxResultSizeChars": 200000 },
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
       };
     },
   );
 
   server.tool(
     MCP_TOOL_NAMES.browseRecent,
-    "Browse most recent thoughts, optionally filtered by type or topic",
+    "Browse most recent thoughts, optionally filtered by type or topic. Cite sources as `thought:<id>` when referencing them in your response.",
     {
       limit: z
         .number()
@@ -150,6 +160,7 @@ export function createMcpServer(userId: string) {
             type: "text" as const,
             text: JSON.stringify(
               filtered.map((t) => ({
+                id: t._id,
                 content: t.content,
                 metadata: t.metadata,
                 createdAt: new Date(t._creationTime).toISOString(),
@@ -160,6 +171,184 @@ export function createMcpServer(userId: string) {
           },
         ],
         _meta: { "anthropic/maxResultSizeChars": 200000 },
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.getThoughts,
+    "Fetch full content for specific thought IDs. Use after `search_thoughts` to hydrate only the results that matter. Always batch multiple IDs in a single call.",
+    {
+      ids: z
+        .array(z.string())
+        .min(1)
+        .max(50)
+        .describe("Thought IDs (from a prior search_thoughts call)"),
+    },
+    async ({ ids }) => {
+      type Thought = {
+        _id: string;
+        content: string;
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
+        createdAt: number;
+        updatedAt?: number;
+      };
+      const results: Thought[] = await convex.action(
+        api.models.thoughts.mcpActions.getByIds,
+        { userId: userId as never, ids: ids as never },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No thoughts found for the provided IDs.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              results.map((r) => ({
+                id: r._id,
+                content: r.content,
+                metadata: r.metadata,
+                createdAt: new Date(r.createdAt).toISOString(),
+                updatedAt: r.updatedAt
+                  ? new Date(r.updatedAt).toISOString()
+                  : undefined,
+              })),
+              null,
+              2,
+            ),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 200000 },
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.timelineThoughts,
+    "Fetch thoughts captured around a specific point in time. Provide either `seedId` (anchor on another thought) or `aroundMs` (epoch ms). Returns compact index rows ordered oldest→newest — use `get_thoughts` for full content. Cite sources as `thought:<id>`.",
+    {
+      seedId: z
+        .string()
+        .optional()
+        .describe("Thought ID to anchor the window around"),
+      aroundMs: z
+        .number()
+        .optional()
+        .describe("Epoch milliseconds to anchor the window around"),
+      before: z
+        .number()
+        .min(0)
+        .max(50)
+        .default(5)
+        .describe("How many thoughts from before the anchor"),
+      after: z
+        .number()
+        .min(0)
+        .max(50)
+        .default(5)
+        .describe("How many thoughts from after the anchor"),
+      type: z
+        .enum([
+          "decision",
+          "person_note",
+          "idea",
+          "meeting_note",
+          "task",
+          "reference",
+        ])
+        .optional()
+        .describe("Optional type filter"),
+    },
+    async ({ seedId, aroundMs, before, after, type }) => {
+      if (!seedId && aroundMs === undefined) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: provide either `seedId` or `aroundMs`.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      if (seedId && aroundMs !== undefined) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: provide only one of `seedId` or `aroundMs`, not both.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      type IndexRow = {
+        _id: string;
+        summary: string;
+        snippet: string;
+        type: string;
+        topics: string[];
+        createdAt: number;
+      };
+      const results: IndexRow[] = await convex.action(
+        api.models.thoughts.mcpActions.timeline,
+        {
+          userId: userId as never,
+          seedId: seedId as never,
+          aroundMs,
+          before,
+          after,
+          type,
+        },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No thoughts found in the requested window.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              results.map((r) => ({
+                id: r._id,
+                summary: r.summary,
+                snippet: r.snippet,
+                type: r.type,
+                topics: r.topics,
+                createdAt: new Date(r.createdAt).toISOString(),
+              })),
+              null,
+              2,
+            ),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
       };
     },
   );
@@ -297,7 +486,7 @@ export function createMcpServer(userId: string) {
 
   server.tool(
     MCP_TOOL_NAMES.getInsights,
-    "Get workflow insights, optionally filtered by status or category",
+    "Get workflow insights, optionally filtered by status or category. Cite insights as `insight:<id>` when referencing them in your response.",
     {
       status: z
         .enum(["new", "noted", "done", "dismissed"])
