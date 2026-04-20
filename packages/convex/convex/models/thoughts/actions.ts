@@ -386,6 +386,7 @@ export const hybridSearch = internalAction({
     filteredVectorHits.forEach((h, rank) => {
       rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
     });
+    // Cast narrows textHits to _id only; upstream `internal as any` collapses the runQuery return type.
     (textHits as Array<{ _id: string }>).forEach((h, rank) => {
       rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
     });
