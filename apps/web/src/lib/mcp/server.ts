@@ -96,7 +96,7 @@ export function createMcpServer(userId: string) {
 
   server.tool(
     MCP_TOOL_NAMES.browseRecent,
-    "Browse most recent thoughts, optionally filtered by type or topic",
+    "Browse most recent thoughts, optionally filtered by type or topic. Cite sources as `thought:<id>` when referencing them in your response.",
     {
       limit: z
         .number()
@@ -160,6 +160,7 @@ export function createMcpServer(userId: string) {
             type: "text" as const,
             text: JSON.stringify(
               filtered.map((t) => ({
+                id: t._id,
                 content: t.content,
                 metadata: t.metadata,
                 createdAt: new Date(t._creationTime).toISOString(),
@@ -474,7 +475,7 @@ export function createMcpServer(userId: string) {
 
   server.tool(
     MCP_TOOL_NAMES.getInsights,
-    "Get workflow insights, optionally filtered by status or category",
+    "Get workflow insights, optionally filtered by status or category. Cite insights as `insight:<id>` when referencing them in your response.",
     {
       status: z
         .enum(["new", "noted", "done", "dismissed"])
