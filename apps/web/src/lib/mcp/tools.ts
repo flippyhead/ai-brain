@@ -2,6 +2,7 @@ export const MCP_TOOL_NAMES = {
   searchThoughts: "search_thoughts",
   browseRecent: "browse_recent",
   getThoughts: "get_thoughts",
+  timelineThoughts: "timeline_thoughts",
   getStats: "get_stats",
   captureThought: "capture_thought",
   createReport: "create_report",

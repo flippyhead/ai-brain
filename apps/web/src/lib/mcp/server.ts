@@ -239,6 +239,109 @@ export function createMcpServer(userId: string) {
   );
 
   server.tool(
+    MCP_TOOL_NAMES.timelineThoughts,
+    "Fetch thoughts captured around a specific point in time. Provide either `seedId` (anchor on another thought) or `aroundMs` (epoch ms). Returns compact index rows ordered oldest→newest — use `get_thoughts` for full content. Cite sources as `thought:<id>`.",
+    {
+      seedId: z
+        .string()
+        .optional()
+        .describe("Thought ID to anchor the window around"),
+      aroundMs: z
+        .number()
+        .optional()
+        .describe("Epoch milliseconds to anchor the window around"),
+      before: z
+        .number()
+        .min(0)
+        .max(50)
+        .default(5)
+        .describe("How many thoughts from before the anchor"),
+      after: z
+        .number()
+        .min(0)
+        .max(50)
+        .default(5)
+        .describe("How many thoughts from after the anchor"),
+      type: z
+        .enum([
+          "decision",
+          "person_note",
+          "idea",
+          "meeting_note",
+          "task",
+          "reference",
+        ])
+        .optional()
+        .describe("Optional type filter"),
+    },
+    async ({ seedId, aroundMs, before, after, type }) => {
+      if (!seedId && aroundMs === undefined) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: provide either `seedId` or `aroundMs`.",
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      type IndexRow = {
+        _id: string;
+        summary: string;
+        snippet: string;
+        type: string;
+        topics: string[];
+        createdAt: number;
+      };
+      const results: IndexRow[] = await convex.action(
+        api.models.thoughts.mcpActions.timeline,
+        {
+          userId: userId as never,
+          seedId: seedId as never,
+          aroundMs,
+          before,
+          after,
+          type,
+        },
+      );
+
+      if (results.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No thoughts found in the requested window.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              results.map((r) => ({
+                id: r._id,
+                summary: r.summary,
+                snippet: r.snippet,
+                type: r.type,
+                topics: r.topics,
+                createdAt: new Date(r.createdAt).toISOString(),
+              })),
+              null,
+              2,
+            ),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
+      };
+    },
+  );
+
+  server.tool(
     MCP_TOOL_NAMES.getStats,
     "Get overview statistics of what's stored in your brain",
     {},
