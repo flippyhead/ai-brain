@@ -158,20 +158,25 @@ export const listAroundTime = internalQuery({
   handler: async (ctx, args) => {
     const type = args.type;
 
-    // Older-than-or-equal-to aroundMs, most recent first, take `before`
+    // Strictly older than aroundMs, most recent first, take `before`.
+    // _creationTime is the implicit suffix of every Convex index, so the
+    // bound can be pushed into the index builder directly.
     const earlier = type
       ? await ctx.db
           .query("thoughts")
           .withIndex("by_userId_and_type", (q) =>
-            q.eq("userId", args.userId).eq("metadata.type", type),
+            q
+              .eq("userId", args.userId)
+              .eq("metadata.type", type)
+              .lt("_creationTime", args.aroundMs),
           )
-          .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
           .order("desc")
           .take(args.before)
       : await ctx.db
           .query("thoughts")
-          .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-          .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
+          .withIndex("by_userId", (q) =>
+            q.eq("userId", args.userId).lt("_creationTime", args.aroundMs),
+          )
           .order("desc")
           .take(args.before);
 
@@ -180,15 +185,18 @@ export const listAroundTime = internalQuery({
       ? await ctx.db
           .query("thoughts")
           .withIndex("by_userId_and_type", (q) =>
-            q.eq("userId", args.userId).eq("metadata.type", type),
+            q
+              .eq("userId", args.userId)
+              .eq("metadata.type", type)
+              .gt("_creationTime", args.aroundMs),
           )
-          .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
           .order("asc")
           .take(args.after)
       : await ctx.db
           .query("thoughts")
-          .withIndex("by_userId", (q) => q.eq("userId", args.userId))
-          .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
+          .withIndex("by_userId", (q) =>
+            q.eq("userId", args.userId).gt("_creationTime", args.aroundMs),
+          )
           .order("asc")
           .take(args.after);
 

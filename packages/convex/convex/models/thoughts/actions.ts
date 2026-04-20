@@ -2,7 +2,8 @@
 
 import { internalAction } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
-import { v } from "convex/values";
+import type { Id } from "../../_generated/dataModel";
+import { v, type Infer } from "convex/values";
 import { thoughtMetadata, thoughtType } from "./validators";
 import {
   SIMILARITY_THRESHOLD,
@@ -306,19 +307,27 @@ export const hybridSearch = internalAction({
       }),
     ]);
 
-    // If type filter is set, we need vector hits' types too. Fetch docs for
-    // type-unknown vector hits now (one query each). Convex vectorSearch does
-    // not support filtering on object fields like metadata.type, so we
-    // post-filter. Text hits already respect the type filter.
+    // If type filter is set, we need vector hits' types too. Convex
+    // vectorSearch does not support filtering on object fields like
+    // metadata.type, so we post-filter. Text hits already respect the
+    // type filter. Batch-fetch via getByIds to avoid N+1 round-trips.
     let filteredVectorHits = vectorHits;
     if (args.type) {
-      const docs = await Promise.all(
-        vectorHits.map((h) =>
-          ctx.runQuery(internal.models.thoughts.private.getById, { id: h._id }),
-        ),
+      const vectorIds = vectorHits.map((h) => h._id);
+      const fetchedDocs: Array<{
+        _id: Id<"thoughts">;
+        _creationTime: number;
+        content: string;
+        metadata: Infer<typeof thoughtMetadata>;
+        userId: string;
+        updatedAt?: number;
+      }> = await ctx.runQuery(
+        internal.models.thoughts.private.getByIds,
+        { ids: vectorIds },
       );
+      const docById = new Map(fetchedDocs.map((d) => [d._id as string, d]));
       filteredVectorHits = vectorHits.filter(
-        (_h, i) => docs[i]?.metadata.type === args.type,
+        (h) => docById.get(h._id)?.metadata.type === args.type,
       );
     }
 
@@ -337,12 +346,23 @@ export const hybridSearch = internalAction({
       .slice(0, limit)
       .map(([id]) => id);
 
-    const docs = await Promise.all(
-      rankedIds.map(async (id) => {
-        const doc = await ctx.runQuery(
-          internal.models.thoughts.private.getById,
-          { id: id as any },
-        );
+    // Hydrate final ranked results with a single batch query.
+    const hydrated: Array<{
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+      userId: string;
+      updatedAt?: number;
+    }> = await ctx.runQuery(
+      internal.models.thoughts.private.getByIds,
+      { ids: rankedIds as Array<Id<"thoughts">> },
+    );
+    const hydratedById = new Map(hydrated.map((d) => [d._id as string, d]));
+
+    return rankedIds
+      .map((id) => {
+        const doc = hydratedById.get(id);
         return doc
           ? {
               _id: doc._id,
@@ -352,9 +372,7 @@ export const hybridSearch = internalAction({
               createdAt: doc._creationTime,
             }
           : null;
-      }),
-    );
-
-    return docs.filter((d): d is NonNullable<typeof d> => d !== null);
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
   },
 });

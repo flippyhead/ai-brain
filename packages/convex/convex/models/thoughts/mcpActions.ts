@@ -12,10 +12,14 @@ const internal = _internal as any;
 const SNIPPET_CHARS = 240;
 
 function truncateSnippet(content: string): string {
-  const chars = Array.from(content);
-  return chars.length > SNIPPET_CHARS
-    ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
-    : content;
+  const chars: string[] = [];
+  for (const ch of content) {
+    if (chars.length >= SNIPPET_CHARS) {
+      return chars.join("") + "…";
+    }
+    chars.push(ch);
+  }
+  return content;
 }
 
 // Public actions for MCP endpoint — accept userId as parameter
@@ -168,12 +172,17 @@ export const timeline = action({
     const before = Math.min(args.before ?? 5, MAX_WINDOW);
     const after = Math.min(args.after ?? 5, MAX_WINDOW);
 
-    // Resolve pivot timestamp
+    // Resolve pivot timestamp. If seedId is provided, also keep the seed
+    // doc so we can splice it into the result (listAroundTime uses strict
+    // < / > bounds and excludes the anchor).
     let aroundMs = args.aroundMs;
-    if (aroundMs === undefined) {
-      if (!args.seedId) {
-        throw new Error("Either seedId or aroundMs is required");
-      }
+    let seedDoc: {
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+    } | null = null;
+    if (args.seedId) {
       const seed = await ctx.runQuery(
         internal.models.thoughts.private.getById,
         { id: args.seedId },
@@ -181,7 +190,18 @@ export const timeline = action({
       if (!seed || seed.userId !== args.userId) {
         throw new Error("Seed thought not found");
       }
-      aroundMs = seed._creationTime;
+      seedDoc = {
+        _id: seed._id,
+        _creationTime: seed._creationTime,
+        content: seed.content,
+        metadata: seed.metadata,
+      };
+      if (aroundMs === undefined) {
+        aroundMs = seed._creationTime;
+      }
+    }
+    if (aroundMs === undefined) {
+      throw new Error("Either seedId or aroundMs is required");
     }
 
     const docs: Array<{
@@ -200,7 +220,7 @@ export const timeline = action({
       },
     );
 
-    return docs.map((d) => ({
+    const mapped = docs.map((d) => ({
       _id: d._id,
       summary: d.metadata.summary,
       snippet: truncateSnippet(d.content),
@@ -208,5 +228,30 @@ export const timeline = action({
       topics: d.metadata.topics,
       createdAt: d._creationTime,
     }));
+
+    // Splice the seed into its chronological position. listAroundTime
+    // returns results sorted ascending by _creationTime with strict < / >
+    // bounds, so the seed goes at the first index whose createdAt is
+    // greater than the seed's. If none, append.
+    if (seedDoc) {
+      const seedRow = {
+        _id: seedDoc._id,
+        summary: seedDoc.metadata.summary,
+        snippet: truncateSnippet(seedDoc.content),
+        type: seedDoc.metadata.type,
+        topics: seedDoc.metadata.topics,
+        createdAt: seedDoc._creationTime,
+      };
+      let insertAt = mapped.length;
+      for (let i = 0; i < mapped.length; i++) {
+        if (mapped[i]!.createdAt > seedRow.createdAt) {
+          insertAt = i;
+          break;
+        }
+      }
+      mapped.splice(insertAt, 0, seedRow);
+    }
+
+    return mapped;
   },
 });

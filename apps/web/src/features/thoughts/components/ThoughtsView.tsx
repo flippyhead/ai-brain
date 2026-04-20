@@ -26,7 +26,6 @@ interface SearchResult {
     actionItems: string[];
     summary: string;
   };
-  score: number;
   createdAt: number;
 }
 
@@ -153,7 +152,6 @@ export function ThoughtsView() {
                 ...t,
                 _creationTime: t._creationTime ?? t.createdAt,
               }}
-              score={t.score}
             />
           ))}
         </div>

@@ -13,7 +13,6 @@ interface ThoughtCardProps {
       summary: string;
     };
   };
-  score?: number;
 }
 
 const typeColors: Record<string, string> = {
@@ -25,7 +24,7 @@ const typeColors: Record<string, string> = {
   reference: "#f5f5f5",
 };
 
-export function ThoughtCard({ thought, score }: ThoughtCardProps) {
+export function ThoughtCard({ thought }: ThoughtCardProps) {
   const date = new Date(thought._creationTime).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -89,18 +88,6 @@ export function ThoughtCard({ thought, score }: ThoughtCardProps) {
             @{person}
           </span>
         ))}
-        {score !== undefined && (
-          <span
-            style={{
-              padding: "2px 8px",
-              borderRadius: 4,
-              fontSize: 12,
-              backgroundColor: "#c8e6c9",
-            }}
-          >
-            {(score * 100).toFixed(0)}% match
-          </span>
-        )}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#999" }}>
           {date}
         </span>
