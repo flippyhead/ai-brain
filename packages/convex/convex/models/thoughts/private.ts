@@ -1,6 +1,6 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
-import { thoughtMetadata } from "./validators";
+import { thoughtMetadata, thoughtType } from "./validators";
 import { _findById, _insertOne, _listByUser, _updateOne, _deleteOne } from "./model";
 
 export const getById = internalQuery({
@@ -84,5 +84,35 @@ export const deleteOne = internalMutation({
   handler: async (ctx, args) => {
     await _deleteOne(ctx, args.id);
     return null;
+  },
+});
+
+export const searchByText = internalQuery({
+  args: {
+    userId: v.id("users"),
+    query: v.string(),
+    type: v.optional(thoughtType),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 50;
+    const results = await ctx.db
+      .query("thoughts")
+      .withSearchIndex("by_content", (q) => {
+        const base = q.search("content", args.query).eq("userId", args.userId);
+        return args.type ? base.eq("metadata.type", args.type) : base;
+      })
+      .take(limit);
+    return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
