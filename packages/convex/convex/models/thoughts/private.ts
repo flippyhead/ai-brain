@@ -156,30 +156,41 @@ export const listAroundTime = internalQuery({
     }),
   ),
   handler: async (ctx, args) => {
-    const indexName = args.type ? "by_userId_and_type" : "by_userId";
-
-    const buildIndex = (q: any) => {
-      if (args.type) {
-        return q.eq("userId", args.userId).eq("metadata.type", args.type);
-      }
-      return q.eq("userId", args.userId);
-    };
+    const type = args.type;
 
     // Older-than-or-equal-to aroundMs, most recent first, take `before`
-    const earlier = await ctx.db
-      .query("thoughts")
-      .withIndex(indexName, buildIndex)
-      .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
-      .order("desc")
-      .take(args.before);
+    const earlier = type
+      ? await ctx.db
+          .query("thoughts")
+          .withIndex("by_userId_and_type", (q) =>
+            q.eq("userId", args.userId).eq("metadata.type", type),
+          )
+          .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
+          .order("desc")
+          .take(args.before)
+      : await ctx.db
+          .query("thoughts")
+          .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+          .filter((q) => q.lte(q.field("_creationTime"), args.aroundMs))
+          .order("desc")
+          .take(args.before);
 
     // Strictly newer than aroundMs, oldest first, take `after`
-    const later = await ctx.db
-      .query("thoughts")
-      .withIndex(indexName, buildIndex)
-      .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
-      .order("asc")
-      .take(args.after);
+    const later = type
+      ? await ctx.db
+          .query("thoughts")
+          .withIndex("by_userId_and_type", (q) =>
+            q.eq("userId", args.userId).eq("metadata.type", type),
+          )
+          .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
+          .order("asc")
+          .take(args.after)
+      : await ctx.db
+          .query("thoughts")
+          .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+          .filter((q) => q.gt(q.field("_creationTime"), args.aroundMs))
+          .order("asc")
+          .take(args.after);
 
     const combined = [...earlier.reverse(), ...later];
     return combined.map(({ embedding: _embedding, ...rest }) => rest);
