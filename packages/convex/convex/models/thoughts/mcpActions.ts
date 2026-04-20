@@ -131,3 +131,84 @@ export const getByIds = action({
       }));
   },
 });
+
+export const timeline = action({
+  args: {
+    userId: v.id("users"),
+    seedId: v.optional(v.id("thoughts")),
+    aroundMs: v.optional(v.number()),
+    before: v.optional(v.number()),
+    after: v.optional(v.number()),
+    type: v.optional(
+      v.union(
+        v.literal("decision"),
+        v.literal("person_note"),
+        v.literal("idea"),
+        v.literal("meeting_note"),
+        v.literal("task"),
+        v.literal("reference"),
+      ),
+    ),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      summary: v.string(),
+      snippet: v.string(),
+      type: v.string(),
+      topics: v.array(v.string()),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const SNIPPET_CHARS = 240;
+    const before = args.before ?? 5;
+    const after = args.after ?? 5;
+
+    // Resolve pivot timestamp
+    let aroundMs = args.aroundMs;
+    if (!aroundMs) {
+      if (!args.seedId) {
+        throw new Error("Either seedId or aroundMs is required");
+      }
+      const seed = await ctx.runQuery(
+        internal.models.thoughts.private.getById,
+        { id: args.seedId },
+      );
+      if (!seed || seed.userId !== args.userId) {
+        throw new Error("Seed thought not found");
+      }
+      aroundMs = seed._creationTime;
+    }
+
+    const docs: Array<{
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+    }> = await ctx.runQuery(
+      internal.models.thoughts.private.listAroundTime,
+      {
+        userId: args.userId,
+        aroundMs,
+        before,
+        after,
+        type: args.type,
+      },
+    );
+
+    return docs.map((d) => ({
+      _id: d._id,
+      summary: d.metadata.summary,
+      snippet: (() => {
+        const chars = Array.from(d.content);
+        return chars.length > SNIPPET_CHARS
+          ? chars.slice(0, SNIPPET_CHARS).join("") + "…"
+          : d.content;
+      })(),
+      type: d.metadata.type,
+      topics: d.metadata.topics,
+      createdAt: d._creationTime,
+    }));
+  },
+});
