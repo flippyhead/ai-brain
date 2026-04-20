@@ -18,15 +18,20 @@ export function createMcpServer(userId: string) {
 
   server.tool(
     MCP_TOOL_NAMES.searchThoughts,
-    "Semantic search across all stored thoughts by meaning",
+    "Search stored thoughts by meaning AND keyword (hybrid). Returns a compact index — `id`, summary, short snippet, type, topics, score. Use `get_thoughts` to fetch full content for the IDs you care about. Cite sources as `thought:<id>` when referencing them in your response.",
     {
-      query: z.string().describe("Natural language search query"),
-      threshold: z
-        .number()
-        .min(0)
-        .max(1)
-        .default(0.5)
-        .describe("Similarity threshold (0-1)"),
+      query: z.string().describe("Natural language or keyword query"),
+      type: z
+        .enum([
+          "decision",
+          "person_note",
+          "idea",
+          "meeting_note",
+          "task",
+          "reference",
+        ])
+        .optional()
+        .describe("Optional type filter"),
       limit: z
         .number()
         .min(1)
@@ -34,20 +39,22 @@ export function createMcpServer(userId: string) {
         .default(10)
         .describe("Max results to return"),
     },
-    async ({ query, threshold, limit }) => {
-      type SearchResult = {
+    async ({ query, type, limit }) => {
+      type IndexRow = {
         _id: string;
-        content: string;
-        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        summary: string;
+        snippet: string;
+        type: string;
+        topics: string[];
         score: number;
         createdAt: number;
       };
-      const results: SearchResult[] = await convex.action(
+      const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.search,
         {
           userId: userId as never,
           query,
-          threshold,
+          type,
           limit,
         },
       );
@@ -69,9 +76,12 @@ export function createMcpServer(userId: string) {
             type: "text" as const,
             text: JSON.stringify(
               results.map((r) => ({
-                content: r.content,
-                metadata: r.metadata,
-                similarityScore: r.score,
+                id: r._id,
+                summary: r.summary,
+                snippet: r.snippet,
+                type: r.type,
+                topics: r.topics,
+                score: r.score,
                 createdAt: new Date(r.createdAt).toISOString(),
               })),
               null,
@@ -79,7 +89,7 @@ export function createMcpServer(userId: string) {
             ),
           },
         ],
-        _meta: { "anthropic/maxResultSizeChars": 200000 },
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
       };
     },
   );

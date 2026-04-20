@@ -34,28 +34,59 @@ export const search = action({
   args: {
     userId: v.id("users"),
     query: v.string(),
-    threshold: v.optional(v.number()),
+    type: v.optional(
+      v.union(
+        v.literal("decision"),
+        v.literal("person_note"),
+        v.literal("idea"),
+        v.literal("meeting_note"),
+        v.literal("task"),
+        v.literal("reference"),
+      ),
+    ),
     limit: v.optional(v.number()),
   },
   returns: v.array(
     v.object({
       _id: v.id("thoughts"),
-      content: v.string(),
-      metadata: thoughtMetadata,
+      summary: v.string(),
+      snippet: v.string(),
+      type: v.string(),
+      topics: v.array(v.string()),
       score: v.float64(),
       createdAt: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
-    return await ctx.runAction(
-      internal.models.thoughts.actions.searchByVector,
+    const SNIPPET_CHARS = 240;
+    const hits: Array<{
+      _id: Id<"thoughts">;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+      score: number;
+      createdAt: number;
+    }> = await ctx.runAction(
+      internal.models.thoughts.actions.hybridSearch,
       {
         userId: args.userId,
         query: args.query,
-        threshold: args.threshold,
+        type: args.type,
         limit: args.limit,
       },
     );
+
+    return hits.map((h) => ({
+      _id: h._id,
+      summary: h.metadata.summary,
+      snippet:
+        h.content.length > SNIPPET_CHARS
+          ? h.content.slice(0, SNIPPET_CHARS) + "…"
+          : h.content,
+      type: h.metadata.type,
+      topics: h.metadata.topics,
+      score: h.score,
+      createdAt: h.createdAt,
+    }));
   },
 });
 
