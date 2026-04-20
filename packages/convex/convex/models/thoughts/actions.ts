@@ -3,7 +3,7 @@
 import { internalAction } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import { v } from "convex/values";
-import { thoughtMetadata } from "./validators";
+import { thoughtMetadata, thoughtType } from "./validators";
 import {
   SIMILARITY_THRESHOLD,
   MAX_CANDIDATES,
@@ -314,6 +314,99 @@ export const searchByVector = internalAction({
               content: doc.content,
               metadata: doc.metadata,
               score: r._score,
+              createdAt: doc._creationTime,
+            }
+          : null;
+      }),
+    );
+
+    return docs.filter((d): d is NonNullable<typeof d> => d !== null);
+  },
+});
+
+export const hybridSearch = internalAction({
+  args: {
+    userId: v.id("users"),
+    query: v.string(),
+    type: v.optional(thoughtType),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      score: v.float64(),
+      createdAt: v.number(),
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 10;
+    const candidateCap = 50;
+    const K = 60; // RRF constant
+
+    // Generate embedding once; run vector + text in parallel
+    const embedding = await ctx.runAction(
+      internal.models.thoughts.helpers.generateEmbedding,
+      { text: args.query },
+    );
+
+    const [vectorHits, textHits] = await Promise.all([
+      ctx.vectorSearch("thoughts", "by_embedding", {
+        vector: embedding,
+        limit: candidateCap,
+        filter: (q) => q.eq("userId", args.userId),
+      }),
+      ctx.runQuery(internal.models.thoughts.private.searchByText, {
+        userId: args.userId,
+        query: args.query,
+        type: args.type,
+        limit: candidateCap,
+      }),
+    ]);
+
+    // If type filter is set, we need vector hits' types too. Fetch docs for
+    // type-unknown vector hits now (one query each). Convex vectorSearch does
+    // not support filtering on object fields like metadata.type, so we
+    // post-filter. Text hits already respect the type filter.
+    let filteredVectorHits = vectorHits;
+    if (args.type) {
+      const docs = await Promise.all(
+        vectorHits.map((h) =>
+          ctx.runQuery(internal.models.thoughts.private.getById, { id: h._id }),
+        ),
+      );
+      filteredVectorHits = vectorHits.filter(
+        (_h, i) => docs[i]?.metadata.type === args.type,
+      );
+    }
+
+    // Reciprocal Rank Fusion: score = Σ 1 / (K + rank) across result lists
+    const rrf = new Map<string, number>();
+    filteredVectorHits.forEach((h, rank) => {
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
+    });
+    (textHits as Array<{ _id: string }>).forEach((h, rank) => {
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
+    });
+
+    const rankedIds = [...rrf.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([id]) => id);
+
+    const docs = await Promise.all(
+      rankedIds.map(async (id) => {
+        const doc = await ctx.runQuery(
+          internal.models.thoughts.private.getById,
+          { id: id as any },
+        );
+        return doc
+          ? {
+              _id: doc._id,
+              content: doc.content,
+              metadata: doc.metadata,
+              score: rrf.get(id)!,
               createdAt: doc._creationTime,
             }
           : null;
