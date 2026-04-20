@@ -11,15 +11,25 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-plugin
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - name: Determine source ref
         id: ref
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
@@ -41,6 +51,23 @@ jobs:
 
       - name: Clone distribution repo
         run: git clone git@github.com:flippyhead/ai-brain-plugin.git dist
+
+      - name: Detect distribution default branch
+        id: distbranch
+        run: |
+          cd dist
+          BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Verify tag does not already exist in distribution
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
+        run: |
+          cd dist
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists in distribution repo. Bump the source version or delete the distribution tag before retrying."
+            exit 1
+          fi
 
       - name: Clear distribution contents (preserve .git and README.md)
         run: |
@@ -70,6 +97,8 @@ jobs:
 
       - name: Commit and tag
         id: publish
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
         run: |
           cd dist
           git add -A
@@ -78,20 +107,26 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          TAG="${{ steps.ref.outputs.tag }}"
-          git commit -m "release: ai-brain ${TAG} (from flippyhead/ai-brain@${TAG})"
-          git tag "${TAG}"
+          git commit -m "release: ai-brain $TAG (from flippyhead/ai-brain@$TAG)"
+          git tag "$TAG"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
       - name: Push commit and tag to distribution
         if: steps.publish.outputs.changed == 'true'
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
+          BRANCH: ${{ steps.distbranch.outputs.branch }}
         run: |
           cd dist
-          git push origin main
-          git push origin "${{ steps.ref.outputs.tag }}"
+          git push origin "$BRANCH"
+          git push origin "$TAG"
 
       - name: Summary
+        env:
+          TAG: ${{ steps.ref.outputs.tag }}
+          BRANCH: ${{ steps.distbranch.outputs.branch }}
+          CHANGED: ${{ steps.publish.outputs.changed }}
         run: |
-          echo "Source tag: ${{ steps.ref.outputs.tag }}"
-          echo "Distribution: https://github.com/flippyhead/ai-brain-plugin"
-          echo "Changed: ${{ steps.publish.outputs.changed }}"
+          echo "Source tag: $TAG"
+          echo "Distribution: https://github.com/flippyhead/ai-brain-plugin (branch: $BRANCH)"
+          echo "Changed: $CHANGED"
