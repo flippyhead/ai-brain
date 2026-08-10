@@ -1,13 +1,19 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { thoughtMetadata, thoughtType } from "./validators";
+import { isCurrentMemory } from "./memoryLifecycle";
+import {
+  thoughtLifecycleFields,
+  thoughtMetadata,
+  thoughtType,
+} from "./validators";
 import { _listByUser } from "./model";
 
 export const listRecent = query({
   args: {
     limit: v.optional(v.number()),
     type: v.optional(thoughtType),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -17,6 +23,7 @@ export const listRecent = query({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {
@@ -25,15 +32,29 @@ export const listRecent = query({
 
     let results;
     if (args.type) {
-      results = await ctx.db
+      const limit = args.limit ?? 20;
+      const fetchLimit = args.includeHistorical
+        ? limit
+        : Math.min(limit * 5, 500);
+      const candidates = await ctx.db
         .query("thoughts")
         .withIndex("by_userId_and_type", (q) =>
           q.eq("userId", userId).eq("metadata.type", args.type!),
         )
         .order("desc")
-        .take(args.limit ?? 20);
+        .take(fetchLimit);
+      results = (
+        args.includeHistorical
+          ? candidates
+          : candidates.filter((memory) => isCurrentMemory(memory.memoryStatus))
+      ).slice(0, limit);
     } else {
-      results = await _listByUser(ctx, userId, args.limit ?? 20);
+      results = await _listByUser(
+        ctx,
+        userId,
+        args.limit ?? 20,
+        args.includeHistorical,
+      );
     }
 
     return results.map(({ embedding: _, ...rest }) => rest);
@@ -44,6 +65,8 @@ export const getStats = query({
   args: {},
   returns: v.object({
     totalThoughts: v.number(),
+    historicalThoughts: v.number(),
+    retractedThoughts: v.number(),
     byType: v.array(v.object({ type: v.string(), count: v.number() })),
     topTopics: v.array(v.object({ topic: v.string(), count: v.number() })),
     topPeople: v.array(v.object({ person: v.string(), count: v.number() })),
@@ -62,12 +85,15 @@ export const getStats = query({
       .query("thoughts")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
+    const currentThoughts = allThoughts.filter((thought) =>
+      isCurrentMemory(thought.memoryStatus),
+    );
 
     const typeCounts = new Map<string, number>();
     const topicCounts = new Map<string, number>();
     const peopleCounts = new Map<string, number>();
 
-    for (const thought of allThoughts) {
+    for (const thought of currentThoughts) {
       typeCounts.set(
         thought.metadata.type,
         (typeCounts.get(thought.metadata.type) ?? 0) + 1,
@@ -95,15 +121,21 @@ export const getStats = query({
       .slice(0, 10);
 
     const dateRange =
-      allThoughts.length > 0
+      currentThoughts.length > 0
         ? {
-            earliest: allThoughts[allThoughts.length - 1]!._creationTime,
-            latest: allThoughts[0]!._creationTime,
+            earliest: currentThoughts[0]!._creationTime,
+            latest: currentThoughts[currentThoughts.length - 1]!._creationTime,
           }
         : undefined;
 
     return {
-      totalThoughts: allThoughts.length,
+      totalThoughts: currentThoughts.length,
+      historicalThoughts: allThoughts.filter(
+        (thought) => thought.memoryStatus === "superseded",
+      ).length,
+      retractedThoughts: allThoughts.filter(
+        (thought) => thought.memoryStatus === "retracted",
+      ).length,
       byType,
       topTopics,
       topPeople,

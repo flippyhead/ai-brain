@@ -5,7 +5,8 @@ import { internal as _internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
-import { thoughtMetadata } from "./validators";
+import type { MemoryStatus } from "./memoryLifecycle";
+import { memoryStatus, thoughtMetadata } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const internal = _internal as any;
@@ -55,6 +56,7 @@ export const search = action({
       ),
     ),
     limit: v.optional(v.number()),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -65,6 +67,9 @@ export const search = action({
       topics: v.array(v.string()),
       score: v.float64(),
       createdAt: v.number(),
+      memoryStatus,
+      supersededAt: v.optional(v.number()),
+      changeReason: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -75,11 +80,15 @@ export const search = action({
       metadata: Infer<typeof thoughtMetadata>;
       score: number;
       createdAt: number;
+      memoryStatus: MemoryStatus;
+      supersededAt?: number;
+      changeReason?: string;
     }> = await ctx.runAction(internal.models.thoughts.actions.hybridSearch, {
       userId,
       query: args.query,
       type: args.type,
       limit: args.limit,
+      includeHistorical: args.includeHistorical,
     });
 
     return hits.map((h) => ({
@@ -90,6 +99,9 @@ export const search = action({
       topics: h.metadata.topics,
       score: h.score,
       createdAt: h.createdAt,
+      memoryStatus: h.memoryStatus,
+      supersededAt: h.supersededAt,
+      changeReason: h.changeReason,
     }));
   },
 });
@@ -105,6 +117,11 @@ export const getByIds = action({
       metadata: thoughtMetadata,
       createdAt: v.number(),
       updatedAt: v.optional(v.number()),
+      memoryStatus,
+      supersededAt: v.optional(v.number()),
+      supersededBy: v.optional(v.id("thoughts")),
+      supersedes: v.optional(v.array(v.id("thoughts"))),
+      changeReason: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -116,6 +133,11 @@ export const getByIds = action({
       metadata: Infer<typeof thoughtMetadata>;
       userId: string;
       updatedAt?: number;
+      memoryStatus?: MemoryStatus;
+      supersededAt?: number;
+      supersededBy?: Id<"thoughts">;
+      supersedes?: Array<Id<"thoughts">>;
+      changeReason?: string;
     }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
       ids: args.ids,
     });
@@ -129,6 +151,11 @@ export const getByIds = action({
         metadata: d.metadata,
         createdAt: d._creationTime,
         updatedAt: d.updatedAt,
+        memoryStatus: d.memoryStatus ?? "current",
+        supersededAt: d.supersededAt,
+        supersededBy: d.supersededBy,
+        supersedes: d.supersedes,
+        changeReason: d.changeReason,
       }));
   },
 });
@@ -158,6 +185,7 @@ export const timeline = action({
       type: v.string(),
       topics: v.array(v.string()),
       createdAt: v.number(),
+      memoryStatus,
     }),
   ),
   handler: async (ctx, args) => {
@@ -179,6 +207,7 @@ export const timeline = action({
       _creationTime: number;
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
+      memoryStatus?: MemoryStatus;
     } | null = null;
     if (args.seedId) {
       const seed = await ctx.runQuery(
@@ -193,6 +222,7 @@ export const timeline = action({
         _creationTime: seed._creationTime,
         content: seed.content,
         metadata: seed.metadata,
+        memoryStatus: seed.memoryStatus,
       };
       if (aroundMs === undefined) {
         aroundMs = seed._creationTime;
@@ -207,6 +237,7 @@ export const timeline = action({
       _creationTime: number;
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
+      memoryStatus?: MemoryStatus;
     }> = await ctx.runQuery(internal.models.thoughts.private.listAroundTime, {
       userId,
       aroundMs,
@@ -222,6 +253,7 @@ export const timeline = action({
       type: d.metadata.type,
       topics: d.metadata.topics,
       createdAt: d._creationTime,
+      memoryStatus: d.memoryStatus ?? "current",
     }));
 
     // Splice the seed into its chronological position. listAroundTime
@@ -236,6 +268,7 @@ export const timeline = action({
         type: seedDoc.metadata.type,
         topics: seedDoc.metadata.topics,
         createdAt: seedDoc._creationTime,
+        memoryStatus: seedDoc.memoryStatus ?? "current",
       };
       let insertAt = mapped.length;
       for (let i = 0; i < mapped.length; i++) {

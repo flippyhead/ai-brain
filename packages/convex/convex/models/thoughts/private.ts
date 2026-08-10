@@ -1,7 +1,12 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
-import { thoughtMetadata, thoughtType } from "./validators";
-import { _findById, _insertOne, _listByUser, _updateOne, _deleteOne } from "./model";
+import { _findById, _insertOne, _listByUser, _transitionMemory } from "./model";
+import { isCurrentMemory } from "./memoryLifecycle";
+import {
+  thoughtLifecycleFields,
+  thoughtMetadata,
+  thoughtType,
+} from "./validators";
 
 export const getById = internalQuery({
   args: { id: v.id("thoughts") },
@@ -14,6 +19,7 @@ export const getById = internalQuery({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
     v.null(),
   ),
@@ -26,6 +32,7 @@ export const listByUser = internalQuery({
   args: {
     userId: v.id("users"),
     limit: v.optional(v.number()),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -36,10 +43,16 @@ export const listByUser = internalQuery({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {
-    return await _listByUser(ctx, args.userId, args.limit ?? 20);
+    return await _listByUser(
+      ctx,
+      args.userId,
+      args.limit ?? 20,
+      args.includeHistorical,
+    );
   },
 });
 
@@ -56,34 +69,32 @@ export const insertOne = internalMutation({
   },
 });
 
-export const updateOne = internalMutation({
+export const transitionMemory = internalMutation({
   args: {
-    id: v.id("thoughts"),
     content: v.string(),
     embedding: v.array(v.float64()),
     metadata: thoughtMetadata,
-    updatedAt: v.number(),
+    userId: v.id("users"),
+    previousIds: v.array(v.id("thoughts")),
+    previousStatus: v.union(v.literal("superseded"), v.literal("retracted")),
+    reason: v.string(),
+    transitionedAt: v.number(),
   },
-  returns: v.null(),
+  returns: v.id("thoughts"),
   handler: async (ctx, args) => {
-    await _updateOne(ctx, args.id, {
-      content: args.content,
-      embedding: args.embedding,
-      metadata: args.metadata,
-      updatedAt: args.updatedAt,
-    });
-    return null;
-  },
-});
-
-export const deleteOne = internalMutation({
-  args: {
-    id: v.id("thoughts"),
-  },
-  returns: v.null(),
-  handler: async (ctx, args) => {
-    await _deleteOne(ctx, args.id);
-    return null;
+    return await _transitionMemory(
+      ctx,
+      {
+        content: args.content,
+        embedding: args.embedding,
+        metadata: args.metadata,
+        userId: args.userId,
+      },
+      args.previousIds,
+      args.previousStatus,
+      args.reason,
+      args.transitionedAt,
+    );
   },
 });
 
@@ -93,6 +104,7 @@ export const searchByText = internalQuery({
     query: v.string(),
     type: v.optional(thoughtType),
     limit: v.optional(v.number()),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -102,18 +114,28 @@ export const searchByText = internalQuery({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
+    const fetchLimit = args.includeHistorical
+      ? limit
+      : Math.min(limit * 4, 200);
     const results = await ctx.db
       .query("thoughts")
       .withSearchIndex("by_content", (q) => {
         const base = q.search("content", args.query).eq("userId", args.userId);
         return args.type ? base.eq("metadata.type", args.type) : base;
       })
-      .take(limit);
-    return results.map(({ embedding: _embedding, ...rest }) => rest);
+      .take(fetchLimit);
+    return results
+      .filter(
+        (memory) =>
+          args.includeHistorical || isCurrentMemory(memory.memoryStatus),
+      )
+      .slice(0, limit)
+      .map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
 
@@ -127,6 +149,7 @@ export const getByIds = internalQuery({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {
@@ -153,6 +176,7 @@ export const listAroundTime = internalQuery({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {

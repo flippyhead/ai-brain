@@ -1,12 +1,14 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
-import { thoughtMetadata } from "./validators";
+import { isCurrentMemory } from "./memoryLifecycle";
+import { thoughtLifecycleFields, thoughtMetadata } from "./validators";
 import { _listByUser } from "./model";
 
 export const listByUser = query({
   args: {
     limit: v.optional(v.number()),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -16,11 +18,17 @@ export const listByUser = query({
       metadata: thoughtMetadata,
       userId: v.id("users"),
       updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
     }),
   ),
   handler: async (ctx, args) => {
     const userId = await requireMcpUserId(ctx);
-    const results = await _listByUser(ctx, userId, args.limit ?? 20);
+    const results = await _listByUser(
+      ctx,
+      userId,
+      args.limit ?? 20,
+      args.includeHistorical,
+    );
     return results.map(({ embedding: _, ...rest }) => rest);
   },
 });
@@ -29,6 +37,8 @@ export const getStats = query({
   args: {},
   returns: v.object({
     totalThoughts: v.number(),
+    historicalThoughts: v.number(),
+    retractedThoughts: v.number(),
     byType: v.array(v.object({ type: v.string(), count: v.number() })),
     topTopics: v.array(v.object({ topic: v.string(), count: v.number() })),
     topPeople: v.array(v.object({ person: v.string(), count: v.number() })),
@@ -39,12 +49,15 @@ export const getStats = query({
       .query("thoughts")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
+    const currentThoughts = allThoughts.filter((thought) =>
+      isCurrentMemory(thought.memoryStatus),
+    );
 
     const typeCounts = new Map<string, number>();
     const topicCounts = new Map<string, number>();
     const peopleCounts = new Map<string, number>();
 
-    for (const thought of allThoughts) {
+    for (const thought of currentThoughts) {
       typeCounts.set(
         thought.metadata.type,
         (typeCounts.get(thought.metadata.type) ?? 0) + 1,
@@ -58,7 +71,13 @@ export const getStats = query({
     }
 
     return {
-      totalThoughts: allThoughts.length,
+      totalThoughts: currentThoughts.length,
+      historicalThoughts: allThoughts.filter(
+        (thought) => thought.memoryStatus === "superseded",
+      ).length,
+      retractedThoughts: allThoughts.filter(
+        (thought) => thought.memoryStatus === "retracted",
+      ).length,
       byType: [...typeCounts.entries()]
         .map(([type, count]) => ({ type, count }))
         .sort((a, b) => b.count - a.count),

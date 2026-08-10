@@ -17,10 +17,25 @@ export const thoughtMetadata = v.object({
   summary: v.string(),
 });
 
+export const memoryStatus = v.union(
+  v.literal("current"),
+  v.literal("superseded"),
+  v.literal("retracted"),
+);
+
+export const thoughtLifecycleFields = {
+  memoryStatus: v.optional(memoryStatus),
+  supersededAt: v.optional(v.number()),
+  supersededBy: v.optional(v.id("thoughts")),
+  supersedes: v.optional(v.array(v.id("thoughts"))),
+  changeReason: v.optional(v.string()),
+};
+
 export const thoughtFields = {
   content: v.string(),
   embedding: v.array(v.float64()),
   metadata: thoughtMetadata,
   userId: v.id("users"),
   updatedAt: v.optional(v.number()),
+  ...thoughtLifecycleFields,
 };
