@@ -10,7 +10,7 @@ Restore what was in your head at a specific moment. Given a time reference — a
 
 ## Prerequisites
 
-`mcp__ai-brain__search_thoughts`, `mcp__ai-brain__timeline_thoughts`, and `mcp__ai-brain__get_thoughts` must be available. If not, tell the user to install/update the AI Brain plugin and stop.
+`mcp__ai-brain__recall_context`, `mcp__ai-brain__search_thoughts`, `mcp__ai-brain__timeline_thoughts`, and `mcp__ai-brain__get_thoughts` must be available. If not, tell the user to install/update the AI Brain plugin and stop.
 
 ## Arguments
 
@@ -33,7 +33,7 @@ Determine whether `$ARGUMENTS` is a parseable date or an event phrase.
 
 **If date parsing fails, treat as an event-like phrase:**
 
-1. Call `mcp__ai-brain__search_thoughts` with `query: $ARGUMENTS`, `limit: 5`, and `includeHistorical: true`.
+1. Call `mcp__ai-brain__recall_context` with the complete `$ARGUMENTS` as `query` to ground exact names and retrieve current context. If that does not identify a clear event, call `mcp__ai-brain__search_thoughts` with `query: $ARGUMENTS`, `limit: 5`, and `includeHistorical: true` so former states can also anchor the timeline.
 2. If zero hits, tell the user: "I couldn't parse '[input]' as a date or find a matching event in your brain. Try a specific date (e.g. `April 10`) or a phrase from an actual thought." Stop.
 3. If one clear match, use its `createdAt` as `aroundMs` and announce: "Anchoring on [summary] from [ISO date] (`thought:<id>`)."
 4. If multiple close matches, list them and ask the user to pick one.
