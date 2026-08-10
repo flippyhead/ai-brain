@@ -34,11 +34,13 @@ Generate an ES256 key pair:
 
     pnpm generate:mcp-jwks
 
-Set all three generated values on the Next.js deployment, plus
+Set all four generated values on the Next.js deployment, plus
 `MCP_JWT_ISSUER`, whose value is the public origin of that deployment without a
 trailing slash (for example, `https://brain.example.com`). Keep
 `MCP_JWT_PRIVATE_JWK` server-side and never expose it as a `NEXT_PUBLIC_`
-variable.
+variable. `MCP_OAUTH_ENCRYPTION_KEY` is also server-only; it encrypts dynamic
+client registrations and short-lived authorization codes. Rotating it requires
+connected MCP clients to register and authorize again.
 
 Set the same issuer on the Convex deployment and redeploy Convex so it trusts
 tokens issued by the gateway:

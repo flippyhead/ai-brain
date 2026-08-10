@@ -1,9 +1,9 @@
 "use client";
 
 import { useAuthActions } from "@convex-dev/auth/react";
-import { Authenticated, Unauthenticated, AuthLoading } from "convex/react";
-import { Suspense, useState } from "react";
+import { Authenticated, AuthLoading, Unauthenticated } from "convex/react";
 import { useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 
 function AuthorizeFlow() {
   const searchParams = useSearchParams();
@@ -15,9 +15,28 @@ function AuthorizeFlow() {
   const clientId = searchParams.get("client_id") || "";
   const redirectUri = searchParams.get("redirect_uri") || "";
   const codeChallenge = searchParams.get("code_challenge") || "";
+  const codeChallengeMethod = searchParams.get("code_challenge_method") || "";
+  const responseType = searchParams.get("response_type") || "";
+  const resource = searchParams.get("resource") || "";
+  const scope = searchParams.get("scope") || undefined;
   const state = searchParams.get("state") || "";
+  let redirectDestination = "";
+  try {
+    redirectDestination = new URL(redirectUri).host;
+  } catch {
+    // The server performs the authoritative redirect URI validation.
+  }
 
-  if (!redirectUri || !codeChallenge) {
+  if (
+    !clientId ||
+    !redirectUri ||
+    !codeChallenge ||
+    codeChallengeMethod !== "S256" ||
+    responseType !== "code" ||
+    !resource ||
+    !redirectDestination ||
+    (scope !== undefined && scope !== "open-brain")
+  ) {
     return (
       <div style={containerStyle}>
         <h1>Open Brain</h1>
@@ -36,14 +55,40 @@ function AuthorizeFlow() {
       const res = await fetch("/api/mcp/authorize/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clientId, redirectUri, codeChallenge, state }),
+        body: JSON.stringify({
+          clientId,
+          redirectUri,
+          codeChallenge,
+          codeChallengeMethod,
+          responseType,
+          resource,
+          scope,
+          state: state || undefined,
+        }),
       });
       if (!res.ok) {
         const text = await res.text();
         throw new Error(text || "Authorization failed");
       }
-      const { redirect_url } = await res.json();
-      window.location.href = redirect_url;
+      const response: unknown = await res.json();
+      if (
+        !response ||
+        typeof response !== "object" ||
+        !("redirect_url" in response) ||
+        typeof response.redirect_url !== "string"
+      ) {
+        throw new Error("Authorization returned an invalid redirect");
+      }
+
+      const redirect = new URL(response.redirect_url);
+      const registeredRedirect = new URL(redirectUri);
+      if (
+        redirect.origin !== registeredRedirect.origin ||
+        redirect.pathname !== registeredRedirect.pathname
+      ) {
+        throw new Error("Authorization returned an invalid redirect");
+      }
+      window.location.assign(redirect.toString());
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Authorization failed");
       setLoading(false);
@@ -76,7 +121,7 @@ function AuthorizeFlow() {
               setError(
                 mode === "signIn"
                   ? "Invalid email or password"
-                  : "Could not create account. Try a different email."
+                  : "Could not create account. Try a different email.",
               );
             } finally {
               setLoading(false);
@@ -169,7 +214,9 @@ function AuthorizeFlow() {
 
       <Authenticated>
         <p style={{ color: "#666", marginTop: 0 }}>
-          An MCP client is requesting access to your Open Brain.
+          An MCP client is requesting permission to read and change your Open
+          Brain data. After approval, you will return to{" "}
+          <strong>{redirectDestination}</strong>.
         </p>
         {error && <p style={{ color: "#dc2626" }}>{error}</p>}
         <button

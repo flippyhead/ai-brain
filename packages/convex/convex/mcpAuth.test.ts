@@ -129,4 +129,34 @@ describe("MCP account isolation", () => {
     });
     expect(await t.run((ctx) => ctx.db.get(insightId))).toBeNull();
   });
+
+  test("consumes each OAuth authorization code only once", async () => {
+    const t = convexTest(schema, modules);
+    const [ownerId, otherId] = await t.run(async (ctx) => [
+      await ctx.db.insert("users", {}),
+      await ctx.db.insert("users", {}),
+    ]);
+    const owner = t.withIdentity({ issuer, subject: ownerId });
+    const other = t.withIdentity({ issuer, subject: otherId });
+    const codeHash = "a".repeat(64);
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    await owner.mutation(
+      api.models.oauth.mcpMutations.consumeAuthorizationCode,
+      { codeHash, expiresAt },
+    );
+
+    await expect(
+      owner.mutation(api.models.oauth.mcpMutations.consumeAuthorizationCode, {
+        codeHash,
+        expiresAt,
+      }),
+    ).rejects.toThrow("Authorization code already used");
+    await expect(
+      other.mutation(api.models.oauth.mcpMutations.consumeAuthorizationCode, {
+        codeHash,
+        expiresAt,
+      }),
+    ).rejects.toThrow("Authorization code already used");
+  });
 });

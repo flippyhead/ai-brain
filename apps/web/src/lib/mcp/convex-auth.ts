@@ -1,5 +1,7 @@
 import { importJWK, type JWK, SignJWT } from "jose";
 
+import { getMcpIssuer, requireEnvironmentVariable } from "./environment";
+
 export const MCP_JWT_AUDIENCE = "ai-brain-convex-mcp";
 export const MCP_JWT_ALGORITHM = "ES256";
 
@@ -7,14 +9,6 @@ type McpIdentity = {
   userId: string;
   keyId: string;
 };
-
-function requireEnvironmentVariable(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is not set`);
-  }
-  return value;
-}
 
 function parseJwk(value: string, variableName: string): JWK {
   try {
@@ -55,7 +49,7 @@ export function getPublicMcpJwk(): JWK & { kid: string } {
 export async function createConvexMcpToken(
   identity: McpIdentity,
 ): Promise<string> {
-  const issuer = requireEnvironmentVariable("MCP_JWT_ISSUER");
+  const issuer = getMcpIssuer();
   const privateJwk = parseJwk(
     requireEnvironmentVariable("MCP_JWT_PRIVATE_JWK"),
     "MCP_JWT_PRIVATE_JWK",

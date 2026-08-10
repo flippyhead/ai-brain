@@ -1,46 +1,98 @@
 import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@repo/db/convex/_generated/api";
-import { encryptAuthCode } from "@/lib/mcp/oauth";
+import { ConvexHttpClient } from "convex/browser";
+
+import { isMcpResourceUri } from "@/lib/mcp/environment";
+import {
+  assertOAuthEncryptionConfigured,
+  decryptClientRegistration,
+  encryptAuthCode,
+  hasTrustedOAuthOrigin,
+  OAUTH_NO_STORE_HEADERS,
+  readLimitedOAuthBody,
+} from "@/lib/mcp/oauth";
+import { authorizationRequestSchema } from "@/lib/mcp/oauth-validation";
+
+function errorResponse(message: string, status: number) {
+  return Response.json(
+    { error: message },
+    { status, headers: OAUTH_NO_STORE_HEADERS },
+  );
+}
 
 export async function POST(req: Request) {
-  const { clientId, redirectUri, codeChallenge, state } = await req.json();
-
-  if (!redirectUri || !codeChallenge) {
-    return new Response("Missing parameters", { status: 400 });
+  if (!hasTrustedOAuthOrigin(req)) {
+    return errorResponse("Invalid request origin", 403);
+  }
+  if (
+    !req.headers.get("content-type")?.toLowerCase().includes("application/json")
+  ) {
+    return errorResponse("Content-Type must be application/json", 415);
   }
 
-  // Read auth cookie set by Convex Auth
+  let input: unknown;
+  try {
+    assertOAuthEncryptionConfigured();
+    input = JSON.parse(await readLimitedOAuthBody(req)) as unknown;
+  } catch {
+    return errorResponse("Invalid authorization request", 400);
+  }
+
+  const parsed = authorizationRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return errorResponse("Invalid authorization request", 400);
+  }
+
+  const request = parsed.data;
+  if (!isMcpResourceUri(request.resource)) {
+    return errorResponse("Invalid MCP resource", 400);
+  }
+  const registration = decryptClientRegistration(request.clientId);
+  if (
+    !registration ||
+    !registration.redirectUris.includes(request.redirectUri)
+  ) {
+    return errorResponse("Client or redirect URI is not registered", 400);
+  }
+
   const token = await convexAuthNextjsToken();
   if (!token) {
-    return new Response("Not authenticated", { status: 401 });
+    return errorResponse("Not authenticated", 401);
   }
 
-  // Create an API key on behalf of the authenticated user
-  const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!convexUrl) {
+    return errorResponse("Authorization service is not configured", 500);
+  }
+  const convex = new ConvexHttpClient(convexUrl);
   convex.setAuth(token);
 
   let rawKey: string;
   try {
     const result = await convex.mutation(api.models.apiKeys.public.create, {
-      name: "MCP (auto)",
+      name: `MCP (${registration.clientName})`,
     });
     rawKey = result.rawKey;
   } catch {
-    return new Response("Failed to create API key", { status: 500 });
+    return errorResponse("Failed to create API key", 500);
   }
 
-  // Encrypt auth code (stateless)
   const code = encryptAuthCode({
     apiKey: rawKey,
-    codeChallenge,
-    redirectUri,
-    exp: Date.now() + 5 * 60 * 1000, // 5 minutes
+    clientId: request.clientId,
+    codeChallenge: request.codeChallenge,
+    redirectUri: request.redirectUri,
+    resource: request.resource,
+    scope: request.scope ?? "open-brain",
+    exp: Date.now() + 5 * 60 * 1000,
   });
 
-  const redirect = new URL(redirectUri);
+  const redirect = new URL(request.redirectUri);
   redirect.searchParams.set("code", code);
-  if (state) redirect.searchParams.set("state", state);
+  if (request.state) redirect.searchParams.set("state", request.state);
 
-  return Response.json({ redirect_url: redirect.toString() });
+  return Response.json(
+    { redirect_url: redirect.toString() },
+    { headers: OAUTH_NO_STORE_HEADERS },
+  );
 }
