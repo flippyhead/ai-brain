@@ -1,11 +1,15 @@
 import type { AuthConfig } from "convex/server";
 
 const mcpJwtIssuer = process.env.MCP_JWT_ISSUER;
+const convexSiteUrl = process.env.CONVEX_SITE_URL;
+if (!convexSiteUrl) {
+  throw new Error("CONVEX_SITE_URL is not configured");
+}
 
 export default {
   providers: [
     {
-      domain: process.env.CONVEX_SITE_URL,
+      domain: convexSiteUrl,
       applicationID: "convex",
     },
     ...(mcpJwtIssuer
