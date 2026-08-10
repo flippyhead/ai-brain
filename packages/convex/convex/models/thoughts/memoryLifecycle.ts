@@ -3,6 +3,11 @@ export const MEMORY_ACTIONS = ["ADD", "NOOP", "SUPERSEDE", "RETRACT"] as const;
 export type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 export type MemoryStatus = "current" | "superseded" | "retracted";
 
+export type MemoryValidity = {
+  validFrom?: number;
+  validTo?: number;
+};
+
 export type MemoryClassification = {
   action: MemoryAction;
   relatedThoughtIds: string[];
@@ -12,6 +17,44 @@ export type MemoryClassification = {
 
 export function isCurrentMemory(status: MemoryStatus | undefined): boolean {
   return status === undefined || status === "current";
+}
+
+/**
+ * Validates a business-time interval without conflating it with recording
+ * time. Open intervals are allowed; a closed interval must have positive
+ * duration.
+ */
+export function assertValidMemoryValidity({
+  validFrom,
+  validTo,
+}: MemoryValidity): void {
+  if (
+    (validFrom !== undefined && !Number.isFinite(validFrom)) ||
+    (validTo !== undefined && !Number.isFinite(validTo)) ||
+    (validFrom !== undefined && validTo !== undefined && validFrom >= validTo)
+  ) {
+    throw new Error("Invalid memory validity interval");
+  }
+}
+
+/**
+ * Returns the end of an older open interval when an explicitly supplied new
+ * start makes that closure safe. This must only be used for supersessions,
+ * never retractions (an inaccurate claim was not formerly true).
+ */
+export function safeSupersededValidTo(
+  previous: MemoryValidity,
+  newValidFrom: number | undefined,
+): number | undefined {
+  if (
+    newValidFrom === undefined ||
+    !Number.isFinite(newValidFrom) ||
+    previous.validTo !== undefined ||
+    (previous.validFrom !== undefined && previous.validFrom >= newValidFrom)
+  ) {
+    return undefined;
+  }
+  return newValidFrom;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

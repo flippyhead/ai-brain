@@ -2,7 +2,13 @@ import type { Infer } from "convex/values";
 
 import type { Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { isCurrentMemory, type MemoryStatus } from "./memoryLifecycle";
+import {
+  assertValidMemoryValidity,
+  isCurrentMemory,
+  safeSupersededValidTo,
+  type MemoryStatus,
+  type MemoryValidity,
+} from "./memoryLifecycle";
 import { thoughtMetadata } from "./validators";
 
 type ThoughtMetadata = Infer<typeof thoughtMetadata>;
@@ -37,8 +43,9 @@ export async function _insertOne(
     embedding: number[];
     metadata: ThoughtMetadata;
     userId: Id<"users">;
-  },
+  } & MemoryValidity,
 ) {
+  assertValidMemoryValidity(fields);
   return await ctx.db.insert("thoughts", {
     ...fields,
     memoryStatus: "current",
@@ -52,12 +59,13 @@ export async function _transitionMemory(
     embedding: number[];
     metadata: ThoughtMetadata;
     userId: Id<"users">;
-  },
+  } & MemoryValidity,
   previousIds: Array<Id<"thoughts">>,
   previousStatus: Exclude<MemoryStatus, "current">,
   reason: string,
   transitionedAt: number,
 ) {
+  assertValidMemoryValidity(fields);
   const uniquePreviousIds = [...new Set(previousIds)];
   if (uniquePreviousIds.length === 0 || uniquePreviousIds.length > 10) {
     throw new Error("A memory transition requires 1-10 previous memories");
@@ -92,11 +100,16 @@ export async function _transitionMemory(
   });
 
   for (const previous of previousMemories) {
+    const validTo =
+      previousStatus === "superseded"
+        ? safeSupersededValidTo(previous!, fields.validFrom)
+        : undefined;
     await ctx.db.patch(previous!._id, {
       memoryStatus: previousStatus,
       supersededAt: transitionedAt,
       supersededBy: newId,
       changeReason: reason,
+      ...(validTo === undefined ? {} : { validTo }),
     });
   }
 

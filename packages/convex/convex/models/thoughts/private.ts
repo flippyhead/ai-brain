@@ -62,6 +62,8 @@ export const insertOne = internalMutation({
     embedding: v.array(v.float64()),
     metadata: thoughtMetadata,
     userId: v.id("users"),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -79,6 +81,8 @@ export const transitionMemory = internalMutation({
     previousStatus: v.union(v.literal("superseded"), v.literal("retracted")),
     reason: v.string(),
     transitionedAt: v.number(),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -89,6 +93,8 @@ export const transitionMemory = internalMutation({
         embedding: args.embedding,
         metadata: args.metadata,
         userId: args.userId,
+        validFrom: args.validFrom,
+        validTo: args.validTo,
       },
       args.previousIds,
       args.previousStatus,

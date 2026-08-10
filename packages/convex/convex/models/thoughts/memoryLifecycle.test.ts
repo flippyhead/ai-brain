@@ -1,6 +1,11 @@
 import { describe, expect, test } from "vitest";
 
-import { isCurrentMemory, parseMemoryClassification } from "./memoryLifecycle";
+import {
+  assertValidMemoryValidity,
+  isCurrentMemory,
+  parseMemoryClassification,
+  safeSupersededValidTo,
+} from "./memoryLifecycle";
 
 const candidates = ["old-school", "other-memory"];
 
@@ -117,5 +122,31 @@ describe("temporal memory classification", () => {
     expect(isCurrentMemory("current")).toBe(true);
     expect(isCurrentMemory("superseded")).toBe(false);
     expect(isCurrentMemory("retracted")).toBe(false);
+  });
+
+  test("validates open and closed business-time intervals", () => {
+    expect(() => assertValidMemoryValidity({})).not.toThrow();
+    expect(() =>
+      assertValidMemoryValidity({ validFrom: 100, validTo: 200 }),
+    ).not.toThrow();
+    expect(() =>
+      assertValidMemoryValidity({ validFrom: 200, validTo: 200 }),
+    ).toThrow("Invalid memory validity interval");
+    expect(() => assertValidMemoryValidity({ validFrom: Number.NaN })).toThrow(
+      "Invalid memory validity interval",
+    );
+  });
+
+  test("only closes a safe, open superseded interval", () => {
+    expect(safeSupersededValidTo({}, 200)).toBe(200);
+    expect(safeSupersededValidTo({ validFrom: 100 }, 200)).toBe(200);
+    expect(
+      safeSupersededValidTo({ validFrom: 100, validTo: 150 }, 200),
+    ).toBeUndefined();
+    expect(safeSupersededValidTo({ validFrom: 200 }, 200)).toBeUndefined();
+    expect(safeSupersededValidTo({ validFrom: 300 }, 200)).toBeUndefined();
+    expect(
+      safeSupersededValidTo({ validFrom: 100 }, undefined),
+    ).toBeUndefined();
   });
 });

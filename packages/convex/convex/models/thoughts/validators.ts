@@ -24,6 +24,10 @@ export const memoryStatus = v.union(
 );
 
 export const thoughtLifecycleFields = {
+  // Business-time validity is distinct from when the memory was recorded or
+  // superseded. Values are Unix timestamps in milliseconds.
+  validFrom: v.optional(v.number()),
+  validTo: v.optional(v.number()),
   memoryStatus: v.optional(memoryStatus),
   supersededAt: v.optional(v.number()),
   supersededBy: v.optional(v.id("thoughts")),

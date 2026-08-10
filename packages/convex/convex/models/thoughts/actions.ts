@@ -6,6 +6,7 @@ import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { SIMILARITY_THRESHOLD, MAX_CANDIDATES } from "./classify";
 import {
+  assertValidMemoryValidity,
   isCurrentMemory,
   type MemoryClassification,
   type MemoryStatus,
@@ -21,6 +22,8 @@ export const captureThought = internalAction({
   args: {
     userId: v.id("users"),
     content: v.string(),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
   },
   returns: v.object({
     thoughtId: v.id("thoughts"),
@@ -28,6 +31,7 @@ export const captureThought = internalAction({
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
+    assertValidMemoryValidity(args);
     const embedding = await ctx.runAction(
       internal.models.thoughts.helpers.generateEmbedding,
       { text: args.content },
@@ -64,6 +68,8 @@ export const captureThought = internalAction({
                   summary: doc.metadata.summary,
                 },
                 createdAt: doc._creationTime,
+                validFrom: doc.validFrom,
+                validTo: doc.validTo,
               }
             : null;
         }),
@@ -77,7 +83,12 @@ export const captureThought = internalAction({
         try {
           classification = await ctx.runAction(
             internal.models.thoughts.classify.classifyThought,
-            { newContent: args.content, candidates: validCandidates },
+            {
+              newContent: args.content,
+              newValidFrom: args.validFrom,
+              newValidTo: args.validTo,
+              candidates: validCandidates,
+            },
           );
         } catch (error) {
           console.error(
@@ -146,6 +157,8 @@ export const captureThought = internalAction({
                   : "retracted",
               reason: classification.reason,
               transitionedAt: Date.now(),
+              validFrom: args.validFrom,
+              validTo: args.validTo,
             },
           );
           const count = classification.relatedThoughtIds.length;
@@ -187,6 +200,8 @@ export const captureThought = internalAction({
         embedding,
         metadata,
         userId: args.userId,
+        validFrom: args.validFrom,
+        validTo: args.validTo,
       },
     );
 
@@ -210,6 +225,8 @@ export const hybridSearch = internalAction({
       score: v.float64(),
       createdAt: v.number(),
       memoryStatus,
+      validFrom: v.optional(v.number()),
+      validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
       changeReason: v.optional(v.string()),
     }),
@@ -251,6 +268,8 @@ export const hybridSearch = internalAction({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      validFrom?: number;
+      validTo?: number;
       supersededAt?: number;
       changeReason?: string;
     }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
@@ -290,6 +309,8 @@ export const hybridSearch = internalAction({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      validFrom?: number;
+      validTo?: number;
       supersededAt?: number;
       changeReason?: string;
     }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
@@ -308,6 +329,8 @@ export const hybridSearch = internalAction({
               score: rrf.get(id)!,
               createdAt: doc._creationTime,
               memoryStatus: doc.memoryStatus ?? "current",
+              validFrom: doc.validFrom,
+              validTo: doc.validTo,
               supersededAt: doc.supersededAt,
               changeReason: doc.changeReason,
             }
