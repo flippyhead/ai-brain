@@ -122,6 +122,8 @@ describe("temporal memory transitions", () => {
         content: "Zevin attends Lakeside School.",
         embedding,
         metadata,
+        validFrom: lakesideStart,
+        validTo: redwoodStart,
       }),
     );
 

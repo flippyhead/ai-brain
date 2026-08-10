@@ -13,6 +13,10 @@ import { thoughtMetadata } from "./validators";
 
 type ThoughtMetadata = Infer<typeof thoughtMetadata>;
 
+export const DEFAULT_CORE_MEMORY_LIMIT = 10;
+export const MAX_CORE_MEMORY_LIMIT = 25;
+const MAX_CORE_MEMORY_CANDIDATES = 250;
+
 export async function _findById(ctx: QueryCtx, id: Id<"thoughts">) {
   return await ctx.db.get(id);
 }
@@ -36,6 +40,32 @@ export async function _listByUser(
   ).slice(0, limit);
 }
 
+export async function _listCoreByUser(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  requestedLimit: number = DEFAULT_CORE_MEMORY_LIMIT,
+) {
+  if (
+    !Number.isFinite(requestedLimit) ||
+    !Number.isInteger(requestedLimit) ||
+    requestedLimit < 1
+  ) {
+    throw new Error("Core memory limit must be a positive integer");
+  }
+  const limit = Math.min(requestedLimit, MAX_CORE_MEMORY_LIMIT);
+  const candidates = await ctx.db
+    .query("thoughts")
+    .withIndex("by_userId_and_isCore", (q) =>
+      q.eq("userId", userId).eq("isCore", true),
+    )
+    .order("desc")
+    .take(MAX_CORE_MEMORY_CANDIDATES);
+
+  return candidates
+    .filter((memory) => isCurrentMemory(memory.memoryStatus))
+    .slice(0, limit);
+}
+
 export async function _insertOne(
   ctx: MutationCtx,
   fields: {
@@ -43,6 +73,7 @@ export async function _insertOne(
     embedding: number[];
     metadata: ThoughtMetadata;
     userId: Id<"users">;
+    isCore?: boolean;
   } & MemoryValidity,
 ) {
   assertValidMemoryValidity(fields);
@@ -59,6 +90,7 @@ export async function _transitionMemory(
     embedding: number[];
     metadata: ThoughtMetadata;
     userId: Id<"users">;
+    isCore?: boolean;
   } & MemoryValidity,
   previousIds: Array<Id<"thoughts">>,
   previousStatus: Exclude<MemoryStatus, "current">,
@@ -93,8 +125,12 @@ export async function _transitionMemory(
     }
   }
 
+  const isCore =
+    fields.isCore ?? previousMemories.some((previous) => previous!.isCore);
+
   const newId = await ctx.db.insert("thoughts", {
     ...fields,
+    isCore,
     memoryStatus: "current",
     supersedes: uniquePreviousIds,
   });
@@ -109,9 +145,29 @@ export async function _transitionMemory(
       supersededAt: transitionedAt,
       supersededBy: newId,
       changeReason: reason,
+      ...(previousStatus === "retracted"
+        ? { validFrom: undefined, validTo: undefined }
+        : {}),
       ...(validTo === undefined ? {} : { validTo }),
     });
   }
 
   return newId;
+}
+
+export async function _setCoreStatus(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  id: Id<"thoughts">,
+  isCore: boolean,
+) {
+  const memory = await ctx.db.get(id);
+  if (
+    !memory ||
+    memory.userId !== userId ||
+    !isCurrentMemory(memory.memoryStatus)
+  ) {
+    throw new Error("Current memory not found");
+  }
+  await ctx.db.patch(id, { isCore });
 }

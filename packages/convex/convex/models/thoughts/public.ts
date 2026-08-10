@@ -7,7 +7,7 @@ import {
   thoughtMetadata,
   thoughtType,
 } from "./validators";
-import { _listByUser } from "./model";
+import { _listByUser, _listCoreByUser } from "./model";
 
 export const listRecent = query({
   args: {
@@ -57,6 +57,30 @@ export const listRecent = query({
       );
     }
 
+    return results.map(({ embedding: _, ...rest }) => rest);
+  },
+});
+
+export const listCore = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const results = await _listCoreByUser(ctx, userId, args.limit);
     return results.map(({ embedding: _, ...rest }) => rest);
   },
 });

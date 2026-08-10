@@ -24,6 +24,7 @@ export const captureThought = internalAction({
     content: v.string(),
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.object({
     thoughtId: v.id("thoughts"),
@@ -113,10 +114,23 @@ export const captureThought = internalAction({
         existing.userId === args.userId &&
         isCurrentMemory(existing.memoryStatus)
       ) {
+        if (args.isCore !== undefined) {
+          await ctx.runMutation(
+            internal.models.thoughts.private.setCoreStatus,
+            {
+              userId: args.userId,
+              id: existing._id,
+              isCore: args.isCore,
+            },
+          );
+        }
         return {
           thoughtId: existing._id,
           metadata: existing.metadata,
-          operationSummary: "Thought already captured — no changes made",
+          operationSummary:
+            args.isCore === undefined
+              ? "Thought already captured — no changes made"
+              : "Thought already captured — core status updated",
         };
       }
       classification = null;
@@ -159,6 +173,7 @@ export const captureThought = internalAction({
               transitionedAt: Date.now(),
               validFrom: args.validFrom,
               validTo: args.validTo,
+              isCore: args.isCore,
             },
           );
           const count = classification.relatedThoughtIds.length;
@@ -202,6 +217,7 @@ export const captureThought = internalAction({
         userId: args.userId,
         validFrom: args.validFrom,
         validTo: args.validTo,
+        isCore: args.isCore,
       },
     );
 
@@ -225,6 +241,7 @@ export const hybridSearch = internalAction({
       score: v.float64(),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
       validFrom: v.optional(v.number()),
       validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
@@ -268,6 +285,7 @@ export const hybridSearch = internalAction({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
       supersededAt?: number;
@@ -285,14 +303,14 @@ export const hybridSearch = internalAction({
       );
     });
 
-    // Reciprocal Rank Fusion: score = Σ 1 / (K + rank) across result lists
+    // Reciprocal Rank Fusion uses one-based ranks: score = Σ 1 / (K + rank).
     const rrf = new Map<string, number>();
     filteredVectorHits.forEach((h, rank) => {
-      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank + 1));
     });
     // Cast narrows textHits to _id only; upstream `internal as any` collapses the runQuery return type.
     (textHits as Array<{ _id: string }>).forEach((h, rank) => {
-      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank));
+      rrf.set(h._id, (rrf.get(h._id) ?? 0) + 1 / (K + rank + 1));
     });
 
     const rankedIds = [...rrf.entries()]
@@ -309,6 +327,7 @@ export const hybridSearch = internalAction({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
       supersededAt?: number;
@@ -329,6 +348,7 @@ export const hybridSearch = internalAction({
               score: rrf.get(id)!,
               createdAt: doc._creationTime,
               memoryStatus: doc.memoryStatus ?? "current",
+              isCore: doc.isCore,
               validFrom: doc.validFrom,
               validTo: doc.validTo,
               supersededAt: doc.supersededAt,

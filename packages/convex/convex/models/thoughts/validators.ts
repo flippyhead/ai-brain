@@ -24,6 +24,9 @@ export const memoryStatus = v.union(
 );
 
 export const thoughtLifecycleFields = {
+  // Core memories are a small, explicitly selected set suitable for always-on
+  // context. Legacy memories without the marker are treated as non-core.
+  isCore: v.optional(v.boolean()),
   // Business-time validity is distinct from when the memory was recorded or
   // superseded. Values are Unix timestamps in milliseconds.
   validFrom: v.optional(v.number()),

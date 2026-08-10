@@ -14,6 +14,7 @@ export const capture = action({
     content: v.string(),
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.object({
     thoughtId: v.id("thoughts"),
@@ -31,6 +32,7 @@ export const capture = action({
         content: args.content,
         validFrom: args.validFrom,
         validTo: args.validTo,
+        isCore: args.isCore,
       },
     );
   },
@@ -49,6 +51,7 @@ export const search = action({
       score: v.float64(),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
       validFrom: v.optional(v.number()),
       validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),

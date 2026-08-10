@@ -1,6 +1,13 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
-import { _findById, _insertOne, _listByUser, _transitionMemory } from "./model";
+import {
+  _findById,
+  _insertOne,
+  _listByUser,
+  _listCoreByUser,
+  _setCoreStatus,
+  _transitionMemory,
+} from "./model";
 import { isCurrentMemory } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
@@ -56,6 +63,28 @@ export const listByUser = internalQuery({
   },
 });
 
+export const listCoreByUser = internalQuery({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      embedding: v.array(v.float64()),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    return await _listCoreByUser(ctx, args.userId, args.limit);
+  },
+});
+
 export const insertOne = internalMutation({
   args: {
     content: v.string(),
@@ -64,6 +93,7 @@ export const insertOne = internalMutation({
     userId: v.id("users"),
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -83,6 +113,7 @@ export const transitionMemory = internalMutation({
     transitionedAt: v.number(),
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -95,12 +126,26 @@ export const transitionMemory = internalMutation({
         userId: args.userId,
         validFrom: args.validFrom,
         validTo: args.validTo,
+        isCore: args.isCore,
       },
       args.previousIds,
       args.previousStatus,
       args.reason,
       args.transitionedAt,
     );
+  },
+});
+
+export const setCoreStatus = internalMutation({
+  args: {
+    userId: v.id("users"),
+    id: v.id("thoughts"),
+    isCore: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await _setCoreStatus(ctx, args.userId, args.id, args.isCore);
+    return null;
   },
 });
 

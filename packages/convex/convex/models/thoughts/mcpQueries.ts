@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
 import { isCurrentMemory } from "./memoryLifecycle";
 import { thoughtLifecycleFields, thoughtMetadata } from "./validators";
-import { _listByUser } from "./model";
+import { _listByUser, _listCoreByUser } from "./model";
 
 export const listByUser = query({
   args: {
@@ -29,6 +29,28 @@ export const listByUser = query({
       args.limit ?? 20,
       args.includeHistorical,
     );
+    return results.map(({ embedding: _, ...rest }) => rest);
+  },
+});
+
+export const listCore = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
+    const results = await _listCoreByUser(ctx, userId, args.limit);
     return results.map(({ embedding: _, ...rest }) => rest);
   },
 });

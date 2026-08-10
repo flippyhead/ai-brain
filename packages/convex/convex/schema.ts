@@ -10,6 +10,7 @@ export default defineSchema({
   ...authTables,
   thoughts: defineTable(thoughtFields)
     .index("by_userId", ["userId"])
+    .index("by_userId_and_isCore", ["userId", "isCore"])
     .index("by_userId_and_type", ["userId", "metadata.type"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",

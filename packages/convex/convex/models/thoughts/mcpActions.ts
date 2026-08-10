@@ -29,6 +29,7 @@ export const capture = action({
     content: v.string(),
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.object({
     thoughtId: v.id("thoughts"),
@@ -44,6 +45,7 @@ export const capture = action({
         content: args.content,
         validFrom: args.validFrom,
         validTo: args.validTo,
+        isCore: args.isCore,
       },
     );
   },
@@ -75,6 +77,7 @@ export const search = action({
       score: v.float64(),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
       validFrom: v.optional(v.number()),
       validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
@@ -90,6 +93,7 @@ export const search = action({
       score: number;
       createdAt: number;
       memoryStatus: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
       supersededAt?: number;
@@ -111,6 +115,7 @@ export const search = action({
       score: h.score,
       createdAt: h.createdAt,
       memoryStatus: h.memoryStatus,
+      isCore: h.isCore,
       validFrom: h.validFrom,
       validTo: h.validTo,
       supersededAt: h.supersededAt,
@@ -131,6 +136,7 @@ export const getByIds = action({
       createdAt: v.number(),
       updatedAt: v.optional(v.number()),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
       validFrom: v.optional(v.number()),
       validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
@@ -149,6 +155,7 @@ export const getByIds = action({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
       supersededAt?: number;
@@ -169,6 +176,7 @@ export const getByIds = action({
         createdAt: d._creationTime,
         updatedAt: d.updatedAt,
         memoryStatus: d.memoryStatus ?? "current",
+        isCore: d.isCore,
         validFrom: d.validFrom,
         validTo: d.validTo,
         supersededAt: d.supersededAt,
@@ -205,6 +213,7 @@ export const timeline = action({
       topics: v.array(v.string()),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
       validFrom: v.optional(v.number()),
       validTo: v.optional(v.number()),
     }),
@@ -229,6 +238,7 @@ export const timeline = action({
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
     } | null = null;
@@ -246,6 +256,7 @@ export const timeline = action({
         content: seed.content,
         metadata: seed.metadata,
         memoryStatus: seed.memoryStatus,
+        isCore: seed.isCore,
         validFrom: seed.validFrom,
         validTo: seed.validTo,
       };
@@ -263,6 +274,7 @@ export const timeline = action({
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
       validFrom?: number;
       validTo?: number;
     }> = await ctx.runQuery(internal.models.thoughts.private.listAroundTime, {
@@ -281,6 +293,7 @@ export const timeline = action({
       topics: d.metadata.topics,
       createdAt: d._creationTime,
       memoryStatus: d.memoryStatus ?? "current",
+      isCore: d.isCore,
       validFrom: d.validFrom,
       validTo: d.validTo,
     }));
@@ -298,6 +311,7 @@ export const timeline = action({
         topics: seedDoc.metadata.topics,
         createdAt: seedDoc._creationTime,
         memoryStatus: seedDoc.memoryStatus ?? "current",
+        isCore: seedDoc.isCore,
         validFrom: seedDoc.validFrom,
         validTo: seedDoc.validTo,
       };
