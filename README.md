@@ -17,6 +17,8 @@ See [`plugins/ai-brain/README.md`](./plugins/ai-brain/README.md) for details.
 
 This is a pnpm monorepo (apps/, packages/, plugins/). Install dependencies with `pnpm install` and see the per-package README files for specifics.
 
+For a private deployment, follow the [self-hosting runbook](./docs/self-hosting.md). It covers the two-service layout, account isolation, configuration preflight, and the point where hosted accounts and provider credentials become necessary.
+
 Run the local verification suite with:
 
     pnpm lint
@@ -24,13 +26,19 @@ Run the local verification suite with:
     pnpm test:once
     pnpm build
 
-## Automatic capture and temporal memory
+## Automatic capture, grounded recall, and temporal memory
 
 The MCP server instructs capable clients to call `capture_thought`
 automatically when a conversation reveals durable personal facts,
 preferences, relationships, project changes, decisions, or recurring working
 patterns. This is client-mediated: an MCP server cannot observe a conversation
 unless the client invokes one of its tools.
+
+For relevant prompts, `recall_context` combines a small set of explicitly
+marked core memories with query-specific hybrid search results and returns the
+full records needed to answer. Clients are instructed to send the user's
+complete current message so exact names, identifiers, and version strings reach
+keyword search as well as semantic search.
 
 Smart Save compares each capture with the account's current memories:
 
@@ -45,6 +53,12 @@ Superseded and retracted memories are preserved and linked to their replacement;
 they are not overwritten or deleted. Normal search and browsing return current
 memories. MCP clients can request historical results when answering questions
 about prior states or how something changed.
+
+Memories may also carry explicit real-world `validFrom` and `validTo` times.
+These are separate from when AI Brain recorded or superseded the memory, so a
+known school start date, project period, or former role can be represented
+without treating the database write time as the event time. Inaccurate claims
+are retracted and have no historical validity interval.
 
 ## AI provider configuration
 
