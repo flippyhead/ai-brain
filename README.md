@@ -24,6 +24,40 @@ Run the local verification suite with:
     pnpm test:once
     pnpm build
 
+## Automatic capture and temporal memory
+
+The MCP server instructs capable clients to call `capture_thought`
+automatically when a conversation reveals durable personal facts,
+preferences, relationships, project changes, decisions, or recurring working
+patterns. This is client-mediated: an MCP server cannot observe a conversation
+unless the client invokes one of its tools.
+
+Smart Save compares each capture with the account's current memories:
+
+- Independent information is added.
+- Duplicate information is ignored.
+- Information that changed creates a new current memory and marks the former
+  memory as `superseded`.
+- A correction creates a new current memory and marks the incorrect memory as
+  `retracted`.
+
+Superseded and retracted memories are preserved and linked to their replacement;
+they are not overwritten or deleted. Normal search and browsing return current
+memories. MCP clients can request historical results when answering questions
+about prior states or how something changed.
+
+## AI provider configuration
+
+The Convex backend currently uses OpenAI
+`text-embedding-3-small` for semantic search and Anthropic Claude Haiku for
+metadata extraction and Smart Save classification. Set `OPENAI_API_KEY` and
+`ANTHROPIC_API_KEY` on your Convex deployment.
+
+These are server-side API calls. Connecting ChatGPT or Claude as an MCP client
+does not provide their API keys or charge these calls to a consumer
+subscription. A self-hosted deployment uses the API keys configured on that
+deployment.
+
 ## MCP-to-Convex authentication
 
 MCP API keys are exchanged by the Next.js gateway for short-lived, signed

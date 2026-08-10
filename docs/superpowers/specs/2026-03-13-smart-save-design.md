@@ -1,7 +1,7 @@
 # Smart Save: Mem0-style Deduplication for AI Brain
 
 **Date:** 2026-03-13
-**Status:** Draft
+**Status:** Superseded by [`2026-08-10-temporal-memory-design.md`](./2026-08-10-temporal-memory-design.md)
 **Approach:** Mem0-style "Smart Save" — LLM-driven classification on the write path
 
 ## Problem

@@ -6,6 +6,11 @@ Personal AI memory layer for Claude Code. Captures thoughts across sessions, syn
 
 AI Brain is a thin Claude Code plugin over a hosted MCP server. The server stores your thoughts, people, projects, and insights; the plugin exposes skills that let Claude read and write that store as part of your workflow.
 
+The server asks compatible AI clients to capture durable facts, preferences,
+project changes, and decisions automatically. Captures are deduplicated. When
+something changes, the new current memory is linked to the former memory,
+which remains available as explicit history rather than being overwritten.
+
 ### Five skills
 
 - **`/brain-init`** — Zero-input onboarding. Scans connected tools (email, calendar, ClickUp, GitHub, Slack) + your CLAUDE.md, then captures durable meta-knowledge.
@@ -46,6 +51,7 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 - **Use `/brain-sync` when switching projects.** It only captures what's actually new, so running it every few days keeps the brain current without bloating it.
 - **Use `/brain-thread` for retrospectives.** When a decision didn't go the way you hoped, trace the thread back to see what you were optimizing for.
 - **Use `/brain-context` when returning from a break.** The brief restores ambient context — who you were working with, what was in flight — in under a minute.
+- **Ask historical questions naturally.** Search defaults to current memories; the plugin can include superseded or corrected memories when you ask what used to be true or how something changed.
 
 ## Troubleshooting
 
@@ -54,6 +60,7 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 **"MCP tools not available" errors.** Check that `mcp__ai-brain__*` tools appear in `/mcp`. If the server is reachable via curl but tools aren't listed, try `/mcp reload`.
 
 **SessionStart hook doesn't nudge on empty brain.** The hook silently exits on network errors (timeout, auth failure). Run the script directly to debug:
+
 ```
 node ~/.claude/plugins/cache/ai-brain-plugin/*/hooks/check-brain-status.mjs
 ```

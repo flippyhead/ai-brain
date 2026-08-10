@@ -26,12 +26,14 @@ Restore what was in your head at a specific moment. Given a time reference — a
 Determine whether `$ARGUMENTS` is a parseable date or an event phrase.
 
 **Try date parsing first:**
+
 - ISO 8601 (`2026-04-15`, `2026-04-15T10:00`) → epoch ms directly.
 - Natural language date (`April 10`, `last Thursday`, `yesterday`) → convert to epoch ms at noon local time of that day.
 - Range phrases (`the week of April 15`) → use the Monday of that week at noon as the anchor, and widen the `before`/`after` values (see Step 2).
 
 **If date parsing fails, treat as an event-like phrase:**
-1. Call `mcp__ai-brain__search_thoughts` with `query: $ARGUMENTS`, `limit: 5`.
+
+1. Call `mcp__ai-brain__search_thoughts` with `query: $ARGUMENTS`, `limit: 5`, and `includeHistorical: true`.
 2. If zero hits, tell the user: "I couldn't parse '[input]' as a date or find a matching event in your brain. Try a specific date (e.g. `April 10`) or a phrase from an actual thought." Stop.
 3. If one clear match, use its `createdAt` as `aroundMs` and announce: "Anchoring on [summary] from [ISO date] (`thought:<id>`)."
 4. If multiple close matches, list them and ask the user to pick one.
@@ -41,10 +43,12 @@ Call the resolved timestamp `aroundMs`.
 ### Step 2: Pull the Window
 
 Default window sizes:
+
 - Single day (date input): `before: 15`, `after: 15`
 - Range (week of X): `before: 25`, `after: 5` (looking back across the week, small look-ahead)
 
 Call `mcp__ai-brain__timeline_thoughts` with:
+
 - `aroundMs`: the resolved timestamp
 - `before`: per above
 - `after`: per above
@@ -55,6 +59,7 @@ If the result array is empty, tell the user: "No thoughts captured around [date]
 ### Step 3: Triage for Diversity
 
 From the compact index, select 5-8 thoughts to hydrate, optimizing for diversity:
+
 - Distinct `type` values when possible (decision, meeting_note, person_note, idea, task, reference)
 - Distinct `topics` — avoid two thoughts with overlapping topic lists if similar summaries
 - Distinct `people` mentioned — try to cover multiple collaborators if relevant
@@ -88,6 +93,7 @@ Write a markdown brief organized for quick orientation:
 ---
 
 **Full window** (for reference):
+
 - `thought:<id>` — <summary> (<date, or just time if all same day>)
 - ...
 ```
@@ -99,5 +105,6 @@ For a single-day anchor, the sections above may collapse — just produce whiche
 ### Step 5: Offer Next Steps
 
 After the brief, suggest:
+
 - "Want to trace how a specific thread from this window evolved? Try `/brain-thread thought:<id>`."
 - "Want a wider window? Run again with an explicit date range."
