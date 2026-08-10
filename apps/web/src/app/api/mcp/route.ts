@@ -1,13 +1,18 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+
+import { authenticateApiKey } from "@/lib/mcp/auth";
+import { createConvexMcpToken } from "@/lib/mcp/convex-auth";
 import { createCorsHeaders, createCorsOptionsResponse } from "@/lib/mcp/cors";
 import { createMcpServer } from "@/lib/mcp/server";
-import { authenticateApiKey } from "@/lib/mcp/auth";
 
 export const dynamic = "force-dynamic";
 
-const CORS_HEADERS: Record<string, string> = createCorsHeaders("POST, OPTIONS", {
-  exposeHeaders: "WWW-Authenticate, Allow",
-});
+const CORS_HEADERS: Record<string, string> = createCorsHeaders(
+  "POST, OPTIONS",
+  {
+    exposeHeaders: "WWW-Authenticate, Allow",
+  },
+);
 
 export async function OPTIONS() {
   return createCorsOptionsResponse(CORS_HEADERS);
@@ -29,8 +34,10 @@ export async function POST(req: Request) {
     });
   }
 
-  // Create fresh MCP server + transport per request (stateless)
-  const server = createMcpServer(auth.userId);
+  // Bind the validated API key to a short-lived Convex identity. Convex
+  // functions derive ownership from this token, never from caller input.
+  const convexAuthToken = await createConvexMcpToken(auth);
+  const server = createMcpServer(convexAuthToken);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -64,20 +71,17 @@ export async function GET() {
         "Content-Type": "application/json",
         Allow: "POST, OPTIONS",
       },
-    }
+    },
   );
 }
 
 export async function DELETE() {
-  return new Response(
-    JSON.stringify({ error: "Method Not Allowed" }),
-    {
-      status: 405,
-      headers: {
-        ...CORS_HEADERS,
-        "Content-Type": "application/json",
-        Allow: "POST, OPTIONS",
-      },
-    }
-  );
+  return new Response(JSON.stringify({ error: "Method Not Allowed" }), {
+    status: 405,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json",
+      Allow: "POST, OPTIONS",
+    },
+  });
 }

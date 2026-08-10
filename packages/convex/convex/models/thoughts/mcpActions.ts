@@ -4,6 +4,7 @@ import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
+import { requireMcpUserId } from "../../lib/mcpAuth";
 import { thoughtMetadata } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -22,12 +23,8 @@ function truncateSnippet(content: string): string {
   return content;
 }
 
-// Public actions for MCP endpoint — accept userId as parameter
-// (auth is handled by API key validation in the Next.js API route)
-
 export const capture = action({
   args: {
-    userId: v.id("users"),
     content: v.string(),
   },
   returns: v.object({
@@ -36,16 +33,16 @@ export const capture = action({
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     return await ctx.runAction(
       internal.models.thoughts.actions.captureThought,
-      { userId: args.userId, content: args.content },
+      { userId, content: args.content },
     );
   },
 });
 
 export const search = action({
   args: {
-    userId: v.id("users"),
     query: v.string(),
     type: v.optional(
       v.union(
@@ -71,21 +68,19 @@ export const search = action({
     }),
   ),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const hits: Array<{
       _id: Id<"thoughts">;
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
       score: number;
       createdAt: number;
-    }> = await ctx.runAction(
-      internal.models.thoughts.actions.hybridSearch,
-      {
-        userId: args.userId,
-        query: args.query,
-        type: args.type,
-        limit: args.limit,
-      },
-    );
+    }> = await ctx.runAction(internal.models.thoughts.actions.hybridSearch, {
+      userId,
+      query: args.query,
+      type: args.type,
+      limit: args.limit,
+    });
 
     return hits.map((h) => ({
       _id: h._id,
@@ -101,7 +96,6 @@ export const search = action({
 
 export const getByIds = action({
   args: {
-    userId: v.id("users"),
     ids: v.array(v.id("thoughts")),
   },
   returns: v.array(
@@ -114,6 +108,7 @@ export const getByIds = action({
     }),
   ),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const docs: Array<{
       _id: Id<"thoughts">;
       _creationTime: number;
@@ -121,14 +116,13 @@ export const getByIds = action({
       metadata: Infer<typeof thoughtMetadata>;
       userId: string;
       updatedAt?: number;
-    }> = await ctx.runQuery(
-      internal.models.thoughts.private.getByIds,
-      { ids: args.ids },
-    );
+    }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
+      ids: args.ids,
+    });
 
     // Enforce ownership — drop any doc that doesn't belong to caller
     return docs
-      .filter((d) => d.userId === args.userId)
+      .filter((d) => d.userId === userId)
       .map((d) => ({
         _id: d._id,
         content: d.content,
@@ -141,7 +135,6 @@ export const getByIds = action({
 
 export const timeline = action({
   args: {
-    userId: v.id("users"),
     seedId: v.optional(v.id("thoughts")),
     aroundMs: v.optional(v.number()),
     before: v.optional(v.number()),
@@ -168,6 +161,7 @@ export const timeline = action({
     }),
   ),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const MAX_WINDOW = 50;
     const before = Math.min(args.before ?? 5, MAX_WINDOW);
     const after = Math.min(args.after ?? 5, MAX_WINDOW);
@@ -191,7 +185,7 @@ export const timeline = action({
         internal.models.thoughts.private.getById,
         { id: args.seedId },
       );
-      if (!seed || seed.userId !== args.userId) {
+      if (!seed || seed.userId !== userId) {
         throw new Error("Seed thought not found");
       }
       seedDoc = {
@@ -213,16 +207,13 @@ export const timeline = action({
       _creationTime: number;
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
-    }> = await ctx.runQuery(
-      internal.models.thoughts.private.listAroundTime,
-      {
-        userId: args.userId,
-        aroundMs,
-        before,
-        after,
-        type: args.type,
-      },
-    );
+    }> = await ctx.runQuery(internal.models.thoughts.private.listAroundTime, {
+      userId,
+      aroundMs,
+      before,
+      after,
+      type: args.type,
+    });
 
     const mapped = docs.map((d) => ({
       _id: d._id,

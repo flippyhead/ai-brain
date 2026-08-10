@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
+import type * as lib_mcpAuth from "../lib/mcpAuth.js";
 import type * as models_apiKeys_mcpAuth from "../models/apiKeys/mcpAuth.js";
 import type * as models_apiKeys_model from "../models/apiKeys/model.js";
 import type * as models_apiKeys_private from "../models/apiKeys/private.js";
@@ -22,6 +23,7 @@ import type * as models_lists_private from "../models/lists/private.js";
 import type * as models_lists_public from "../models/lists/public.js";
 import type * as models_lists_validators from "../models/lists/validators.js";
 import type * as models_reports_mcpActions from "../models/reports/mcpActions.js";
+import type * as models_reports_mcpMutations from "../models/reports/mcpMutations.js";
 import type * as models_reports_mcpQueries from "../models/reports/mcpQueries.js";
 import type * as models_reports_model from "../models/reports/model.js";
 import type * as models_reports_private from "../models/reports/private.js";
@@ -47,6 +49,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
+  "lib/mcpAuth": typeof lib_mcpAuth;
   "models/apiKeys/mcpAuth": typeof models_apiKeys_mcpAuth;
   "models/apiKeys/model": typeof models_apiKeys_model;
   "models/apiKeys/private": typeof models_apiKeys_private;
@@ -59,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   "models/lists/public": typeof models_lists_public;
   "models/lists/validators": typeof models_lists_validators;
   "models/reports/mcpActions": typeof models_reports_mcpActions;
+  "models/reports/mcpMutations": typeof models_reports_mcpMutations;
   "models/reports/mcpQueries": typeof models_reports_mcpQueries;
   "models/reports/model": typeof models_reports_model;
   "models/reports/private": typeof models_reports_private;

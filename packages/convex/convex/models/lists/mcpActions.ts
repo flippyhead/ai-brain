@@ -1,5 +1,6 @@
 import { mutation } from "../../_generated/server";
 import { v } from "convex/values";
+import { requireMcpUserId } from "../../lib/mcpAuth";
 import { listItemStatus } from "./validators";
 import {
   _insertList,
@@ -13,15 +14,15 @@ import {
 
 export const createList = mutation({
   args: {
-    userId: v.id("users"),
     name: v.string(),
     pinned: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const listId = await _insertList(ctx, {
       name: args.name,
       pinned: args.pinned,
-      userId: args.userId,
+      userId,
     });
     return { listId, name: args.name, pinned: args.pinned };
   },
@@ -29,14 +30,14 @@ export const createList = mutation({
 
 export const updateList = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("lists"),
     name: v.optional(v.string()),
     pinned: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
+    if (!list || list.userId !== userId) {
       throw new Error("List not found");
     }
 
@@ -55,12 +56,12 @@ export const updateList = mutation({
 
 export const archiveList = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("lists"),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
+    if (!list || list.userId !== userId) {
       throw new Error("List not found");
     }
     await _updateList(ctx, args.listId, { archivedAt: Date.now() });
@@ -70,7 +71,6 @@ export const archiveList = mutation({
 
 export const createListItem = mutation({
   args: {
-    userId: v.id("users"),
     listId: v.id("lists"),
     title: v.string(),
     url: v.optional(v.string()),
@@ -78,23 +78,25 @@ export const createListItem = mutation({
     properties: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
+    if (!list || list.userId !== userId) {
       throw new Error("List not found");
     }
 
     // Get max position in list
-    const items = await _itemsByList(ctx, args.listId, { includeCompleted: true });
-    const maxPosition = items.length > 0
-      ? Math.max(...items.map((i) => i.position))
-      : 0;
+    const items = await _itemsByList(ctx, args.listId, {
+      includeCompleted: true,
+    });
+    const maxPosition =
+      items.length > 0 ? Math.max(...items.map((i) => i.position)) : 0;
 
     const itemId = await _insertItem(ctx, {
       title: args.title,
       status: "open",
       position: maxPosition + 1,
       listId: args.listId,
-      userId: args.userId,
+      userId,
       url: args.url,
       description: args.description,
       properties: args.properties,
@@ -114,7 +116,6 @@ export const createListItem = mutation({
 
 export const updateListItem = mutation({
   args: {
-    userId: v.id("users"),
     itemId: v.id("listItems"),
     title: v.optional(v.string()),
     status: v.optional(listItemStatus),
@@ -124,8 +125,9 @@ export const updateListItem = mutation({
     properties: v.optional(v.record(v.string(), v.any())),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const item = await _findItemById(ctx, args.itemId);
-    if (!item || item.userId !== args.userId) {
+    if (!item || item.userId !== userId) {
       throw new Error("Item not found");
     }
 
@@ -152,7 +154,8 @@ export const updateListItem = mutation({
       title: args.title ?? item.title,
       status: args.status ?? item.status,
       position: args.position ?? item.position,
-      completedAt: args.status !== undefined ? update.completedAt : item.completedAt,
+      completedAt:
+        args.status !== undefined ? update.completedAt : item.completedAt,
       url: args.url ?? item.url,
       description: args.description ?? item.description,
       properties: args.properties ?? item.properties,

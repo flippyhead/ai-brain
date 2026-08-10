@@ -1,15 +1,17 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@repo/db/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
+
 import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
-export function createMcpServer(userId: string) {
+export function createMcpServer(convexAuthToken: string) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
     throw new Error("NEXT_PUBLIC_CONVEX_URL is not set");
   }
   const convex = new ConvexHttpClient(convexUrl);
+  convex.setAuth(convexAuthToken);
 
   const server = new McpServer({
     name: "open-brain",
@@ -52,7 +54,6 @@ export function createMcpServer(userId: string) {
       const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.search,
         {
-          userId: userId as never,
           query,
           type,
           limit,
@@ -122,12 +123,18 @@ export function createMcpServer(userId: string) {
         _id: string;
         _creationTime: number;
         content: string;
-        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
         userId: string;
       };
       const results: Thought[] = await convex.query(
         api.models.thoughts.mcpQueries.listByUser,
-        { userId: userId as never, limit },
+        { limit },
       );
 
       let filtered = results;
@@ -137,9 +144,7 @@ export function createMcpServer(userId: string) {
       if (topic) {
         const lowerTopic = topic.toLowerCase();
         filtered = filtered.filter((t) =>
-          t.metadata.topics.some((tp) =>
-            tp.toLowerCase().includes(lowerTopic),
-          ),
+          t.metadata.topics.some((tp) => tp.toLowerCase().includes(lowerTopic)),
         );
       }
 
@@ -201,7 +206,7 @@ export function createMcpServer(userId: string) {
       };
       const results: Thought[] = await convex.action(
         api.models.thoughts.mcpActions.getByIds,
-        { userId: userId as never, ids: ids as never },
+        { ids: ids as never },
       );
 
       if (results.length === 0) {
@@ -310,7 +315,6 @@ export function createMcpServer(userId: string) {
       const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.timeline,
         {
-          userId: userId as never,
           seedId: seedId as never,
           aroundMs,
           before,
@@ -360,7 +364,7 @@ export function createMcpServer(userId: string) {
     async () => {
       const stats = await convex.query(
         api.models.thoughts.mcpQueries.getStats,
-        { userId: userId as never },
+        {},
       );
 
       return {
@@ -383,12 +387,18 @@ export function createMcpServer(userId: string) {
     async ({ content }) => {
       type CaptureResult = {
         thoughtId: string;
-        metadata: { type: string; topics: string[]; people: string[]; actionItems: string[]; summary: string };
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
         operationSummary?: string;
       };
       const result: CaptureResult = await convex.action(
         api.models.thoughts.mcpActions.capture,
-        { userId: userId as never, content },
+        { content },
       );
 
       const noopSummary = "Thought already captured — no changes made";
@@ -464,7 +474,7 @@ export function createMcpServer(userId: string) {
       };
       const result: CreateReportResult = await convex.action(
         api.models.reports.mcpActions.createReport,
-        { userId: userId as never, ...args },
+        args,
       );
 
       return {
@@ -524,7 +534,7 @@ export function createMcpServer(userId: string) {
       };
       const results: Insight[] = await convex.query(
         api.models.reports.mcpQueries.listInsights,
-        { userId: userId as never, status, category, limit },
+        { status, category, limit },
       );
 
       if (results.length === 0) {
@@ -572,10 +582,9 @@ export function createMcpServer(userId: string) {
       insightId: z.string().describe("The ID of the insight to delete"),
     },
     async ({ insightId }) => {
-      await convex.mutation(
-        api.models.reports.public.deleteInsight,
-        { insightId: insightId as never },
-      );
+      await convex.mutation(api.models.reports.mcpMutations.deleteInsight, {
+        insightId: insightId as never,
+      });
       return {
         content: [
           {
@@ -593,16 +602,20 @@ export function createMcpServer(userId: string) {
     MCP_TOOL_NAMES.createList,
     "Create a new named list for tracking items (todos, goals, etc.)",
     {
-      name: z.string().describe("Name for the list (e.g., 'This Week', 'Q2 Goals')"),
+      name: z
+        .string()
+        .describe("Name for the list (e.g., 'This Week', 'Q2 Goals')"),
       pinned: z
         .boolean()
         .default(false)
-        .describe("If true, this list is loaded proactively by AI tools at session start"),
+        .describe(
+          "If true, this list is loaded proactively by AI tools at session start",
+        ),
     },
     async ({ name, pinned }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.createList,
-        { userId: userId as never, name, pinned },
+        { name, pinned },
       );
       return {
         content: [
@@ -626,7 +639,7 @@ export function createMcpServer(userId: string) {
     async ({ listId, name, pinned }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.updateList,
-        { userId: userId as never, listId: listId as never, name, pinned },
+        { listId: listId as never, name, pinned },
       );
       return {
         content: [
@@ -643,10 +656,7 @@ export function createMcpServer(userId: string) {
     MCP_TOOL_NAMES.getLists,
     "Get all lists with item counts, optionally filtered to pinned only",
     {
-      pinned: z
-        .boolean()
-        .optional()
-        .describe("Filter to pinned lists only"),
+      pinned: z.boolean().optional().describe("Filter to pinned lists only"),
       includeArchived: z
         .boolean()
         .default(false)
@@ -662,7 +672,7 @@ export function createMcpServer(userId: string) {
       };
       const results: ListResult[] = await convex.query(
         api.models.lists.mcpQueries.getLists,
-        { userId: userId as never, pinned, includeArchived },
+        { pinned, includeArchived },
       );
 
       if (results.length === 0) {
@@ -716,18 +726,20 @@ export function createMcpServer(userId: string) {
       };
       const result: ListDetail = await convex.query(
         api.models.lists.mcpQueries.getList,
-        { userId: userId as never, listId: listId as never, includeCompleted },
+        { listId: listId as never, includeCompleted },
       );
 
-      const itemLines = result.items.length > 0
-        ? result.items.map((i) => {
-            let line = `${i.status === "done" ? "[x]" : "[ ]"} ${i.title} (id: ${i.itemId})`;
-            if (i.url) line += `\n    URL: ${i.url}`;
-            if (i.description) line += `\n    ${i.description}`;
-            if (i.properties) line += `\n    Properties: ${JSON.stringify(i.properties)}`;
-            return line;
-          })
-        : ["(no items)"];
+      const itemLines =
+        result.items.length > 0
+          ? result.items.map((i) => {
+              let line = `${i.status === "done" ? "[x]" : "[ ]"} ${i.title} (id: ${i.itemId})`;
+              if (i.url) line += `\n    URL: ${i.url}`;
+              if (i.description) line += `\n    ${i.description}`;
+              if (i.properties)
+                line += `\n    Properties: ${JSON.stringify(i.properties)}`;
+              return line;
+            })
+          : ["(no items)"];
 
       return {
         content: [
@@ -753,10 +765,9 @@ export function createMcpServer(userId: string) {
       listId: z.string().describe("The list ID to archive"),
     },
     async ({ listId }) => {
-      await convex.mutation(
-        api.models.lists.mcpActions.archiveList,
-        { userId: userId as never, listId: listId as never },
-      );
+      await convex.mutation(api.models.lists.mcpActions.archiveList, {
+        listId: listId as never,
+      });
       return {
         content: [
           {
@@ -775,13 +786,19 @@ export function createMcpServer(userId: string) {
       listId: z.string().describe("The list to add the item to"),
       title: z.string().describe("The item text"),
       url: z.string().optional().describe("Optional URL for the item"),
-      description: z.string().optional().describe("Optional description of the item"),
-      properties: z.record(z.string(), z.any()).optional().describe("Optional custom properties object"),
+      description: z
+        .string()
+        .optional()
+        .describe("Optional description of the item"),
+      properties: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe("Optional custom properties object"),
     },
     async ({ listId, title, url, description, properties }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.createListItem,
-        { userId: userId as never, listId: listId as never, title, url, description, properties },
+        { listId: listId as never, title, url, description, properties },
       );
       return {
         content: [
@@ -804,19 +821,31 @@ export function createMcpServer(userId: string) {
         .enum(["open", "done"])
         .optional()
         .describe("Set status (done = check off, open = reopen)"),
-      position: z
-        .number()
-        .optional()
-        .describe("New position for reordering"),
+      position: z.number().optional().describe("New position for reordering"),
       url: z.string().optional().describe("New URL for the item"),
-      description: z.string().optional().describe("New description for the item"),
-      properties: z.record(z.string(), z.any()).optional().describe("Custom properties object (replaces entire properties field — caller should merge with existing before sending)"),
+      description: z
+        .string()
+        .optional()
+        .describe("New description for the item"),
+      properties: z
+        .record(z.string(), z.any())
+        .optional()
+        .describe(
+          "Custom properties object (replaces entire properties field — caller should merge with existing before sending)",
+        ),
     },
-    async ({ itemId, title, status, position, url, description, properties }) => {
+    async ({
+      itemId,
+      title,
+      status,
+      position,
+      url,
+      description,
+      properties,
+    }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.updateListItem,
         {
-          userId: userId as never,
           itemId: itemId as never,
           title,
           status,
@@ -863,7 +892,7 @@ export function createMcpServer(userId: string) {
       };
       const results: OpenItem[] = await convex.query(
         api.models.lists.mcpQueries.getOpenItems,
-        { userId: userId as never, limit },
+        { limit },
       );
 
       if (results.length === 0) {
@@ -892,7 +921,8 @@ export function createMcpServer(userId: string) {
           let line = `- [ ] ${item.title} (id: ${item.itemId})`;
           if (item.url) line += `\n    URL: ${item.url}`;
           if (item.description) line += `\n    ${item.description}`;
-          if (item.properties) line += `\n    Properties: ${JSON.stringify(item.properties)}`;
+          if (item.properties)
+            line += `\n    Properties: ${JSON.stringify(item.properties)}`;
           lines.push(line);
         }
         lines.push("");

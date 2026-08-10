@@ -1,10 +1,7 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
-import {
-  insightCategory,
-  insightStatus,
-  dismissTag,
-} from "./validators";
+import { requireMcpUserId } from "../../lib/mcpAuth";
+import { insightCategory, insightStatus, dismissTag } from "./validators";
 import { _listInsightsByUserAndStatus } from "./model";
 
 const insightReturn = v.object({
@@ -16,9 +13,7 @@ const insightReturn = v.object({
   observation: v.string(),
   recommendation: v.string(),
   evidence: v.string(),
-  links: v.optional(
-    v.array(v.object({ label: v.string(), url: v.string() })),
-  ),
+  links: v.optional(v.array(v.object({ label: v.string(), url: v.string() }))),
   status: insightStatus,
   dismissTag: v.optional(dismissTag),
   dismissText: v.optional(v.string()),
@@ -27,13 +22,13 @@ const insightReturn = v.object({
 
 export const listInsights = query({
   args: {
-    userId: v.id("users"),
     status: v.optional(insightStatus),
     category: v.optional(insightCategory),
     limit: v.optional(v.number()),
   },
   returns: v.array(insightReturn),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const limit = args.limit ?? 50;
 
     let results;
@@ -41,7 +36,7 @@ export const listInsights = query({
     if (args.status) {
       results = await _listInsightsByUserAndStatus(
         ctx,
-        args.userId,
+        userId,
         args.status,
         limit,
         args.category,
@@ -49,12 +44,30 @@ export const listInsights = query({
     } else {
       const [newInsights, notedInsights, doneInsights, dismissedInsights] =
         await Promise.all([
-          _listInsightsByUserAndStatus(ctx, args.userId, "new", limit, args.category),
-          _listInsightsByUserAndStatus(ctx, args.userId, "noted", limit, args.category),
-          _listInsightsByUserAndStatus(ctx, args.userId, "done", limit, args.category),
           _listInsightsByUserAndStatus(
             ctx,
-            args.userId,
+            userId,
+            "new",
+            limit,
+            args.category,
+          ),
+          _listInsightsByUserAndStatus(
+            ctx,
+            userId,
+            "noted",
+            limit,
+            args.category,
+          ),
+          _listInsightsByUserAndStatus(
+            ctx,
+            userId,
+            "done",
+            limit,
+            args.category,
+          ),
+          _listInsightsByUserAndStatus(
+            ctx,
+            userId,
             "dismissed",
             limit,
             args.category,

@@ -1,5 +1,6 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
+import { requireMcpUserId } from "../../lib/mcpAuth";
 import {
   _listsByUser,
   _itemsByList,
@@ -10,12 +11,12 @@ import {
 
 export const getLists = query({
   args: {
-    userId: v.id("users"),
     pinned: v.optional(v.boolean()),
     includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const lists = await _listsByUser(ctx, args.userId, {
+    const userId = await requireMcpUserId(ctx);
+    const lists = await _listsByUser(ctx, userId, {
       pinned: args.pinned,
       includeArchived: args.includeArchived,
     });
@@ -39,13 +40,13 @@ export const getLists = query({
 
 export const getList = query({
   args: {
-    userId: v.id("users"),
     listId: v.id("lists"),
     includeCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const list = await _findListById(ctx, args.listId);
-    if (!list || list.userId !== args.userId) {
+    if (!list || list.userId !== userId) {
       throw new Error("List not found");
     }
 
@@ -73,12 +74,12 @@ export const getList = query({
 
 export const getOpenItems = query({
   args: {
-    userId: v.id("users"),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const limit = args.limit ?? 50;
-    const items = await _openItemsByUser(ctx, args.userId);
+    const items = await _openItemsByUser(ctx, userId);
 
     // Fetch list names and filter out items from archived lists
     const listCache = new Map<string, { name: string; archived: boolean }>();

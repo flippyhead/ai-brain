@@ -1,5 +1,5 @@
-import { ConvexHttpClient } from "convex/browser";
 import { api } from "@repo/db/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 
 function getConvex() {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -23,16 +23,11 @@ export async function authenticateApiKey(
     .join("");
 
   const convex = getConvex();
-  const result = await convex.query(
-    api.models.apiKeys.mcpAuth.validateKeyHash,
+  const result = await convex.action(
+    api.models.apiKeys.mcpAuth.authenticateKeyHash,
     { keyHash },
   );
   if (!result) return null;
-
-  // Update last used (fire and forget)
-  convex
-    .mutation(api.models.apiKeys.mcpAuth.touchKey, { keyId: result.keyId })
-    .catch(() => {});
 
   return { userId: result.userId, keyId: result.keyId };
 }
