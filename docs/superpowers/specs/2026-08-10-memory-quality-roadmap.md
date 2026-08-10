@@ -71,16 +71,15 @@ deployment's provider decision.
 - Validate required configuration without printing secret values.
 - Provide a self-hosting sequence and post-deployment acceptance checklist.
 
-## Cost work at the credential boundary
+## Cost work completed at the credential boundary
 
-The current capture path can make separate classification and metadata calls.
-After the deployment's provider-account decision is made, consolidate those
-outputs into one structured provider response where practical and reuse an
-existing embedding whenever replacement content is unchanged.
-
-This provider-layer change is intentionally gated on the decision to reuse or
-create the deployment's API keys. No production keys are required for the
-storage, retrieval, evaluation, or deployment-readiness work above.
+Classification and metadata extraction now share one schema-constrained Haiku
+response. The capture path reuses its original embedding when the stored text
+is unchanged and creates a second embedding only for a rewritten replacement.
+Provider failures fall back to a bounded deterministic metadata shape rather
+than making a second model request. Both configured provider credentials and
+their selected models were verified with minimal live requests before
+deployment.
 
 ## Deferred until evidence justifies it
 

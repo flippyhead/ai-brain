@@ -6,9 +6,14 @@ import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { SIMILARITY_THRESHOLD, MAX_CANDIDATES } from "./classify";
 import {
+  canReuseEmbedding,
+  fallbackThoughtMetadata,
+  normalizeCaptureContent,
+  type ThoughtAnalysis,
+} from "./memoryAnalysis";
+import {
   assertValidMemoryValidity,
   isCurrentMemory,
-  type MemoryClassification,
   type MemoryStatus,
 } from "./memoryLifecycle";
 import { memoryStatus, thoughtMetadata, thoughtType } from "./validators";
@@ -33,9 +38,10 @@ export const captureThought = internalAction({
   }),
   handler: async (ctx, args) => {
     assertValidMemoryValidity(args);
+    const content = normalizeCaptureContent(args.content);
     const embedding = await ctx.runAction(
       internal.models.thoughts.helpers.generateEmbedding,
-      { text: args.content },
+      { text: content },
     );
 
     const similarResults = await ctx.vectorSearch("thoughts", "by_embedding", {
@@ -48,58 +54,55 @@ export const captureThought = internalAction({
       .filter((r) => r._score >= SIMILARITY_THRESHOLD)
       .slice(0, MAX_CANDIDATES * 5);
 
-    let classification: MemoryClassification | null = null;
-    if (candidates.length > 0) {
-      const candidateDocs = await Promise.all(
-        candidates.map(async (r) => {
-          const doc = await ctx.runQuery(
-            internal.models.thoughts.private.getById,
-            { id: r._id },
-          );
-          return doc &&
-            doc.userId === args.userId &&
-            isCurrentMemory(doc.memoryStatus)
-            ? {
-                _id: r._id as string,
-                content: doc.content,
-                metadata: {
-                  type: doc.metadata.type,
-                  topics: doc.metadata.topics,
-                  people: doc.metadata.people,
-                  summary: doc.metadata.summary,
-                },
-                createdAt: doc._creationTime,
-                validFrom: doc.validFrom,
-                validTo: doc.validTo,
-              }
-            : null;
-        }),
+    const candidateDocs = await Promise.all(
+      candidates.map(async (r) => {
+        const doc = await ctx.runQuery(
+          internal.models.thoughts.private.getById,
+          { id: r._id },
+        );
+        return doc &&
+          doc.userId === args.userId &&
+          isCurrentMemory(doc.memoryStatus)
+          ? {
+              _id: r._id as string,
+              content: doc.content,
+              metadata: {
+                type: doc.metadata.type,
+                topics: doc.metadata.topics,
+                people: doc.metadata.people,
+                summary: doc.metadata.summary,
+              },
+              createdAt: doc._creationTime,
+              validFrom: doc.validFrom,
+              validTo: doc.validTo,
+            }
+          : null;
+      }),
+    );
+
+    const validCandidates = candidateDocs
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .slice(0, MAX_CANDIDATES);
+
+    let analysis: ThoughtAnalysis | null = null;
+    try {
+      analysis = await ctx.runAction(
+        internal.models.thoughts.classify.analyzeThought,
+        {
+          newContent: content,
+          newValidFrom: args.validFrom,
+          newValidTo: args.validTo,
+          candidates: validCandidates,
+        },
       );
-
-      const validCandidates = candidateDocs
-        .filter((d): d is NonNullable<typeof d> => d !== null)
-        .slice(0, MAX_CANDIDATES);
-
-      if (validCandidates.length > 0) {
-        try {
-          classification = await ctx.runAction(
-            internal.models.thoughts.classify.classifyThought,
-            {
-              newContent: args.content,
-              newValidFrom: args.validFrom,
-              newValidTo: args.validTo,
-              candidates: validCandidates,
-            },
-          );
-        } catch (error) {
-          console.error(
-            "[Smart Save] Classification failed, falling back to ADD:",
-            error,
-          );
-          classification = null;
-        }
-      }
+    } catch (error) {
+      console.error(
+        "[Smart Save] Memory analysis failed, falling back to ADD:",
+        error,
+      );
     }
+
+    let classification = analysis?.classification ?? null;
 
     if (classification?.action === "NOOP") {
       const existingId = classification.relatedThoughtIds[0] as
@@ -143,17 +146,17 @@ export const captureThought = internalAction({
       const replacementContent = classification.replacementContent;
       if (replacementContent) {
         try {
-          const [replacementEmbedding, replacementMetadata] = await Promise.all(
-            [
-              ctx.runAction(
+          const replacementEmbedding = canReuseEmbedding(
+            content,
+            replacementContent,
+          )
+            ? embedding
+            : await ctx.runAction(
                 internal.models.thoughts.helpers.generateEmbedding,
                 { text: replacementContent },
-              ),
-              ctx.runAction(internal.models.thoughts.helpers.extractMetadata, {
-                text: replacementContent,
-              }),
-            ],
-          );
+              );
+          const replacementMetadata =
+            analysis?.metadata ?? fallbackThoughtMetadata(replacementContent);
 
           const thoughtId: Id<"thoughts"> = await ctx.runMutation(
             internal.models.thoughts.private.transitionMemory,
@@ -204,14 +207,14 @@ export const captureThought = internalAction({
       }
     }
 
-    const metadata: Infer<typeof thoughtMetadata> = await ctx.runAction(
-      internal.models.thoughts.helpers.extractMetadata,
-      { text: args.content },
-    );
+    const metadata: Infer<typeof thoughtMetadata> =
+      classification?.action === "ADD" && analysis
+        ? analysis.metadata
+        : fallbackThoughtMetadata(content);
     const thoughtId: Id<"thoughts"> = await ctx.runMutation(
       internal.models.thoughts.private.insertOne,
       {
-        content: args.content,
+        content,
         embedding,
         metadata,
         userId: args.userId,

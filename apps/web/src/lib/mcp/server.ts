@@ -15,6 +15,7 @@ This server cannot observe conversations or force tool calls; recall and capture
 
 const ISO_VALIDITY_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
+const MAX_CAPTURE_CONTENT_CHARS = 20_000;
 
 /** Parse an explicit real-world validity date without using the server's timezone. */
 export function parseValidityTimestamp(value: string): number {
@@ -778,6 +779,9 @@ export function createMcpServer(convexAuthToken: string) {
     {
       content: z
         .string()
+        .trim()
+        .min(1)
+        .max(MAX_CAPTURE_CONTENT_CHARS)
         .describe(
           "A standalone durable memory grounded in what the user stated or confirmed. Preserve exact proper nouns, identifiers, and version strings; do not add inferred facts.",
         ),

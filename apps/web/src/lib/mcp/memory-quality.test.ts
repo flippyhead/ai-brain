@@ -76,6 +76,10 @@ describe("MCP memory quality contract", () => {
       expect(capture?.inputSchema.properties).toHaveProperty("validFrom");
       expect(capture?.inputSchema.properties).toHaveProperty("validTo");
       expect(capture?.inputSchema.properties).toHaveProperty("isCore");
+      expect(capture?.inputSchema.properties).toHaveProperty(
+        "content.maxLength",
+        20_000,
+      );
     } finally {
       await client.close();
       await server.close();

@@ -64,8 +64,11 @@ are retracted and have no historical validity interval.
 
 The Convex backend currently uses OpenAI
 `text-embedding-3-small` for semantic search and Anthropic Claude Haiku for
-metadata extraction and Smart Save classification. Set `OPENAI_API_KEY` and
-`ANTHROPIC_API_KEY` on your Convex deployment.
+one schema-constrained Smart Save analysis that combines classification and
+metadata extraction. A capture normally uses one embedding and one Haiku call;
+a second embedding is created only when a changed fact produces different
+standalone replacement text. Set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` on
+your Convex deployment.
 
 These are server-side API calls. Connecting ChatGPT or Claude as an MCP client
 does not provide their API keys or charge these calls to a consumer

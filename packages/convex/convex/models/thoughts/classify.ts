@@ -3,17 +3,20 @@
 import { internalAction } from "../../_generated/server";
 import { v } from "convex/values";
 import {
-  type MemoryClassification,
-  parseMemoryClassification,
-} from "./memoryLifecycle";
+  parseThoughtAnalysis,
+  THOUGHT_TYPES,
+  type ThoughtAnalysis,
+} from "./memoryAnalysis";
+import { thoughtMetadata } from "./validators";
 
 /** Minimum similarity score to consider a thought as a classification candidate. */
 export const SIMILARITY_THRESHOLD = 0.7;
 
 /** Maximum number of similar thoughts sent to the classifier. */
 export const MAX_CANDIDATES = 10;
+const MAX_CANDIDATE_CONTENT_CHARS = 4_000;
 
-const classificationResponseSchema = v.object({
+const classificationResponseSchema = {
   action: v.union(
     v.literal("ADD"),
     v.literal("NOOP"),
@@ -23,7 +26,7 @@ const classificationResponseSchema = v.object({
   relatedThoughtIds: v.array(v.string()),
   reason: v.string(),
   replacementContent: v.optional(v.string()),
-});
+};
 
 type CandidateThought = {
   _id: string;
@@ -45,7 +48,44 @@ function formatValidity(value: number | undefined, fallback: string): string {
     : new Date(value).toISOString();
 }
 
-const SYSTEM_PROMPT = `You manage durable personal memories. Compare new content with current, semantically similar memories and choose exactly one action:
+function truncateForModel(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : `${value.slice(0, maxChars)}…`;
+}
+
+const ANALYSIS_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    action: {
+      type: "string",
+      enum: ["ADD", "NOOP", "SUPERSEDE", "RETRACT"],
+    },
+    relatedThoughtIds: { type: "array", items: { type: "string" } },
+    reason: { type: "string" },
+    replacementContent: { type: ["string", "null"] },
+    metadata: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        type: { type: "string", enum: [...THOUGHT_TYPES] },
+        topics: { type: "array", items: { type: "string" } },
+        people: { type: "array", items: { type: "string" } },
+        actionItems: { type: "array", items: { type: "string" } },
+        summary: { type: "string" },
+      },
+      required: ["type", "topics", "people", "actionItems", "summary"],
+    },
+  },
+  required: [
+    "action",
+    "relatedThoughtIds",
+    "reason",
+    "replacementContent",
+    "metadata",
+  ],
+} as const;
+
+const SYSTEM_PROMPT = `You analyze durable personal memories. Compare new content with current, semantically similar memories, choose exactly one action, and extract metadata for the content that would be stored:
 
 - ADD: the new content is durable and independent. Store it as a new current memory.
 - NOOP: the same information is already fully captured. Do not create a duplicate.
@@ -65,20 +105,14 @@ For RETRACT:
 - replacementContent is required.
 - State the corrected information and make clear that the earlier claim was inaccurate. Do not present the incorrect claim as something that was once true.
 
-For NOOP, include the single existing thought id that already captures the information.
-For ADD, relatedThoughtIds must be empty.
+For NOOP, include the single existing thought id that already captures the information and set replacementContent to null.
+For ADD, relatedThoughtIds must be empty and replacementContent must be null.
 For SUPERSEDE or RETRACT, include only directly affected existing thought ids.
 Do not invent dates or details. When uncertain whether information changed, choose ADD.
 
-Return ONLY valid JSON:
-{
-  "action": "ADD" | "NOOP" | "SUPERSEDE" | "RETRACT",
-  "relatedThoughtIds": ["<existing thought id>"],
-  "reason": "<brief explanation>",
-  "replacementContent": "<required only for SUPERSEDE or RETRACT>"
-}`;
+Metadata must describe the exact content that will be stored: new content for ADD, or replacementContent for SUPERSEDE and RETRACT. For NOOP, describe the new content even though it will not be stored. Use 1-3 concise topics, exact names for people, only explicit action items, and a one-line summary.`;
 
-export const classifyThought = internalAction({
+export const analyzeThought = internalAction({
   args: {
     newContent: v.string(),
     newValidFrom: v.optional(v.number()),
@@ -99,57 +133,95 @@ export const classifyThought = internalAction({
       }),
     ),
   },
-  returns: v.union(classificationResponseSchema, v.null()),
-  handler: async (_ctx, args): Promise<MemoryClassification | null> => {
-    const candidateList = args.candidates
-      .map(
-        (c: CandidateThought) =>
-          `ID: ${c._id}\nContent: ${c.content}\nType: ${c.metadata.type}\nTopics: ${c.metadata.topics.join(", ")}\nSummary: ${c.metadata.summary}\nCreated: ${new Date(c.createdAt).toISOString()}\nValid from: ${formatValidity(c.validFrom, "unknown")}\nValid to: ${formatValidity(c.validTo, "open or unknown")}`,
-      )
-      .join("\n\n---\n\n");
-
-    const userMessage = `NEW CONTENT:\n${args.newContent}\nNew valid from: ${formatValidity(args.newValidFrom, "unknown")}\nNew valid to: ${formatValidity(args.newValidTo, "open or unknown")}\n\nEXISTING SIMILAR ENTRIES:\n\n${candidateList}`;
+  returns: v.union(
+    v.object({
+      classification: v.object(classificationResponseSchema),
+      metadata: thoughtMetadata,
+    }),
+    v.null(),
+  ),
+  handler: async (_ctx, args): Promise<ThoughtAnalysis | null> => {
+    const userMessage = JSON.stringify(
+      {
+        newMemory: {
+          content: args.newContent,
+          validFrom: formatValidity(args.newValidFrom, "unknown"),
+          validTo: formatValidity(args.newValidTo, "open or unknown"),
+        },
+        existingCurrentMemories: args.candidates.map(
+          (candidate: CandidateThought) => ({
+            id: candidate._id,
+            content: truncateForModel(
+              candidate.content,
+              MAX_CANDIDATE_CONTENT_CHARS,
+            ),
+            type: candidate.metadata.type,
+            topics: candidate.metadata.topics.slice(0, 3),
+            summary: truncateForModel(candidate.metadata.summary, 240),
+            recordedAt: new Date(candidate.createdAt).toISOString(),
+            validFrom: formatValidity(candidate.validFrom, "unknown"),
+            validTo: formatValidity(candidate.validTo, "open or unknown"),
+          }),
+        ),
+      },
+      null,
+      2,
+    );
 
     try {
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not configured");
+
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
-          "x-api-key": process.env.ANTHROPIC_API_KEY!,
+          "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           model: "claude-haiku-4-5-20251001",
-          max_tokens: 1024,
+          max_tokens: 1536,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userMessage }],
+          output_config: {
+            format: {
+              type: "json_schema",
+              schema: ANALYSIS_JSON_SCHEMA,
+            },
+          },
         }),
       });
 
       if (!response.ok) {
-        console.error(`Classification LLM call failed: ${response.statusText}`);
+        console.error(
+          `Anthropic memory analysis failed: ${response.status} ${response.statusText}`,
+        );
         return null;
       }
 
       const data = (await response.json()) as {
-        content?: Array<{ text?: unknown }>;
+        content?: Array<{ type?: unknown; text?: unknown }>;
       };
-      const text = data.content?.[0]?.text;
+      const text = data.content?.find(
+        (block) => block.type === "text" && typeof block.text === "string",
+      )?.text;
       if (typeof text !== "string") {
-        console.error("Classification returned no text");
+        console.error("Anthropic memory analysis returned no text");
         return null;
       }
 
-      const classification = parseMemoryClassification(
+      const analysis = parseThoughtAnalysis(
         text,
         args.candidates.map((candidate) => candidate._id),
+        args.newContent,
       );
-      if (!classification) {
-        console.error("Classification returned an invalid decision");
+      if (!analysis) {
+        console.error("Memory analysis returned an invalid decision");
       }
-      return classification;
+      return analysis;
     } catch (error) {
-      console.error("Classification error:", error);
+      console.error("Memory analysis error:", error);
       return null;
     }
   },
