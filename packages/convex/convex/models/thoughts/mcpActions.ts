@@ -1,5 +1,3 @@
-"use node";
-
 import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
