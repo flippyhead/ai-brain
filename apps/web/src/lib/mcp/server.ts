@@ -3,6 +3,10 @@ import { api } from "@repo/db/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
+import {
+  MCP_TOOL_ANNOTATIONS,
+  resolveMcpToolProfile,
+} from "@/lib/mcp/tool-policy";
 import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
 export const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory.
@@ -165,6 +169,7 @@ export function createMcpServer(convexAuthToken: string) {
           "Include superseded and retracted memories for historical questions",
         ),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.searchThoughts],
     async ({ query, type, limit, includeHistorical }) => {
       type IndexRow = {
         _id: string;
@@ -262,12 +267,7 @@ export function createMcpServer(convexAuthToken: string) {
           "Include superseded and retracted memories only for explicitly historical questions",
         ),
     },
-    {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.recallContext],
     async ({ query, limit, includeHistorical }) => {
       type IndexRow = {
         _id: string;
@@ -455,6 +455,7 @@ export function createMcpServer(convexAuthToken: string) {
         .default(false)
         .describe("Include superseded and retracted memories"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.browseRecent],
     async ({ limit, type, topic, includeHistorical }) => {
       type Thought = {
         _id: string;
@@ -547,6 +548,7 @@ export function createMcpServer(convexAuthToken: string) {
         .max(50)
         .describe("Thought IDs (from a prior search_thoughts call)"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getThoughts],
     async ({ ids }) => {
       type Thought = {
         _id: string;
@@ -661,6 +663,7 @@ export function createMcpServer(convexAuthToken: string) {
         .optional()
         .describe("Optional type filter"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.timelineThoughts],
     async ({ seedId, aroundMs, before, after, type }) => {
       if (!seedId && aroundMs === undefined) {
         return {
@@ -756,6 +759,7 @@ export function createMcpServer(convexAuthToken: string) {
     MCP_TOOL_NAMES.getStats,
     "Get overview statistics of what's stored in your brain",
     {},
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getStats],
     async () => {
       const stats = await convex.query(
         api.models.thoughts.mcpQueries.getStats,
@@ -802,6 +806,7 @@ export function createMcpServer(convexAuthToken: string) {
           "True only for the small set of enduring identity facts, constraints, and preferences useful across many conversations. False explicitly demotes an existing core memory. Omit for ordinary durable memories.",
         ),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.captureThought],
     async ({ content, validFrom, validTo, isCore }) => {
       type CaptureResult = {
         thoughtId: string;
@@ -845,7 +850,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const createReportTool = server.tool(
     MCP_TOOL_NAMES.createReport,
     "Create a workflow analysis report with structured insights",
     {
@@ -886,6 +891,7 @@ export function createMcpServer(convexAuthToken: string) {
         )
         .describe("Structured insights from the analysis"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.createReport],
     async (args) => {
       type CreateReportResult = {
         reportId: string;
@@ -913,7 +919,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getInsightsTool = server.tool(
     MCP_TOOL_NAMES.getInsights,
     "Get workflow insights, optionally filtered by status or category. Cite insights as `insight:<id>` when referencing them in your response.",
     {
@@ -938,6 +944,7 @@ export function createMcpServer(convexAuthToken: string) {
         .default(50)
         .describe("Max results to return"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getInsights],
     async ({ status, category, limit }) => {
       type Insight = {
         _id: string;
@@ -994,12 +1001,13 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const deleteInsightTool = server.tool(
     MCP_TOOL_NAMES.deleteInsight,
     "Delete a specific insight by ID",
     {
       insightId: z.string().describe("The ID of the insight to delete"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.deleteInsight],
     async ({ insightId }) => {
       await convex.mutation(api.models.reports.mcpMutations.deleteInsight, {
         insightId: insightId as never,
@@ -1017,7 +1025,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   // --- Lists ---
 
-  server.tool(
+  const createListTool = server.tool(
     MCP_TOOL_NAMES.createList,
     "Create a new named list for tracking items (todos, goals, etc.)",
     {
@@ -1031,6 +1039,7 @@ export function createMcpServer(convexAuthToken: string) {
           "If true, this list is loaded proactively by AI tools at session start",
         ),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.createList],
     async ({ name, pinned }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.createList,
@@ -1047,7 +1056,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const updateListTool = server.tool(
     MCP_TOOL_NAMES.updateList,
     "Update a list's name or pinned status",
     {
@@ -1055,6 +1064,7 @@ export function createMcpServer(convexAuthToken: string) {
       name: z.string().optional().describe("New name for the list"),
       pinned: z.boolean().optional().describe("Set pinned status"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.updateList],
     async ({ listId, name, pinned }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.updateList,
@@ -1071,7 +1081,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getListsTool = server.tool(
     MCP_TOOL_NAMES.getLists,
     "Get all lists with item counts, optionally filtered to pinned only",
     {
@@ -1081,6 +1091,7 @@ export function createMcpServer(convexAuthToken: string) {
         .default(false)
         .describe("Include archived lists"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getLists],
     async ({ pinned, includeArchived }) => {
       type ListResult = {
         listId: string;
@@ -1117,7 +1128,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getListTool = server.tool(
     MCP_TOOL_NAMES.getList,
     "Get a single list with its ordered items",
     {
@@ -1127,6 +1138,7 @@ export function createMcpServer(convexAuthToken: string) {
         .default(false)
         .describe("Include completed items (excluded by default)"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getList],
     async ({ listId, includeCompleted }) => {
       type ListDetail = {
         listId: string;
@@ -1177,12 +1189,13 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const archiveListTool = server.tool(
     MCP_TOOL_NAMES.archiveList,
     "Archive a list (soft delete — items remain intact for review)",
     {
       listId: z.string().describe("The list ID to archive"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.archiveList],
     async ({ listId }) => {
       await convex.mutation(api.models.lists.mcpActions.archiveList, {
         listId: listId as never,
@@ -1198,7 +1211,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const createListItemTool = server.tool(
     MCP_TOOL_NAMES.createListItem,
     "Add an item to a list",
     {
@@ -1214,6 +1227,7 @@ export function createMcpServer(convexAuthToken: string) {
         .optional()
         .describe("Optional custom properties object"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.createListItem],
     async ({ listId, title, url, description, properties }) => {
       const result = await convex.mutation(
         api.models.lists.mcpActions.createListItem,
@@ -1230,7 +1244,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const updateListItemTool = server.tool(
     MCP_TOOL_NAMES.updateListItem,
     "Update a list item — change title, mark done/open, or reorder",
     {
@@ -1253,6 +1267,7 @@ export function createMcpServer(convexAuthToken: string) {
           "Custom properties object (replaces entire properties field — caller should merge with existing before sending)",
         ),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.updateListItem],
     async ({
       itemId,
       title,
@@ -1287,7 +1302,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getOpenItemsTool = server.tool(
     MCP_TOOL_NAMES.getOpenItems,
     "Get all open items across all active (non-archived) lists",
     {
@@ -1298,6 +1313,7 @@ export function createMcpServer(convexAuthToken: string) {
         .default(50)
         .describe("Max items to return"),
     },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.getOpenItems],
     async ({ limit }) => {
       type OpenItem = {
         itemId: string;
@@ -1358,6 +1374,24 @@ export function createMcpServer(convexAuthToken: string) {
       };
     },
   );
+
+  if (resolveMcpToolProfile() === "memory") {
+    for (const tool of [
+      createReportTool,
+      getInsightsTool,
+      deleteInsightTool,
+      createListTool,
+      updateListTool,
+      getListsTool,
+      getListTool,
+      archiveListTool,
+      createListItemTool,
+      updateListItemTool,
+      getOpenItemsTool,
+    ]) {
+      tool.disable();
+    }
+  }
 
   return server;
 }

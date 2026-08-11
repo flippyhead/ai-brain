@@ -21,15 +21,19 @@ import {
   parseValidityTimestamp,
   parseValidityWindow,
 } from "./server";
+import { MCP_MEMORY_TOOL_NAMES, MCP_TOOL_ANNOTATIONS } from "./tool-policy";
+import { MCP_TOOL_NAME_LIST } from "./tools";
 
 describe("MCP memory quality contract", () => {
   beforeEach(() => {
     process.env.NEXT_PUBLIC_CONVEX_URL = "https://example.convex.cloud";
+    delete process.env.MCP_TOOL_PROFILE;
     vi.resetAllMocks();
   });
 
   afterEach(() => {
     delete process.env.NEXT_PUBLIC_CONVEX_URL;
+    delete process.env.MCP_TOOL_PROFILE;
   });
 
   test("tells capable clients to recall verbatim and capture only grounded facts", async () => {
@@ -53,6 +57,14 @@ describe("MCP memory quality contract", () => {
       expect(instructions).toContain("client-mediated");
 
       const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual(
+        [...MCP_MEMORY_TOOL_NAMES].sort(),
+      );
+      for (const tool of tools) {
+        expect(tool.annotations).toEqual(
+          MCP_TOOL_ANNOTATIONS[tool.name as keyof typeof MCP_TOOL_ANNOTATIONS],
+        );
+      }
       const recall = tools.find((tool) => tool.name === "recall_context");
       const capture = tools.find((tool) => tool.name === "capture_thought");
 
@@ -80,6 +92,39 @@ describe("MCP memory quality contract", () => {
         "content.maxLength",
         20_000,
       );
+      expect(capture?.annotations).toEqual({
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("exposes and annotates legacy productivity tools only in the full profile", async () => {
+    process.env.MCP_TOOL_PROFILE = "full";
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "full-profile-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const { tools } = await client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual(
+        [...MCP_TOOL_NAME_LIST].sort(),
+      );
+      for (const tool of tools) {
+        expect(tool.annotations).toEqual(
+          MCP_TOOL_ANNOTATIONS[tool.name as keyof typeof MCP_TOOL_ANNOTATIONS],
+        );
+      }
     } finally {
       await client.close();
       await server.close();
