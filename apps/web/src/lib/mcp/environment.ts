@@ -11,7 +11,9 @@ export const REQUIRED_MCP_ENVIRONMENT_VARIABLES = [
 ] as const;
 
 export type McpEnvironmentVariable =
-  (typeof REQUIRED_MCP_ENVIRONMENT_VARIABLES)[number] | "MCP_JWT_KEY_ID";
+  | (typeof REQUIRED_MCP_ENVIRONMENT_VARIABLES)[number]
+  | "MCP_JWT_KEY_ID"
+  | "MCP_TOOL_PROFILE";
 
 export type McpEnvironmentIssue = {
   name: McpEnvironmentVariable;
@@ -143,6 +145,15 @@ export function validateMcpEnvironment(
   const keyId = environment.MCP_JWT_KEY_ID;
   if (keyId !== undefined && !KEY_ID.test(keyId)) {
     issues.push({ name: "MCP_JWT_KEY_ID", problem: "invalid" });
+  }
+
+  const toolProfile = environment.MCP_TOOL_PROFILE;
+  if (
+    toolProfile !== undefined &&
+    toolProfile !== "memory" &&
+    toolProfile !== "full"
+  ) {
+    issues.push({ name: "MCP_TOOL_PROFILE", problem: "invalid" });
   }
 
   return issues;

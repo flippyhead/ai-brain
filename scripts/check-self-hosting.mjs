@@ -125,6 +125,14 @@ export function validateWebEnvironment(environment) {
     issues.push({ name: "MCP_JWT_KEY_ID", problem: "invalid" });
   }
 
+  if (
+    environment.MCP_TOOL_PROFILE !== undefined &&
+    environment.MCP_TOOL_PROFILE !== "memory" &&
+    environment.MCP_TOOL_PROFILE !== "full"
+  ) {
+    issues.push({ name: "MCP_TOOL_PROFILE", problem: "invalid" });
+  }
+
   return issues;
 }
 

@@ -24,6 +24,7 @@ function validEnvironment(): Record<string, string> {
     MCP_JWT_PUBLIC_JWK: publicJwk,
     MCP_JWT_KEY_ID: "mcp-test-key",
     MCP_OAUTH_ENCRYPTION_KEY: "A".repeat(43),
+    MCP_TOOL_PROFILE: "memory",
   };
 }
 
@@ -64,6 +65,7 @@ describe("validateMcpEnvironment", () => {
     });
     environment.MCP_JWT_KEY_ID = "contains spaces";
     environment.MCP_OAUTH_ENCRYPTION_KEY = "too-short";
+    environment.MCP_TOOL_PROFILE = "everything";
 
     expect(validateMcpEnvironment(environment)).toEqual([
       { name: "NEXT_PUBLIC_CONVEX_URL", problem: "invalid" },
@@ -72,6 +74,7 @@ describe("validateMcpEnvironment", () => {
       { name: "MCP_JWT_PUBLIC_JWK", problem: "invalid" },
       { name: "MCP_OAUTH_ENCRYPTION_KEY", problem: "invalid" },
       { name: "MCP_JWT_KEY_ID", problem: "invalid" },
+      { name: "MCP_TOOL_PROFILE", problem: "invalid" },
     ]);
   });
 

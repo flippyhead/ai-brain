@@ -29,6 +29,7 @@ function validWebEnvironment() {
     MCP_JWT_PUBLIC_JWK: publicJwk,
     MCP_JWT_KEY_ID: "mcp-test",
     MCP_OAUTH_ENCRYPTION_KEY: "A".repeat(43),
+    MCP_TOOL_PROFILE: "memory",
   };
 }
 
@@ -54,12 +55,14 @@ test("web preflight rejects malformed and mismatched values", () => {
     y: `${"D".repeat(42)}M`,
   });
   environment.MCP_OAUTH_ENCRYPTION_KEY = "short";
+  environment.MCP_TOOL_PROFILE = "everything";
 
   assert.deepEqual(validateWebEnvironment(environment), [
     { name: "MCP_JWT_ISSUER", problem: "invalid" },
     { name: "MCP_JWT_PRIVATE_JWK", problem: "invalid" },
     { name: "MCP_JWT_PUBLIC_JWK", problem: "invalid" },
     { name: "MCP_OAUTH_ENCRYPTION_KEY", problem: "invalid" },
+    { name: "MCP_TOOL_PROFILE", problem: "invalid" },
   ]);
 });
 

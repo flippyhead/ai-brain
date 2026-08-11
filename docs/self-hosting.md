@@ -7,8 +7,8 @@ credentials. Each person still creates a separate AI Brain account and
 authorizes their own MCP client.
 
 The deployment can fit within hosted free tiers at low usage, but it is not
-guaranteed to be completely free. OpenAI embeddings and Anthropic extraction
-and classification are metered API calls. Connecting a ChatGPT or Claude
+guaranteed to be completely free. OpenAI embeddings and Anthropic memory
+analysis are metered API calls. Connecting a ChatGPT or Claude
 consumer account does not provide or pay for those backend API calls. Qdrant is
 not required because Convex already stores and searches the vectors.
 
@@ -28,19 +28,20 @@ tracked file. Use the provider dashboards or an interactive CLI prompt.
 
 ## Configuration map
 
-| Variable                   | Location          | Purpose                                                               |
-| -------------------------- | ----------------- | --------------------------------------------------------------------- |
-| `NEXT_PUBLIC_CONVEX_URL`   | Vercel/Next.js    | Public Convex client origin; intentionally browser-visible            |
-| `MCP_JWT_ISSUER`           | Vercel and Convex | Stable HTTPS origin of the Next.js gateway; values must match exactly |
-| `MCP_JWT_PRIVATE_JWK`      | Vercel only       | Signs 60-second Convex identity tokens; secret                        |
-| `MCP_JWT_PUBLIC_JWK`       | Vercel only       | Published through the MCP JWKS endpoint                               |
-| `MCP_JWT_KEY_ID`           | Vercel only       | Identifies the signing key; generated with the key pair               |
-| `MCP_OAUTH_ENCRYPTION_KEY` | Vercel only       | Encrypts OAuth registrations and authorization codes; secret          |
-| `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                |
-| `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host  |
-| `SITE_URL`                 | Convex only       | Stable HTTPS origin of the Next.js app used by Convex Auth            |
-| `JWT_PRIVATE_KEY`          | Convex only       | Signs Convex Auth session tokens; generated secret                    |
-| `JWKS`                     | Convex only       | Public key set used to verify Convex Auth session tokens              |
+| Variable                   | Location          | Purpose                                                                   |
+| -------------------------- | ----------------- | ------------------------------------------------------------------------- |
+| `NEXT_PUBLIC_CONVEX_URL`   | Vercel/Next.js    | Public Convex client origin; intentionally browser-visible                |
+| `MCP_JWT_ISSUER`           | Vercel and Convex | Stable HTTPS origin of the Next.js gateway; values must match exactly     |
+| `MCP_JWT_PRIVATE_JWK`      | Vercel only       | Signs 60-second Convex identity tokens; secret                            |
+| `MCP_JWT_PUBLIC_JWK`       | Vercel only       | Published through the MCP JWKS endpoint                                   |
+| `MCP_JWT_KEY_ID`           | Vercel only       | Identifies the signing key; generated with the key pair                   |
+| `MCP_OAUTH_ENCRYPTION_KEY` | Vercel only       | Encrypts OAuth registrations and authorization codes; secret              |
+| `MCP_TOOL_PROFILE`         | Vercel only       | `full` by default (all tools); set to `memory` to expose only the seven memory tools |
+| `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                    |
+| `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host      |
+| `SITE_URL`                 | Convex only       | Stable HTTPS origin of the Next.js app used by Convex Auth                |
+| `JWT_PRIVATE_KEY`          | Convex only       | Signs Convex Auth session tokens; generated secret                        |
+| `JWKS`                     | Convex only       | Public key set used to verify Convex Auth session tokens                  |
 
 The capture path combines classification and metadata extraction in one
 schema-constrained Haiku request. It reuses the original embedding when the
@@ -133,6 +134,7 @@ values if preview deployments need a working OAuth flow:
 - `MCP_JWT_PUBLIC_JWK`
 - `MCP_JWT_KEY_ID`
 - `MCP_OAUTH_ENCRYPTION_KEY`
+- `MCP_TOOL_PROFILE` (optional; defaults to `full`)
 
 Generate the signing pair and OAuth encryption key once on a trusted local
 machine. Prefer writing them directly to the ignored local environment file so
