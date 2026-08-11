@@ -8,7 +8,10 @@
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
-    "test:once": "turbo run test:once",
+    "test:once": "turbo run test:once && node --test scripts/*.test.mjs",
+    "check:self-hosting": "node scripts/check-self-hosting.mjs --web",
+    "check:self-hosting:convex": "node scripts/check-self-hosting.mjs --convex --prod",
+    "test:self-hosting": "node --test scripts/check-self-hosting.test.mjs",
     "generate:mcp-jwks": "node scripts/generate-mcp-jwks.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
