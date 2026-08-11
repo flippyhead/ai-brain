@@ -37,6 +37,13 @@ test("web preflight accepts complete configuration", () => {
   assert.deepEqual(validateWebEnvironment(validWebEnvironment()), []);
 });
 
+test("web preflight accepts an empty tool profile as the default", () => {
+  const environment = validWebEnvironment();
+  environment.MCP_TOOL_PROFILE = "";
+
+  assert.deepEqual(validateWebEnvironment(environment), []);
+});
+
 test("web preflight returns names only for missing variables", () => {
   assert.deepEqual(validateWebEnvironment({}), [
     { name: "NEXT_PUBLIC_CONVEX_URL", problem: "missing" },

@@ -324,7 +324,7 @@ export function createMcpServer(convexAuthToken: string) {
           content: [
             {
               type: "text" as const,
-              text: "No relevant durable memories found.",
+              text: "Run /brain-init to add initial context, then try recall_context again.",
             },
           ],
         };

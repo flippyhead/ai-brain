@@ -318,6 +318,37 @@ describe("MCP memory quality contract", () => {
     }
   });
 
+  test("guides an empty brain to initialization without inventing a citation", async () => {
+    convexMocks.query.mockResolvedValue([]);
+    convexMocks.action.mockResolvedValue([]);
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: { query: "What do you remember?" },
+      });
+
+      expect((result as { content?: unknown[] }).content).toEqual([
+        {
+          type: "text",
+          text: "Run /brain-init to add initial context, then try recall_context again.",
+        },
+      ]);
+      expect(convexMocks.action).toHaveBeenCalledTimes(1);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("passes explicit validity and core status through capture", async () => {
     convexMocks.action.mockResolvedValue({
       thoughtId: "captured",
