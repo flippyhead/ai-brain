@@ -11,6 +11,7 @@
 import type * as auth from "../auth.js";
 import type * as http from "../http.js";
 import type * as lib_mcpAuth from "../lib/mcpAuth.js";
+import type * as lib_webAuth from "../lib/webAuth.js";
 import type * as models_apiKeys_mcpAuth from "../models/apiKeys/mcpAuth.js";
 import type * as models_apiKeys_model from "../models/apiKeys/model.js";
 import type * as models_apiKeys_private from "../models/apiKeys/private.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   http: typeof http;
   "lib/mcpAuth": typeof lib_mcpAuth;
+  "lib/webAuth": typeof lib_webAuth;
   "models/apiKeys/mcpAuth": typeof models_apiKeys_mcpAuth;
   "models/apiKeys/model": typeof models_apiKeys_model;
   "models/apiKeys/private": typeof models_apiKeys_private;
