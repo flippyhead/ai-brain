@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
+  isMemoryActive,
   parseMemoryClassification,
   safeSupersededValidTo,
 } from "./memoryLifecycle";
@@ -122,6 +123,22 @@ describe("temporal memory classification", () => {
     expect(isCurrentMemory("current")).toBe(true);
     expect(isCurrentMemory("superseded")).toBe(false);
     expect(isCurrentMemory("retracted")).toBe(false);
+  });
+
+  test("uses half-open validity windows for active memory", () => {
+    const at = 200;
+    expect(isMemoryActive({}, at)).toBe(true);
+    expect(isMemoryActive({ memoryStatus: "current" }, at)).toBe(true);
+    expect(isMemoryActive({ validFrom: at }, at)).toBe(true);
+    expect(isMemoryActive({ validFrom: at + 1 }, at)).toBe(false);
+    expect(isMemoryActive({ validTo: at }, at)).toBe(false);
+    expect(isMemoryActive({ validTo: at + 1 }, at)).toBe(true);
+    expect(
+      isMemoryActive(
+        { memoryStatus: "superseded", validFrom: 100, validTo: 300 },
+        at,
+      ),
+    ).toBe(false);
   });
 
   test("validates open and closed business-time intervals", () => {

@@ -15,9 +15,54 @@ const metadata = {
   summary: "Zevin's school",
 };
 const lakesideStart = Date.UTC(2023, 7, 21);
-const redwoodStart = Date.UTC(2026, 7, 17);
+const redwoodStart = Date.now() - 1_000;
 
 describe("temporal memory transitions", () => {
+  test("keeps inactive validity windows out of current recall without erasing them", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const now = Date.now();
+    const [expiredId, futureId, activeId] = await t.run(async (ctx) => [
+      await ctx.db.insert("thoughts", {
+        userId,
+        content: "A formerly true fact",
+        embedding,
+        metadata,
+        memoryStatus: "current",
+        validTo: now - 1,
+      }),
+      await ctx.db.insert("thoughts", {
+        userId,
+        content: "A scheduled future fact",
+        embedding,
+        metadata,
+        memoryStatus: "current",
+        validFrom: now + 60_000,
+      }),
+      await ctx.db.insert("thoughts", {
+        userId,
+        content: "A fact true now",
+        embedding,
+        metadata,
+        memoryStatus: "current",
+        validFrom: now - 60_000,
+        validTo: now + 60_000,
+      }),
+    ]);
+
+    const [currentMemories, fullHistory] = await t.run(async (ctx) => [
+      await _listByUser(ctx, userId, 20),
+      await _listByUser(ctx, userId, 20, true),
+    ]);
+
+    expect(currentMemories.map((memory) => memory._id)).toEqual([activeId]);
+    expect(fullHistory.map((memory) => memory._id)).toEqual([
+      activeId,
+      futureId,
+      expiredId,
+    ]);
+  });
+
   test("atomically preserves and links a superseded memory", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
