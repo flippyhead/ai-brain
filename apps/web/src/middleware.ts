@@ -21,6 +21,7 @@ export default convexAuthNextjsMiddleware(async (request, { convexAuth }) => {
       request.nextUrl.pathname,
       request.method,
       request.headers.get("content-type"),
+      request.headers.get("authorization"),
     )
   ) {
     const target = request.nextUrl.clone();

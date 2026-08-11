@@ -1,4 +1,4 @@
-import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
+import { MCP_TOOL_NAME_LIST, MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
 type McpToolName = (typeof MCP_TOOL_NAMES)[keyof typeof MCP_TOOL_NAMES];
 
@@ -73,15 +73,30 @@ export const MCP_MEMORY_TOOL_NAMES = [
 
 export type McpToolProfile = "memory" | "full";
 
-/** Default to the focused memory surface; opt into legacy report/list tools. */
+/**
+ * Default to the complete surface. Narrowing to the memory profile removes
+ * tools that connected clients and the bundled plugin skills already call, so
+ * it has to be an explicit opt-in rather than an upgrade-time surprise.
+ */
 export function resolveMcpToolProfile(
   value = process.env.MCP_TOOL_PROFILE,
 ): McpToolProfile {
-  if (value === undefined || value === "" || value === "memory") {
-    return "memory";
-  }
-  if (value === "full") {
+  if (value === undefined || value === "" || value === "full") {
     return "full";
   }
+  if (value === "memory") {
+    return "memory";
+  }
   throw new Error('MCP_TOOL_PROFILE must be either "memory" or "full"');
+}
+
+/**
+ * The tools actually registered under a profile. Discovery metadata and the
+ * skill/tool drift check both read this so they cannot disagree with what the
+ * server exposes.
+ */
+export function resolveEnabledMcpToolNames(
+  profile: McpToolProfile = resolveMcpToolProfile(),
+): readonly McpToolName[] {
+  return profile === "memory" ? MCP_MEMORY_TOOL_NAMES : MCP_TOOL_NAME_LIST;
 }

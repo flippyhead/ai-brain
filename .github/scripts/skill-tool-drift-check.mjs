@@ -40,6 +40,45 @@ async function readRegisteredTools() {
   return registered;
 }
 
+/**
+ * Tools registered under MCP_TOOL_PROFILE=memory. Skills may legitimately use
+ * tools outside this set — the default profile is "full" — but a deployment
+ * that narrows the profile loses them, so the check reports the gap.
+ */
+async function readMemoryProfileTools() {
+  const policyPath = join(repoRoot, "apps/web/src/lib/mcp/tool-policy.ts");
+  const src = await readFile(policyPath, "utf-8");
+  const blockMatch = src.match(/MCP_MEMORY_TOOL_NAMES\s*=\s*\[([\s\S]*?)\]/);
+  if (!blockMatch) {
+    throw new Error(
+      `Could not find MCP_MEMORY_TOOL_NAMES block in ${policyPath}`,
+    );
+  }
+  // Entries are MCP_TOOL_NAMES.<key> references; resolve them via tools.ts.
+  const keyRegex = /MCP_TOOL_NAMES\.([A-Za-z0-9_]+)/g;
+  const toolsSrc = await readFile(
+    join(repoRoot, "apps/web/src/lib/mcp/tools.ts"),
+    "utf-8",
+  );
+  const byKey = new Map();
+  const entryRegex = /([A-Za-z0-9_]+):\s*"([a-z0-9_]+)"/g;
+  let entry;
+  while ((entry = entryRegex.exec(toolsSrc)) !== null) {
+    byKey.set(entry[1], entry[2]);
+  }
+
+  const memoryTools = new Set();
+  let match;
+  while ((match = keyRegex.exec(blockMatch[1])) !== null) {
+    const name = byKey.get(match[1]);
+    if (name) memoryTools.add(name);
+  }
+  if (memoryTools.size === 0) {
+    throw new Error(`No memory-profile tools extracted from ${policyPath}`);
+  }
+  return memoryTools;
+}
+
 async function collectSkillFiles() {
   const skillsRoot = join(repoRoot, "plugins/ai-brain/skills");
   const skillDirs = await readdir(skillsRoot);
@@ -88,29 +127,29 @@ function extractHookToolRefs(src) {
 
 async function main() {
   const registered = await readRegisteredTools();
+  const memoryProfileTools = await readMemoryProfileTools();
   const skills = await collectSkillFiles();
   const hooks = await collectHookFiles();
 
   const offenders = [];
+  const outsideMemoryProfile = [];
 
-  for (const skill of skills) {
-    const src = await readFile(skill, "utf-8");
-    const refs = extractSkillToolRefs(src);
+  const record = (file, refs) => {
     for (const ref of refs) {
       if (!registered.has(ref)) {
-        offenders.push({ file: skill, tool: ref });
+        offenders.push({ file, tool: ref });
+      } else if (!memoryProfileTools.has(ref)) {
+        outsideMemoryProfile.push({ file, tool: ref });
       }
     }
+  };
+
+  for (const skill of skills) {
+    record(skill, extractSkillToolRefs(await readFile(skill, "utf-8")));
   }
 
   for (const hook of hooks) {
-    const src = await readFile(hook, "utf-8");
-    const refs = extractHookToolRefs(src);
-    for (const ref of refs) {
-      if (!registered.has(ref)) {
-        offenders.push({ file: hook, tool: ref });
-      }
-    }
+    record(hook, extractHookToolRefs(await readFile(hook, "utf-8")));
   }
 
   if (offenders.length > 0) {
@@ -125,8 +164,19 @@ async function main() {
     process.exit(1);
   }
 
+  if (outsideMemoryProfile.length > 0) {
+    console.warn(
+      "\nNote: these references resolve under the default MCP_TOOL_PROFILE=full",
+    );
+    console.warn("but are unavailable when the profile is narrowed to memory:");
+    for (const { file, tool } of outsideMemoryProfile) {
+      const rel = file.replace(repoRoot + "/", "");
+      console.warn(`  ${rel}: "${tool}"`);
+    }
+  }
+
   console.log(
-    `Skill->tool drift check passed (${skills.length} skills, ${hooks.length} hooks, ${registered.size} registered tools)`,
+    `Skill->tool drift check passed (${skills.length} skills, ${hooks.length} hooks, ${registered.size} registered tools, ${memoryProfileTools.size} in memory profile)`,
   );
 }
 

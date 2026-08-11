@@ -62,10 +62,11 @@ export async function POST(req: Request) {
   }
 
   const request = parsed.data;
-  const resource = request.resource ?? getMcpResourceUri();
-  if (!isMcpResourceUri(resource)) {
+  if (request.resource !== undefined && !isMcpResourceUri(request.resource)) {
     return tokenError("invalid_target", "Invalid MCP resource");
   }
+  // Compare canonical forms; codes always store the canonical resource.
+  const resource = getMcpResourceUri();
   const data = decryptAuthCode(request.code);
   if (!data || Date.now() > data.exp) {
     return tokenError("invalid_grant", "Invalid or expired authorization code");

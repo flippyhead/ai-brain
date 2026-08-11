@@ -56,9 +56,12 @@ describe("MCP memory quality contract", () => {
       expect(instructions).toContain("Mark isCore true only");
       expect(instructions).toContain("client-mediated");
 
+      // The default profile is "full": narrowing the surface removes tools
+      // that connected clients and the bundled skills already call, so it has
+      // to be opted into rather than inherited on upgrade.
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...MCP_MEMORY_TOOL_NAMES].sort(),
+        [...MCP_TOOL_NAME_LIST].sort(),
       );
       for (const tool of tools) {
         expect(tool.annotations).toEqual(
@@ -104,10 +107,10 @@ describe("MCP memory quality contract", () => {
     }
   });
 
-  test("exposes and annotates legacy productivity tools only in the full profile", async () => {
-    process.env.MCP_TOOL_PROFILE = "full";
+  test("narrows to the memory surface only when explicitly opted in", async () => {
+    process.env.MCP_TOOL_PROFILE = "memory";
     const server = createMcpServer("test-convex-auth-token");
-    const client = new Client({ name: "full-profile-test", version: "1" });
+    const client = new Client({ name: "memory-profile-test", version: "1" });
     const [clientTransport, serverTransport] =
       InMemoryTransport.createLinkedPair();
 
@@ -118,7 +121,7 @@ describe("MCP memory quality contract", () => {
       ]);
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual(
-        [...MCP_TOOL_NAME_LIST].sort(),
+        [...MCP_MEMORY_TOOL_NAMES].sort(),
       );
       for (const tool of tools) {
         expect(tool.annotations).toEqual(

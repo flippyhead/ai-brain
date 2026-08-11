@@ -1,6 +1,6 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { requireWebUserId } from "../../lib/webAuth";
 import { isCurrentMemory } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
@@ -27,8 +27,7 @@ export const listRecent = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     let results;
     if (args.type) {
@@ -77,8 +76,7 @@ export const listCore = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const results = await _listCoreByUser(ctx, userId, args.limit);
     return results.map(({ embedding: _, ...rest }) => rest);
@@ -102,8 +100,7 @@ export const getStats = query({
     ),
   }),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const allThoughts = await ctx.db
       .query("thoughts")

@@ -44,10 +44,14 @@ export async function POST(req: Request) {
   }
 
   const request = parsed.data;
-  const resource = request.resource ?? getMcpResourceUri();
-  if (!isMcpResourceUri(resource)) {
+  if (request.resource !== undefined && !isMcpResourceUri(request.resource)) {
     return errorResponse("Invalid MCP resource", 400);
   }
+  // Store the canonical form, not the caller's spelling. `isMcpResourceUri`
+  // accepts origin-case variants, so persisting the raw value would make the
+  // token endpoint's equality check fail for a client that sends the resource
+  // at authorize and omits it at token exchange.
+  const resource = getMcpResourceUri();
   const registration = decryptClientRegistration(request.clientId);
   if (
     !registration ||

@@ -1,6 +1,6 @@
 import { query, mutation } from "../../_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { requireWebUserId } from "../../lib/webAuth";
 import { _listByUser, _insertOne, _deleteOne } from "./model";
 
 export const list = query({
@@ -15,8 +15,7 @@ export const list = query({
     }),
   ),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const keys = await _listByUser(ctx, userId);
     return keys.map((k) => ({
@@ -36,8 +35,7 @@ export const create = mutation({
     rawKey: v.string(),
   }),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     // Generate a random API key
     const randomBytes = new Uint8Array(32);
@@ -74,8 +72,7 @@ export const revoke = mutation({
   args: { id: v.id("apiKeys") },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const key = await ctx.db.get(args.id);
     if (!key || key.userId !== userId) {
