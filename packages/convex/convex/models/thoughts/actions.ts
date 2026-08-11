@@ -4,21 +4,13 @@ import { internalAction } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
-import { thoughtMetadata, thoughtType } from "./validators";
+import { SIMILARITY_THRESHOLD, MAX_CANDIDATES } from "./classify";
 import {
-  SIMILARITY_THRESHOLD,
-  MAX_CANDIDATES,
-} from "./classify";
-
-type ClassificationResponse = {
-  operations: Array<{
-    action: "UPDATE" | "DELETE";
-    thoughtId: string;
-    reason: string;
-    mergedContent?: string;
-  }>;
-  addNew: boolean;
-};
+  isCurrentMemory,
+  type MemoryClassification,
+  type MemoryStatus,
+} from "./memoryLifecycle";
+import { memoryStatus, thoughtMetadata, thoughtType } from "./validators";
 
 // Break circular type inference — actions.ts exports are part of `internal`'s type,
 // so referencing `internal` here creates a cycle. Runtime behavior is unchanged.
@@ -36,20 +28,11 @@ export const captureThought = internalAction({
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
-    // Step 1: Generate embedding for the new content
     const embedding = await ctx.runAction(
       internal.models.thoughts.helpers.generateEmbedding,
       { text: args.content },
     );
 
-    // Start metadata extraction in parallel with vector search
-    const metadataPromise = ctx.runAction(
-      internal.models.thoughts.helpers.extractMetadata,
-      { text: args.content },
-    );
-    void metadataPromise.catch(() => undefined);
-
-    // Step 2: Search for similar existing thoughts
     const similarResults = await ctx.vectorSearch("thoughts", "by_embedding", {
       vector: embedding,
       limit: 256,
@@ -58,19 +41,19 @@ export const captureThought = internalAction({
 
     const candidates = similarResults
       .filter((r) => r._score >= SIMILARITY_THRESHOLD)
-      .slice(0, MAX_CANDIDATES);
+      .slice(0, MAX_CANDIDATES * 5);
 
-    // Step 3: If similar thoughts found, classify
-    let classification: ClassificationResponse | null = null;
+    let classification: MemoryClassification | null = null;
     if (candidates.length > 0) {
-      // Fetch full documents for candidates
       const candidateDocs = await Promise.all(
         candidates.map(async (r) => {
           const doc = await ctx.runQuery(
             internal.models.thoughts.private.getById,
             { id: r._id },
           );
-          return doc
+          return doc &&
+            doc.userId === args.userId &&
+            isCurrentMemory(doc.memoryStatus)
             ? {
                 _id: r._id as string,
                 content: doc.content,
@@ -86,9 +69,9 @@ export const captureThought = internalAction({
         }),
       );
 
-      const validCandidates = candidateDocs.filter(
-        (d): d is NonNullable<typeof d> => d !== null,
-      );
+      const validCandidates = candidateDocs
+        .filter((d): d is NonNullable<typeof d> => d !== null)
+        .slice(0, MAX_CANDIDATES);
 
       if (validCandidates.length > 0) {
         try {
@@ -106,163 +89,108 @@ export const captureThought = internalAction({
       }
     }
 
-    // Step 4: Execute operations
-    const summaryParts: string[] = [];
-    let forceAddNew = false;
-    let updatedThoughtId: string | undefined;
+    if (classification?.action === "NOOP") {
+      const existingId = classification.relatedThoughtIds[0] as
+        Id<"thoughts"> | undefined;
+      const existing = existingId
+        ? await ctx.runQuery(internal.models.thoughts.private.getById, {
+            id: existingId,
+          })
+        : null;
+      if (
+        existing &&
+        existing.userId === args.userId &&
+        isCurrentMemory(existing.memoryStatus)
+      ) {
+        return {
+          thoughtId: existing._id,
+          metadata: existing.metadata,
+          operationSummary: "Thought already captured — no changes made",
+        };
+      }
+      classification = null;
+    }
 
-    if (classification && classification.operations.length > 0) {
-      for (const op of classification.operations) {
-        if (op.action === "UPDATE") {
-          try {
-            const contentToStore = op.mergedContent ?? args.content;
-
-            // Log previous content for safety during rollout
-            const existing = await ctx.runQuery(
-              internal.models.thoughts.private.getById,
-              { id: op.thoughtId as any },
-            );
-            if (existing) {
-              console.log(
-                `[Smart Save] Overwriting thought ${op.thoughtId}. Previous content: ${existing.content}`,
-              );
-            }
-
-            // Re-embed and re-extract metadata for the updated content
-            const [newEmbedding, newMetadata] = await Promise.all([
+    if (
+      classification?.action === "SUPERSEDE" ||
+      classification?.action === "RETRACT"
+    ) {
+      const replacementContent = classification.replacementContent;
+      if (replacementContent) {
+        try {
+          const [replacementEmbedding, replacementMetadata] = await Promise.all(
+            [
               ctx.runAction(
                 internal.models.thoughts.helpers.generateEmbedding,
-                { text: contentToStore },
+                { text: replacementContent },
               ),
-              ctx.runAction(
-                internal.models.thoughts.helpers.extractMetadata,
-                { text: contentToStore },
-              ),
-            ]);
+              ctx.runAction(internal.models.thoughts.helpers.extractMetadata, {
+                text: replacementContent,
+              }),
+            ],
+          );
 
-            await ctx.runMutation(
-              internal.models.thoughts.private.updateOne,
-              {
-                id: op.thoughtId as any,
-                content: contentToStore,
-                embedding: newEmbedding,
-                metadata: newMetadata,
-                updatedAt: Date.now(),
-              },
-            );
-            updatedThoughtId = op.thoughtId;
-            summaryParts.push(`Updated 1 existing thought (${op.reason})`);
-          } catch (error) {
-            // Per spec: if UPDATE fails, keep old thought unchanged
-            // and force-add the new content as a separate thought
-            console.error(
-              `[Smart Save] UPDATE failed for thought ${op.thoughtId}, will ADD instead:`,
-              error,
-            );
-            forceAddNew = true;
-          }
-        } else if (op.action === "DELETE") {
-          try {
-            console.log(
-              `[Smart Save] Deleting thought ${op.thoughtId}. Reason: ${op.reason}`,
-            );
-            await ctx.runMutation(
-              internal.models.thoughts.private.deleteOne,
-              { id: op.thoughtId as any },
-            );
-            summaryParts.push(`Removed 1 redundant thought (${op.reason})`);
-          } catch (error) {
-            // DELETE failure is non-fatal — log and continue
-            console.error(
-              `[Smart Save] DELETE failed for thought ${op.thoughtId}, skipping:`,
-              error,
-            );
-          }
-        }
-      }
-    }
-
-    // Step 5: Add new thought if needed
-    let thoughtId: any;
-    let metadata: any;
-
-    const shouldAddNew =
-      !classification ||
-      classification.addNew !== false ||
-      forceAddNew;
-
-    if (shouldAddNew) {
-      metadata = await metadataPromise;
-
-      thoughtId = await ctx.runMutation(
-        internal.models.thoughts.private.insertOne,
-        {
-          content: args.content,
-          embedding,
-          metadata,
-          userId: args.userId,
-        },
-      );
-    } else if (updatedThoughtId) {
-      // addNew is false and UPDATE succeeded — return the updated thought
-      const updated = await ctx.runQuery(
-        internal.models.thoughts.private.getById,
-        { id: updatedThoughtId as any },
-      );
-      thoughtId = updatedThoughtId;
-      metadata = updated?.metadata ?? {
-        type: "reference" as const,
-        topics: [],
-        people: [],
-        actionItems: [],
-        summary: args.content.slice(0, 100),
-      };
-    } else {
-      // NOOP: addNew is false, no UPDATE ops (content already captured)
-      // Return the top similarity candidate
-      const topCandidate = candidates[0];
-      if (topCandidate) {
-        const existing = await ctx.runQuery(
-          internal.models.thoughts.private.getById,
-          { id: topCandidate._id },
-        );
-        if (existing) {
-          thoughtId = topCandidate._id;
-          metadata = existing.metadata;
-          summaryParts.push("Thought already captured — no changes made");
-        } else {
-          // Candidate no longer exists (e.g. just deleted); add as new.
-          metadata = await metadataPromise;
-          thoughtId = await ctx.runMutation(
-            internal.models.thoughts.private.insertOne,
+          const thoughtId: Id<"thoughts"> = await ctx.runMutation(
+            internal.models.thoughts.private.transitionMemory,
             {
-              content: args.content,
-              embedding,
-              metadata,
+              content: replacementContent,
+              embedding: replacementEmbedding,
+              metadata: replacementMetadata,
               userId: args.userId,
+              previousIds: classification.relatedThoughtIds as Array<
+                Id<"thoughts">
+              >,
+              previousStatus:
+                classification.action === "SUPERSEDE"
+                  ? "superseded"
+                  : "retracted",
+              reason: classification.reason,
+              transitionedAt: Date.now(),
             },
           );
-        }
-      } else {
-        // Safety fallback: no candidates available, add as new
-        metadata = await metadataPromise;
+          const count = classification.relatedThoughtIds.length;
+          const operationSummary =
+            classification.action === "SUPERSEDE"
+              ? "Stored the new current memory and preserved " +
+                count +
+                (count === 1
+                  ? " previous memory as historical"
+                  : " previous memories as historical")
+              : "Stored the correction and marked " +
+                count +
+                (count === 1
+                  ? " previous memory as inaccurate"
+                  : " previous memories as inaccurate");
 
-        thoughtId = await ctx.runMutation(
-          internal.models.thoughts.private.insertOne,
-          {
-            content: args.content,
-            embedding,
-            metadata,
-            userId: args.userId,
-          },
-        );
+          return {
+            thoughtId,
+            metadata: replacementMetadata,
+            operationSummary,
+          };
+        } catch (error) {
+          console.error(
+            "[Smart Save] Memory transition failed; falling back to ADD",
+            error,
+          );
+        }
       }
     }
 
-    const operationSummary =
-      summaryParts.length > 0 ? summaryParts.join(". ") : undefined;
+    const metadata: Infer<typeof thoughtMetadata> = await ctx.runAction(
+      internal.models.thoughts.helpers.extractMetadata,
+      { text: args.content },
+    );
+    const thoughtId: Id<"thoughts"> = await ctx.runMutation(
+      internal.models.thoughts.private.insertOne,
+      {
+        content: args.content,
+        embedding,
+        metadata,
+        userId: args.userId,
+      },
+    );
 
-    return { thoughtId, metadata, operationSummary };
+    return { thoughtId, metadata };
   },
 });
 
@@ -272,6 +200,7 @@ export const hybridSearch = internalAction({
     query: v.string(),
     type: v.optional(thoughtType),
     limit: v.optional(v.number()),
+    includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
     v.object({
@@ -280,6 +209,9 @@ export const hybridSearch = internalAction({
       metadata: thoughtMetadata,
       score: v.float64(),
       createdAt: v.number(),
+      memoryStatus,
+      supersededAt: v.optional(v.number()),
+      changeReason: v.optional(v.string()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -296,7 +228,7 @@ export const hybridSearch = internalAction({
     const [vectorHits, textHits] = await Promise.all([
       ctx.vectorSearch("thoughts", "by_embedding", {
         vector: embedding,
-        limit: candidateCap,
+        limit: args.includeHistorical ? candidateCap : candidateCap * 4,
         filter: (q) => q.eq("userId", args.userId),
       }),
       ctx.runQuery(internal.models.thoughts.private.searchByText, {
@@ -304,32 +236,35 @@ export const hybridSearch = internalAction({
         query: args.query,
         type: args.type,
         limit: candidateCap,
+        includeHistorical: args.includeHistorical,
       }),
     ]);
 
-    // If type filter is set, we need vector hits' types too. Convex
-    // vectorSearch does not support filtering on object fields like
-    // metadata.type, so we post-filter. Text hits already respect the
-    // type filter. Batch-fetch via getByIds to avoid N+1 round-trips.
-    let filteredVectorHits = vectorHits;
-    if (args.type) {
-      const vectorIds = vectorHits.map((h) => h._id);
-      const fetchedDocs: Array<{
-        _id: Id<"thoughts">;
-        _creationTime: number;
-        content: string;
-        metadata: Infer<typeof thoughtMetadata>;
-        userId: string;
-        updatedAt?: number;
-      }> = await ctx.runQuery(
-        internal.models.thoughts.private.getByIds,
-        { ids: vectorIds },
+    // Vector indexes cannot filter optional lifecycle fields, so hydrate once
+    // and post-filter historical results. Text hits are filtered in their query.
+    const vectorIds = vectorHits.map((hit) => hit._id);
+    const fetchedDocs: Array<{
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+      userId: string;
+      updatedAt?: number;
+      memoryStatus?: MemoryStatus;
+      supersededAt?: number;
+      changeReason?: string;
+    }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
+      ids: vectorIds,
+    });
+    const docById = new Map(fetchedDocs.map((doc) => [doc._id as string, doc]));
+    const filteredVectorHits = vectorHits.filter((hit) => {
+      const doc = docById.get(hit._id);
+      return (
+        doc !== undefined &&
+        (args.type === undefined || doc.metadata.type === args.type) &&
+        (args.includeHistorical || isCurrentMemory(doc.memoryStatus))
       );
-      const docById = new Map(fetchedDocs.map((d) => [d._id as string, d]));
-      filteredVectorHits = vectorHits.filter(
-        (h) => docById.get(h._id)?.metadata.type === args.type,
-      );
-    }
+    });
 
     // Reciprocal Rank Fusion: score = Σ 1 / (K + rank) across result lists
     const rrf = new Map<string, number>();
@@ -354,10 +289,12 @@ export const hybridSearch = internalAction({
       metadata: Infer<typeof thoughtMetadata>;
       userId: string;
       updatedAt?: number;
-    }> = await ctx.runQuery(
-      internal.models.thoughts.private.getByIds,
-      { ids: rankedIds as Array<Id<"thoughts">> },
-    );
+      memoryStatus?: MemoryStatus;
+      supersededAt?: number;
+      changeReason?: string;
+    }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
+      ids: rankedIds as Array<Id<"thoughts">>,
+    });
     const hydratedById = new Map(hydrated.map((d) => [d._id as string, d]));
 
     return rankedIds
@@ -370,6 +307,9 @@ export const hybridSearch = internalAction({
               metadata: doc.metadata,
               score: rrf.get(id)!,
               createdAt: doc._creationTime,
+              memoryStatus: doc.memoryStatus ?? "current",
+              supersededAt: doc.supersededAt,
+              changeReason: doc.changeReason,
             }
           : null;
       })

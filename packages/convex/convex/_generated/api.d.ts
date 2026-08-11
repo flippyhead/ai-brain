@@ -36,6 +36,7 @@ import type * as models_thoughts_classify from "../models/thoughts/classify.js";
 import type * as models_thoughts_helpers from "../models/thoughts/helpers.js";
 import type * as models_thoughts_mcpActions from "../models/thoughts/mcpActions.js";
 import type * as models_thoughts_mcpQueries from "../models/thoughts/mcpQueries.js";
+import type * as models_thoughts_memoryLifecycle from "../models/thoughts/memoryLifecycle.js";
 import type * as models_thoughts_model from "../models/thoughts/model.js";
 import type * as models_thoughts_private from "../models/thoughts/private.js";
 import type * as models_thoughts_public from "../models/thoughts/public.js";
@@ -77,6 +78,7 @@ declare const fullApi: ApiFromModules<{
   "models/thoughts/helpers": typeof models_thoughts_helpers;
   "models/thoughts/mcpActions": typeof models_thoughts_mcpActions;
   "models/thoughts/mcpQueries": typeof models_thoughts_mcpQueries;
+  "models/thoughts/memoryLifecycle": typeof models_thoughts_memoryLifecycle;
   "models/thoughts/model": typeof models_thoughts_model;
   "models/thoughts/private": typeof models_thoughts_private;
   "models/thoughts/public": typeof models_thoughts_public;

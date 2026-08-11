@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
+const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory. Use capture_thought automatically when the user reveals information that will likely matter in a future conversation: stable personal facts and preferences, relationships, project context or status changes, decisions and their rationale, commitments, and recurring working patterns. Do not wait for an explicit "remember this" request. Do not capture transient small talk, speculative ideas presented only for discussion, passwords, authentication tokens, or other credentials. Send changed information to capture_thought once; the server will preserve prior states as linked history. For present-tense questions, search current memories (the default). Set includeHistorical only when the user asks what used to be true, how something changed, or for a history/timeline. Routine successful captures can remain unobtrusive.`;
+
 export function createMcpServer(convexAuthToken: string) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -13,14 +15,17 @@ export function createMcpServer(convexAuthToken: string) {
   const convex = new ConvexHttpClient(convexUrl);
   convex.setAuth(convexAuthToken);
 
-  const server = new McpServer({
-    name: "open-brain",
-    version: "1.0.0",
-  });
+  const server = new McpServer(
+    {
+      name: "open-brain",
+      version: "1.0.0",
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.tool(
     MCP_TOOL_NAMES.searchThoughts,
-    "Search stored thoughts by meaning AND keyword (hybrid). Returns a compact index — `id`, summary, short snippet, type, topics, score. Use `get_thoughts` to fetch full content for the IDs you care about. Cite sources as `thought:<id>` when referencing them in your response.",
+    "Search stored thoughts by meaning AND keyword (hybrid). Current memories are searched by default. Set includeHistorical for questions about prior states, corrections, or how something changed. Returns a compact index — `id`, summary, short snippet, type, topics, lifecycle status, score. Use `get_thoughts` to fetch full content. Cite sources as `thought:<id>`.",
     {
       query: z.string().describe("Natural language or keyword query"),
       type: z
@@ -40,8 +45,14 @@ export function createMcpServer(convexAuthToken: string) {
         .max(50)
         .default(10)
         .describe("Max results to return"),
+      includeHistorical: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Include superseded and retracted memories for historical questions",
+        ),
     },
-    async ({ query, type, limit }) => {
+    async ({ query, type, limit, includeHistorical }) => {
       type IndexRow = {
         _id: string;
         summary: string;
@@ -50,6 +61,9 @@ export function createMcpServer(convexAuthToken: string) {
         topics: string[];
         score: number;
         createdAt: number;
+        memoryStatus: "current" | "superseded" | "retracted";
+        supersededAt?: number;
+        changeReason?: string;
       };
       const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.search,
@@ -57,6 +71,7 @@ export function createMcpServer(convexAuthToken: string) {
           query,
           type,
           limit,
+          includeHistorical,
         },
       );
 
@@ -83,6 +98,11 @@ export function createMcpServer(convexAuthToken: string) {
                 type: r.type,
                 topics: r.topics,
                 score: r.score,
+                memoryStatus: r.memoryStatus,
+                supersededAt: r.supersededAt
+                  ? new Date(r.supersededAt).toISOString()
+                  : undefined,
+                changeReason: r.changeReason,
                 createdAt: new Date(r.createdAt).toISOString(),
               })),
               null,
@@ -97,7 +117,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   server.tool(
     MCP_TOOL_NAMES.browseRecent,
-    "Browse most recent thoughts, optionally filtered by type or topic. Cite sources as `thought:<id>` when referencing them in your response.",
+    "Browse most recent current thoughts, optionally filtered by type or topic. Set includeHistorical to include superseded and corrected memories. Cite sources as `thought:<id>`.",
     {
       limit: z
         .number()
@@ -117,8 +137,12 @@ export function createMcpServer(convexAuthToken: string) {
         .optional()
         .describe("Filter by thought type"),
       topic: z.string().optional().describe("Filter by topic keyword"),
+      includeHistorical: z
+        .boolean()
+        .default(false)
+        .describe("Include superseded and retracted memories"),
     },
-    async ({ limit, type, topic }) => {
+    async ({ limit, type, topic, includeHistorical }) => {
       type Thought = {
         _id: string;
         _creationTime: number;
@@ -131,10 +155,13 @@ export function createMcpServer(convexAuthToken: string) {
           summary: string;
         };
         userId: string;
+        memoryStatus?: "current" | "superseded" | "retracted";
+        supersededAt?: number;
+        changeReason?: string;
       };
       const results: Thought[] = await convex.query(
         api.models.thoughts.mcpQueries.listByUser,
-        { limit },
+        { limit, includeHistorical },
       );
 
       let filtered = results;
@@ -168,6 +195,11 @@ export function createMcpServer(convexAuthToken: string) {
                 id: t._id,
                 content: t.content,
                 metadata: t.metadata,
+                memoryStatus: t.memoryStatus ?? "current",
+                supersededAt: t.supersededAt
+                  ? new Date(t.supersededAt).toISOString()
+                  : undefined,
+                changeReason: t.changeReason,
                 createdAt: new Date(t._creationTime).toISOString(),
               })),
               null,
@@ -182,7 +214,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   server.tool(
     MCP_TOOL_NAMES.getThoughts,
-    "Fetch full content for specific thought IDs. Use after `search_thoughts` to hydrate only the results that matter. Always batch multiple IDs in a single call.",
+    "Fetch full content and lifecycle links for specific thought IDs. Use after `search_thoughts` and batch multiple IDs in one call. Treat current memories as authoritative; superseded memories were formerly current, while retracted memories were inaccurate.",
     {
       ids: z
         .array(z.string())
@@ -203,6 +235,11 @@ export function createMcpServer(convexAuthToken: string) {
         };
         createdAt: number;
         updatedAt?: number;
+        memoryStatus: "current" | "superseded" | "retracted";
+        supersededAt?: number;
+        supersededBy?: string;
+        supersedes?: string[];
+        changeReason?: string;
       };
       const results: Thought[] = await convex.action(
         api.models.thoughts.mcpActions.getByIds,
@@ -233,6 +270,13 @@ export function createMcpServer(convexAuthToken: string) {
                 updatedAt: r.updatedAt
                   ? new Date(r.updatedAt).toISOString()
                   : undefined,
+                memoryStatus: r.memoryStatus,
+                supersededAt: r.supersededAt
+                  ? new Date(r.supersededAt).toISOString()
+                  : undefined,
+                supersededBy: r.supersededBy,
+                supersedes: r.supersedes,
+                changeReason: r.changeReason,
               })),
               null,
               2,
@@ -311,6 +355,7 @@ export function createMcpServer(convexAuthToken: string) {
         type: string;
         topics: string[];
         createdAt: number;
+        memoryStatus: "current" | "superseded" | "retracted";
       };
       const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.timeline,
@@ -345,6 +390,7 @@ export function createMcpServer(convexAuthToken: string) {
                 snippet: r.snippet,
                 type: r.type,
                 topics: r.topics,
+                memoryStatus: r.memoryStatus,
                 createdAt: new Date(r.createdAt).toISOString(),
               })),
               null,
@@ -380,9 +426,13 @@ export function createMcpServer(convexAuthToken: string) {
 
   server.tool(
     MCP_TOOL_NAMES.captureThought,
-    "Save a new thought, decision, note, or idea to your brain",
+    "Automatically save durable information for future conversations: personal facts and preferences, people and relationships, project context or status, decisions, commitments, and recurring patterns. Call this without waiting for an explicit request whenever such information appears. The server deduplicates and preserves changed or corrected prior information as linked history.",
     {
-      content: z.string().describe("The thought content to save"),
+      content: z
+        .string()
+        .describe(
+          "A standalone durable memory. State what is true now and include useful context from the conversation.",
+        ),
     },
     async ({ content }) => {
       type CaptureResult = {

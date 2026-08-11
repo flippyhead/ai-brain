@@ -22,19 +22,23 @@ Parse the name value from `$ARGUMENTS` if provided.
 Read the following from the current working directory. Skip any that don't exist.
 
 **Project identity:**
+
 - `README.md`
 - `package.json`, `Cargo.toml`, `pyproject.toml`, or `go.mod` (whichever exists)
 - `CLAUDE.md`
 
 **Git state:**
+
 - Run `git branch --show-current`
 - Run `git log --oneline -20`
 - Run `gh pr list --limit 10` (skip if `gh` is unavailable)
 
 **Project structure:**
+
 - Run `ls -la` at the project root
 
 **Strategic context:**
+
 - If `docs/` exists, list its contents and selectively read files that reveal project direction (specs, architecture docs, roadmaps). Do not read every file.
 - Read `GOALS.md`, `TODO.md`, or similar planning files if they exist.
 
@@ -51,8 +55,10 @@ If `--name` was provided, use that. Otherwise, derive the project name using thi
 **3a. Triage via compact index.**
 
 Call `mcp__ai-brain__search_thoughts` with:
+
 - `query`: the project name
 - `limit`: 10
+- `includeHistorical`: false
 
 This returns a compact index: each hit has `{id, summary, snippet, type, topics, score}`. Do NOT assume full content is present — there is none; `snippet` is ~240 chars.
 
@@ -96,12 +102,18 @@ Update: <project-name> — <what changed> (<date>). <new status or direction>.
 
 Skip unchanged information. If nothing meaningful has changed, capture no thoughts.
 
+`capture_thought` performs the temporal reconciliation. When the prior state
+is known, make the update standalone and include both what is true now and the
+useful former context. The server will link the new current memory to any
+superseded or retracted memories instead of overwriting them.
+
 **No changes:**
 Tell the user the brain is already up to date and skip to Step 6.
 
 ### Step 6: Report to User
 
 Briefly tell the user:
+
 - What was synced (or that everything was already current)
 - How many new thoughts were captured, each cited as `thought:<id>`
 - Key highlights of what changed — cite updates as `thought:<new-id>` and the prior thoughts they supersede as `thought:<old-id>` where applicable

@@ -1,5 +1,11 @@
-import { QueryCtx, MutationCtx } from "../../_generated/server";
-import { Id } from "../../_generated/dataModel";
+import type { Infer } from "convex/values";
+
+import type { Id } from "../../_generated/dataModel";
+import type { MutationCtx, QueryCtx } from "../../_generated/server";
+import { isCurrentMemory, type MemoryStatus } from "./memoryLifecycle";
+import { thoughtMetadata } from "./validators";
+
+type ThoughtMetadata = Infer<typeof thoughtMetadata>;
 
 export async function _findById(ctx: QueryCtx, id: Id<"thoughts">) {
   return await ctx.db.get(id);
@@ -9,12 +15,19 @@ export async function _listByUser(
   ctx: QueryCtx,
   userId: Id<"users">,
   limit: number = 20,
+  includeHistorical = false,
 ) {
-  return await ctx.db
+  const fetchLimit = includeHistorical ? limit : Math.min(limit * 5, 500);
+  const memories = await ctx.db
     .query("thoughts")
     .withIndex("by_userId", (q) => q.eq("userId", userId))
     .order("desc")
-    .take(limit);
+    .take(fetchLimit);
+  return (
+    includeHistorical
+      ? memories
+      : memories.filter((memory) => isCurrentMemory(memory.memoryStatus))
+  ).slice(0, limit);
 }
 
 export async function _insertOne(
@@ -22,50 +35,70 @@ export async function _insertOne(
   fields: {
     content: string;
     embedding: number[];
-    metadata: {
-      type:
-        | "decision"
-        | "person_note"
-        | "idea"
-        | "meeting_note"
-        | "task"
-        | "reference";
-      topics: string[];
-      people: string[];
-      actionItems: string[];
-      summary: string;
-    };
+    metadata: ThoughtMetadata;
     userId: Id<"users">;
   },
 ) {
-  return await ctx.db.insert("thoughts", fields);
+  return await ctx.db.insert("thoughts", {
+    ...fields,
+    memoryStatus: "current",
+  });
 }
 
-export async function _updateOne(
+export async function _transitionMemory(
   ctx: MutationCtx,
-  id: Id<"thoughts">,
   fields: {
     content: string;
     embedding: number[];
-    metadata: {
-      type:
-        | "decision"
-        | "person_note"
-        | "idea"
-        | "meeting_note"
-        | "task"
-        | "reference";
-      topics: string[];
-      people: string[];
-      actionItems: string[];
-      summary: string;
-    };
-    updatedAt: number;
+    metadata: ThoughtMetadata;
+    userId: Id<"users">;
   },
+  previousIds: Array<Id<"thoughts">>,
+  previousStatus: Exclude<MemoryStatus, "current">,
+  reason: string,
+  transitionedAt: number,
 ) {
-  await ctx.db.patch(id, fields);
-}
+  const uniquePreviousIds = [...new Set(previousIds)];
+  if (uniquePreviousIds.length === 0 || uniquePreviousIds.length > 10) {
+    throw new Error("A memory transition requires 1-10 previous memories");
+  }
+  if (
+    !reason.trim() ||
+    reason.length > 500 ||
+    !Number.isFinite(transitionedAt) ||
+    transitionedAt <= 0
+  ) {
+    throw new Error("Invalid memory transition metadata");
+  }
 
-export async function _deleteOne(ctx: MutationCtx, id: Id<"thoughts">) {
-  await ctx.db.delete(id);
+  const previousMemories = await Promise.all(
+    uniquePreviousIds.map((id) => ctx.db.get(id)),
+  );
+  for (const previous of previousMemories) {
+    if (
+      !previous ||
+      previous.userId !== fields.userId ||
+      (previous.memoryStatus !== undefined &&
+        previous.memoryStatus !== "current")
+    ) {
+      throw new Error("Previous memory is unavailable");
+    }
+  }
+
+  const newId = await ctx.db.insert("thoughts", {
+    ...fields,
+    memoryStatus: "current",
+    supersedes: uniquePreviousIds,
+  });
+
+  for (const previous of previousMemories) {
+    await ctx.db.patch(previous!._id, {
+      memoryStatus: previousStatus,
+      supersededAt: transitionedAt,
+      supersededBy: newId,
+      changeReason: reason,
+    });
+  }
+
+  return newId;
 }
