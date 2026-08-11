@@ -1,56 +1,109 @@
-import { decryptAuthCode, verifyCodeChallenge } from "@/lib/mcp/oauth";
+import { api } from "@repo/db/convex/_generated/api";
+import { ConvexHttpClient } from "convex/browser";
 
-export async function POST(req: Request) {
-  // Parse form-urlencoded or JSON body
-  let params: Record<string, string> = {};
-  const contentType = req.headers.get("content-type") || "";
+import { authenticateApiKey } from "@/lib/mcp/auth";
+import { createConvexMcpToken } from "@/lib/mcp/convex-auth";
+import { isMcpResourceUri } from "@/lib/mcp/environment";
+import {
+  assertOAuthEncryptionConfigured,
+  decryptAuthCode,
+  hashAuthorizationCode,
+  OAUTH_NO_STORE_HEADERS,
+  readLimitedOAuthBody,
+  verifyCodeChallenge,
+} from "@/lib/mcp/oauth";
+import { tokenRequestSchema } from "@/lib/mcp/oauth-validation";
+
+function tokenError(
+  error: "invalid_request" | "invalid_grant" | "invalid_target",
+  description: string,
+  status = 400,
+) {
+  return Response.json(
+    { error, error_description: description },
+    { status, headers: OAUTH_NO_STORE_HEADERS },
+  );
+}
+
+async function readTokenParameters(req: Request): Promise<unknown> {
+  const contentType = (req.headers.get("content-type") ?? "").toLowerCase();
+  const body = await readLimitedOAuthBody(req);
 
   if (contentType.includes("application/x-www-form-urlencoded")) {
-    const text = await req.text();
-    const searchParams = new URLSearchParams(text);
-    searchParams.forEach((v, k) => (params[k] = v));
-  } else if (contentType.includes("application/json")) {
-    params = await req.json();
-  } else {
-    const formData = await req.formData();
-    formData.forEach((v, k) => (params[k] = v.toString()));
+    const searchParams = new URLSearchParams(body);
+    const params: Record<string, string> = {};
+    for (const key of searchParams.keys()) {
+      const values = searchParams.getAll(key);
+      if (values.length !== 1) throw new Error("Duplicate OAuth parameter");
+      params[key] = values[0]!;
+    }
+    return params;
   }
 
-  const { grant_type, code, code_verifier, redirect_uri } = params;
+  if (contentType.includes("application/json")) {
+    return JSON.parse(body) as unknown;
+  }
 
-  if (grant_type !== "authorization_code" || !code || !code_verifier) {
-    return Response.json(
-      { error: "invalid_request", error_description: "Missing required parameters" },
-      { status: 400 },
+  throw new Error("Unsupported content type");
+}
+
+export async function POST(req: Request) {
+  let input: unknown;
+  try {
+    assertOAuthEncryptionConfigured();
+    input = await readTokenParameters(req);
+  } catch {
+    return tokenError("invalid_request", "Invalid token request");
+  }
+
+  const parsed = tokenRequestSchema.safeParse(input);
+  if (!parsed.success) {
+    return tokenError("invalid_request", "Invalid token request");
+  }
+
+  const request = parsed.data;
+  if (!isMcpResourceUri(request.resource)) {
+    return tokenError("invalid_target", "Invalid MCP resource");
+  }
+  const data = decryptAuthCode(request.code);
+  if (!data || Date.now() > data.exp) {
+    return tokenError("invalid_grant", "Invalid or expired authorization code");
+  }
+  if (
+    request.client_id !== data.clientId ||
+    request.redirect_uri !== data.redirectUri ||
+    request.resource !== data.resource
+  ) {
+    return tokenError("invalid_grant", "Authorization request mismatch");
+  }
+  if (!verifyCodeChallenge(request.code_verifier, data.codeChallenge)) {
+    return tokenError("invalid_grant", "Invalid code verifier");
+  }
+
+  const apiKeyIdentity = await authenticateApiKey(`Bearer ${data.apiKey}`);
+  const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!apiKeyIdentity || !convexUrl) {
+    return tokenError(
+      "invalid_grant",
+      "Authorization grant is no longer valid",
     );
   }
 
-  const data = decryptAuthCode(code);
-  if (!data) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "Invalid authorization code" },
-      { status: 400 },
+  try {
+    const convexToken = await createConvexMcpToken(apiKeyIdentity);
+    const convex = new ConvexHttpClient(convexUrl);
+    convex.setAuth(convexToken);
+    await convex.mutation(
+      api.models.oauth.mcpMutations.consumeAuthorizationCode,
+      {
+        codeHash: hashAuthorizationCode(request.code),
+        expiresAt: data.exp,
+      },
     );
-  }
-
-  if (Date.now() > data.exp) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "Authorization code expired" },
-      { status: 400 },
-    );
-  }
-
-  if (redirect_uri && redirect_uri !== data.redirectUri) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "Redirect URI mismatch" },
-      { status: 400 },
-    );
-  }
-
-  if (!verifyCodeChallenge(code_verifier, data.codeChallenge)) {
-    return Response.json(
-      { error: "invalid_grant", error_description: "Invalid code verifier" },
-      { status: 400 },
+  } catch {
+    return tokenError(
+      "invalid_grant",
+      "Authorization code is invalid or was already used",
     );
   }
 
@@ -58,10 +111,8 @@ export async function POST(req: Request) {
     {
       access_token: data.apiKey,
       token_type: "Bearer",
-      expires_in: 31536000, // 1 year in seconds; API keys don't actually expire
+      scope: data.scope,
     },
-    {
-      headers: { "Cache-Control": "no-store" },
-    },
+    { headers: OAUTH_NO_STORE_HEADERS },
   );
 }

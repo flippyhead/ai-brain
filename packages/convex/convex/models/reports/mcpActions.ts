@@ -3,6 +3,7 @@
 import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import { v } from "convex/values";
+import { requireMcpUserId } from "../../lib/mcpAuth";
 import { insightCategory, projectActive } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -10,7 +11,6 @@ const internal = _internal as any;
 
 export const createReport = action({
   args: {
-    userId: v.id("users"),
     startDate: v.string(),
     endDate: v.string(),
     sessionsAnalyzed: v.number(),
@@ -35,11 +35,12 @@ export const createReport = action({
     insightIds: v.array(v.id("insights")),
   }),
   handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
     const { insights, ...reportFields } = args;
 
     const reportId = await ctx.runMutation(
       internal.models.reports.private.insertReport,
-      reportFields,
+      { ...reportFields, userId },
     );
 
     const insightIds = [];
@@ -48,7 +49,7 @@ export const createReport = action({
         internal.models.reports.private.insertInsight,
         {
           reportId,
-          userId: args.userId,
+          userId,
           ...insight,
         },
       );

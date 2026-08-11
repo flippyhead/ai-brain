@@ -7,17 +7,21 @@
     "dev": "next dev --port ${WEB_PORT:-3000}",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint --max-warnings 0",
-    "check-types": "tsc --noEmit"
+    "lint": "eslint",
+    "check-types": "tsc --noEmit",
+    "test": "vitest",
+    "test:once": "vitest run"
   },
   "dependencies": {
-    "@convex-dev/auth": "^0.0.80",
-    "@modelcontextprotocol/sdk": "^1.12.0",
+    "@convex-dev/auth": "^0.0.94",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@repo/db": "workspace:*",
-    "convex": "^1.17.0",
-    "next": "^15.1.0",
+    "convex": "^1.43.0",
+    "jose": "^6.2.8",
+    "next": "^15.5.23",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "server-only": "0.0.1",
     "zod": "^3.24.0"
   },
   "devDependencies": {
@@ -26,6 +30,8 @@
     "@types/node": "25.3.3",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^5.7.0"
+    "eslint": "^9.39.3",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
   }
 }

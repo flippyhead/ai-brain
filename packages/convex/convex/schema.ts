@@ -4,6 +4,7 @@ import { thoughtFields } from "./models/thoughts/validators";
 import { apiKeyFields } from "./models/apiKeys/validators";
 import { reportFields, insightFields } from "./models/reports/validators";
 import { listFields, listItemFields } from "./models/lists/validators";
+import { consumedOAuthCodeFields } from "./models/oauth/validators";
 
 export default defineSchema({
   ...authTables,
@@ -22,8 +23,10 @@ export default defineSchema({
   apiKeys: defineTable(apiKeyFields)
     .index("by_keyHash", ["keyHash"])
     .index("by_userId", ["userId"]),
-  reports: defineTable(reportFields)
-    .index("by_userId", ["userId"]),
+  consumedOAuthCodes: defineTable(consumedOAuthCodeFields)
+    .index("by_codeHash", ["codeHash"])
+    .index("by_expiresAt", ["expiresAt"]),
+  reports: defineTable(reportFields).index("by_userId", ["userId"]),
   insights: defineTable(insightFields)
     .index("by_reportId", ["reportId"])
     .index("by_userId_and_status", ["userId", "status"]),

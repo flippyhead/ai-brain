@@ -1,14 +1,11 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
+import { requireMcpUserId } from "../../lib/mcpAuth";
 import { thoughtMetadata } from "./validators";
 import { _listByUser } from "./model";
 
-// Public queries for MCP endpoint — accept userId as parameter
-// (auth is handled by API key validation in the Next.js API route)
-
 export const listByUser = query({
   args: {
-    userId: v.id("users"),
     limit: v.optional(v.number()),
   },
   returns: v.array(
@@ -22,25 +19,25 @@ export const listByUser = query({
     }),
   ),
   handler: async (ctx, args) => {
-    const results = await _listByUser(ctx, args.userId, args.limit ?? 20);
+    const userId = await requireMcpUserId(ctx);
+    const results = await _listByUser(ctx, userId, args.limit ?? 20);
     return results.map(({ embedding: _, ...rest }) => rest);
   },
 });
 
 export const getStats = query({
-  args: {
-    userId: v.id("users"),
-  },
+  args: {},
   returns: v.object({
     totalThoughts: v.number(),
     byType: v.array(v.object({ type: v.string(), count: v.number() })),
     topTopics: v.array(v.object({ topic: v.string(), count: v.number() })),
     topPeople: v.array(v.object({ person: v.string(), count: v.number() })),
   }),
-  handler: async (ctx, args) => {
+  handler: async (ctx) => {
+    const userId = await requireMcpUserId(ctx);
     const allThoughts = await ctx.db
       .query("thoughts")
-      .withIndex("by_userId", (q) => q.eq("userId", args.userId))
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
 
     const typeCounts = new Map<string, number>();
