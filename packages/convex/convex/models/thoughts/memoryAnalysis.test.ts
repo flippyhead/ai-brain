@@ -7,6 +7,7 @@ import {
   normalizeCaptureContent,
   normalizeThoughtMetadata,
   parseThoughtAnalysis,
+  preflightNarrativeAdmission,
 } from "./memoryAnalysis";
 
 const candidateIds = ["old-school"];
@@ -96,6 +97,42 @@ describe("memory provider analysis", () => {
     ).toBeNull();
   });
 
+  test("parses ask and skip admission decisions without transition ids", () => {
+    for (const action of ["ASK", "SKIP"] as const) {
+      const analysis = parseThoughtAnalysis(
+        JSON.stringify({
+          action,
+          relatedThoughtIds: ["old-school"],
+          reason:
+            action === "ASK"
+              ? "Route the exact school relationship to structured facts"
+              : "Current age is derived and goes stale",
+          replacementContent: null,
+          metadata: {
+            type: "person_note",
+            topics: ["Zevin"],
+            people: ["Zevin"],
+            actionItems: [],
+            summary: "Candidate not admitted",
+          },
+        }),
+        candidateIds,
+        action === "ASK"
+          ? "Zevin attends Downtown School."
+          : "Zevin is 17 years old.",
+      );
+
+      expect(analysis?.classification).toEqual({
+        action,
+        relatedThoughtIds: [],
+        reason:
+          action === "ASK"
+            ? "Route the exact school relationship to structured facts"
+            : "Current age is derived and goes stale",
+      });
+    }
+  });
+
   test("bounds and normalizes metadata supplied by a model", () => {
     const long = "x".repeat(400);
     expect(
@@ -131,5 +168,25 @@ describe("memory provider analysis", () => {
   test("reuses embeddings only when the stored text is unchanged", () => {
     expect(canReuseEmbedding("same", "same")).toBe(true);
     expect(canReuseEmbedding("new fact", "new fact with history")).toBe(false);
+  });
+
+  test("deterministically declines derived ages and broad bootstrap buckets", () => {
+    expect(preflightNarrativeAdmission("Zevin is 17 years old.")).toEqual({
+      action: "SKIP",
+      reason: expect.stringContaining("date_of_birth"),
+    });
+    expect(
+      preflightNarrativeAdmission(
+        "About me: founder, investor, sailor, neighborhood blogger, generative artist, and advisor across several unrelated companies.",
+      ),
+    ).toEqual({
+      action: "ASK",
+      reason: expect.stringContaining("broad bucket"),
+    });
+    expect(
+      preflightNarrativeAdmission(
+        "AI Brain will use Convex because it provides the database and application functions in one service. The decision keeps the personal deployment simpler.",
+      ),
+    ).toBeNull();
   });
 });

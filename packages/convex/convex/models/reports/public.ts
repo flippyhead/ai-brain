@@ -44,9 +44,7 @@ const insightReturn = v.object({
   observation: v.string(),
   recommendation: v.string(),
   evidence: v.string(),
-  links: v.optional(
-    v.array(v.object({ label: v.string(), url: v.string() })),
-  ),
+  links: v.optional(v.array(v.object({ label: v.string(), url: v.string() }))),
   status: insightStatus,
   dismissTag: v.optional(dismissTag),
   dismissText: v.optional(v.string()),
@@ -162,6 +160,7 @@ export const updateInsightStatus = mutation({
         {
           userId,
           content: `[User Preference] User dismissed workflow insight about ${insight.category}. Reason: '${args.dismissText}'. Consider excluding similar recommendations from future workflow reports.`,
+          sourceType: "user_stated",
         },
       );
     }
@@ -178,12 +177,16 @@ export const deleteInsight = mutation({
     const userId = await requireWebUserId(ctx);
 
     const insight = await ctx.db.get(args.insightId);
-    if (!insight || insight.userId !== userId) throw new Error("Insight not found");
+    if (!insight || insight.userId !== userId)
+      throw new Error("Insight not found");
 
     await ctx.db.delete(args.insightId);
 
     // If the report has no remaining insights, delete it too
-    const remainingInsights = await _listInsightsByReport(ctx, insight.reportId);
+    const remainingInsights = await _listInsightsByReport(
+      ctx,
+      insight.reportId,
+    );
     if (remainingInsights.length === 0) {
       await ctx.db.delete(insight.reportId);
     }

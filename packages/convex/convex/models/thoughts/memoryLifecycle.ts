@@ -1,4 +1,11 @@
-export const MEMORY_ACTIONS = ["ADD", "NOOP", "SUPERSEDE", "RETRACT"] as const;
+export const MEMORY_ACTIONS = [
+  "ADD",
+  "NOOP",
+  "SUPERSEDE",
+  "RETRACT",
+  "ASK",
+  "SKIP",
+] as const;
 
 export type MemoryAction = (typeof MEMORY_ACTIONS)[number];
 export type MemoryStatus = "current" | "superseded" | "retracted";
@@ -104,7 +111,7 @@ function normalizeClassification(
     ),
   ];
 
-  if (action === "ADD") {
+  if (action === "ADD" || action === "ASK" || action === "SKIP") {
     return { action, relatedThoughtIds: [], reason };
   }
 

@@ -10,17 +10,21 @@ import {
 } from "@/lib/mcp/tool-policy";
 import { MCP_TOOL_NAME_LIST, MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
-export const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory.
+export const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory with two storage forms: precise structured facts and narrative thoughts.
 
-Recall: At the start of a turn that could benefit from personal, relationship, project, preference, decision, or commitment context, call recall_context with query set to the user's complete current message verbatim before answering. Do not paraphrase the query: exact names, capitalization, identifiers, project names, and version strings improve retrieval. Current memories are authoritative by default. Include historical memories only when the user asks what used to be true, how something changed, or for a history/timeline.
+Recall: At the start of a turn that could benefit from personal, relationship, project, preference, decision, or commitment context, call recall_context with query set to the user's complete current message verbatim before answering. Do not paraphrase the query: exact names, capitalization, identifiers, project names, and version strings improve retrieval. Current facts and memories are authoritative by default. Include historical records only when the user asks what used to be true, how something changed, or for a history/timeline.
 
-Capture: Use capture_thought automatically when the user states or explicitly confirms information likely to matter in a future conversation: stable personal facts and preferences, relationships, project context or status changes, decisions and their rationale, commitments, and recurring working patterns. Do not wait for an explicit "remember this" request. Preserve exact proper nouns, capitalization, identifiers, project names, and version strings from the user. Never turn assistant suggestions, guesses, deductions, or unconfirmed implications into facts about the user. If an assistant commitment is worth saving, attribute it explicitly as an assistant commitment. Mark isCore true only for the small set of enduring identity facts, constraints, and preferences useful across many conversations; omit it for ordinary durable memories. Do not capture transient small talk, speculative ideas presented only for discussion, passwords, authentication tokens, or other credentials. Send changed information once; the server will preserve prior states as linked history. Routine successful captures can remain unobtrusive.
+Capture precise facts: Use remember_fact automatically for one independently changeable subject-predicate-value fact explicitly stated by the user: names, relationships, exact dates, providers, schools, employers, locations, stable preferences, and other scalar or relational knowledge. Never store a derived age; store date_of_birth only when the exact date was explicitly stated or confirmed. Use an entity value for relationships such as primary_care_provider. Use sourceType user_stated for facts stated in the current conversation and user_confirmed only after the user approves a proposed import. Never submit connector observations, email/calendar activity, assistant guesses, or inferences directly to remember_fact. For changed single-valued facts, set validFrom only when known and let the server preserve the old value as history. Use changeKind corrected, not changed, when the former value was inaccurate.
+
+Capture narrative memory: Use capture_thought automatically for a single durable decision with rationale, project state, commitment, or recurring working pattern that does not fit a precise fact. One thought must cover one subject and one coherent unit whose parts would change together. Do not create biographies, dossiers, activity logs, completed-task catalogs, or multi-person/multi-project buckets. Do not wait for an explicit "remember this" request. Preserve exact proper nouns, capitalization, identifiers, project names, and version strings from the user. Never turn assistant suggestions, guesses, deductions, unconfirmed implications, or incidental connector mentions into user memory. If an assistant commitment is worth saving, attribute it explicitly as an assistant commitment. Mark isCore true only for the small set of enduring identity facts, constraints, and preferences useful across many conversations; omit it for ordinary durable memories. Do not capture transient small talk, speculative ideas presented only for discussion, passwords, authentication tokens, or other credentials. Routine successful captures can remain unobtrusive.
+
+Admission: Direct, explicit user statements may be stored automatically when durable. Information found in email, calendars, Slack, GitHub, files, or other connectors is only a candidate: present a small atomic preview and obtain user confirmation before storage. Skip single mentions, inferred relationships, vendor/company lists, completed work, and derived values. If uncertain whether a candidate is explicit, durable, atomic, or useful later, ask rather than store.
 
 This server cannot observe conversations or force tool calls; recall and capture remain client-mediated.`;
 
 const ISO_VALIDITY_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
-const MAX_CAPTURE_CONTENT_CHARS = 20_000;
+const MAX_CAPTURE_CONTENT_CHARS = 2_000;
 
 /** Parse an explicit real-world validity date without using the server's timezone. */
 export function parseValidityTimestamp(value: string): number {
@@ -118,6 +122,112 @@ const validityTimestampSchema = z.string().refine(
   },
 );
 
+const factDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Use an exact YYYY-MM-DD date")
+  .refine(
+    (value) => {
+      try {
+        parseValidityTimestamp(value);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    { message: "Use a real calendar date" },
+  );
+
+const entitySelectorSchema = z.object({
+  key: z
+    .string()
+    .max(160)
+    .optional()
+    .describe(
+      "Stable lowercase identity key such as person:zevin. Reuse the same key across facts about this entity.",
+    ),
+  kind: z.enum(["person", "organization", "project", "place", "other"]),
+  name: z.string().trim().min(1).max(200),
+  aliases: z.array(z.string().trim().min(1).max(200)).max(20).optional(),
+});
+
+const factValueSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("text"),
+    value: z.string().trim().min(1).max(1000),
+  }),
+  z.object({ type: z.literal("date"), value: factDateSchema }),
+  z.object({
+    type: z.literal("datetime"),
+    value: validityTimestampSchema.describe(
+      "Exact ISO-8601 timezone-qualified datetime",
+    ),
+  }),
+  z.object({
+    type: z.literal("number"),
+    value: z.number().finite(),
+    unit: z.string().trim().min(1).max(80).optional(),
+  }),
+  z.object({ type: z.literal("boolean"), value: z.boolean() }),
+  z.object({ type: z.literal("entity"), entity: entitySelectorSchema }),
+]);
+
+type FactResult = {
+  id: string;
+  statement: string;
+  subject: {
+    id: string;
+    key: string;
+    kind: string;
+    name: string;
+    aliases: string[];
+  } | null;
+  predicate: string;
+  value: unknown;
+  sourceType: "user_stated" | "user_confirmed";
+  sourceRef?: string;
+  observedAt?: number;
+  batchId?: string;
+  confidence: number;
+  isCore: boolean;
+  validFrom?: number;
+  validTo?: number;
+  status: "current" | "superseded" | "retracted";
+  supersededAt?: number;
+  supersededBy?: string;
+  supersedes?: string[];
+  changeReason?: string;
+  createdAt: number;
+  updatedAt?: number;
+};
+
+function formatFactForMcp(fact: FactResult) {
+  return {
+    ...fact,
+    citation: `fact:${fact.id}`,
+    observedAt:
+      fact.observedAt === undefined
+        ? undefined
+        : new Date(fact.observedAt).toISOString(),
+    validFrom:
+      fact.validFrom === undefined
+        ? undefined
+        : new Date(fact.validFrom).toISOString(),
+    validTo:
+      fact.validTo === undefined
+        ? undefined
+        : new Date(fact.validTo).toISOString(),
+    supersededAt:
+      fact.supersededAt === undefined
+        ? undefined
+        : new Date(fact.supersededAt).toISOString(),
+    createdAt: new Date(fact.createdAt).toISOString(),
+    updatedAt:
+      fact.updatedAt === undefined
+        ? undefined
+        : new Date(fact.updatedAt).toISOString(),
+  };
+}
+
 function truncateContext(content: string, maxChars = 4_000): string {
   const chars = Array.from(content);
   return chars.length > maxChars
@@ -139,6 +249,162 @@ export function createMcpServer(convexAuthToken: string) {
       version: "1.0.0",
     },
     { instructions: SERVER_INSTRUCTIONS },
+  );
+
+  const searchFactsTool = server.tool(
+    MCP_TOOL_NAMES.searchFacts,
+    "Search precise structured facts such as names, exact dates, relationships, providers, schools, employers, and stable preferences. Use this for direct factual questions and use search_thoughts for narrative decisions or project context. Current facts are returned by default. Set includeHistorical for what used to be true. Cite results as fact:<id>.",
+    {
+      query: z
+        .string()
+        .trim()
+        .min(1)
+        .max(12_000)
+        .describe("Exact names, predicates, or the user's factual question"),
+      limit: z.number().min(1).max(50).default(10),
+      includeHistorical: z.boolean().default(false),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.searchFacts],
+    async ({ query, limit, includeHistorical }) => {
+      const facts: FactResult[] = await convex.query(
+        api.models.facts.mcpQueries.search,
+        { query, limit, includeHistorical },
+      );
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text:
+              facts.length === 0
+                ? "No matching facts found."
+                : JSON.stringify(facts.map(formatFactForMcp), null, 2),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
+      };
+    },
+  );
+
+  const rememberFactTool = server.tool(
+    MCP_TOOL_NAMES.rememberFact,
+    "Store one precise, independently changeable fact explicitly stated or confirmed by the user. Use one subject, one snake_case predicate, and one typed value. Use an entity value for relationships. Never store a derived age: store date_of_birth only if an exact date is known. Never use this directly for connector-derived or inferred information; preview those candidates and call only after user confirmation. Single-valued predicates preserve prior values as history; use changeKind corrected when the prior value was inaccurate.",
+    {
+      subject: entitySelectorSchema.describe("The entity this fact is about"),
+      predicate: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]{1,63}$/)
+        .describe(
+          "Stable snake_case relation or attribute such as date_of_birth or primary_care_provider",
+        ),
+      value: factValueSchema,
+      sourceType: z
+        .enum(["user_stated", "user_confirmed"])
+        .describe(
+          "user_stated for the current conversation; user_confirmed only after approval of an import candidate",
+        ),
+      sourceRef: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe("Optional non-secret source label or reference"),
+      observedAt: validityTimestampSchema
+        .optional()
+        .describe(
+          "When the source was observed; not when the fact became true",
+        ),
+      batchId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(160)
+        .optional()
+        .describe("Optional import batch identifier for traceability"),
+      isCore: z
+        .boolean()
+        .optional()
+        .describe("True only for a small set of broadly useful enduring facts"),
+      validFrom: validityTimestampSchema
+        .optional()
+        .describe("When this fact became true, only when explicitly known"),
+      validTo: validityTimestampSchema
+        .optional()
+        .describe(
+          "When this fact stopped being true, only when explicitly known",
+        ),
+      cardinality: z
+        .enum(["single", "multiple"])
+        .default("single")
+        .describe(
+          "single replaces the current value for this predicate; multiple permits concurrent values",
+        ),
+      changeKind: z
+        .enum(["changed", "corrected"])
+        .default("changed")
+        .describe(
+          "changed means the old value was formerly true; corrected means it was inaccurate",
+        ),
+      changeReason: z.string().trim().min(1).max(500).optional(),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.rememberFact],
+    async ({
+      subject,
+      predicate,
+      value,
+      sourceType,
+      sourceRef,
+      observedAt,
+      batchId,
+      isCore,
+      validFrom,
+      validTo,
+      cardinality,
+      changeKind,
+      changeReason,
+    }) => {
+      const validity = parseValidityWindow(validFrom, validTo);
+      const convertedValue =
+        value.type === "datetime"
+          ? {
+              type: "datetime" as const,
+              value: parseValidityTimestamp(value.value),
+            }
+          : value;
+      const result: {
+        factId: string;
+        statement: string;
+        operation: "stored" | "noop" | "superseded" | "corrected";
+      } = await convex.mutation(api.models.facts.mcpActions.remember, {
+        subject,
+        predicate,
+        value: convertedValue,
+        sourceType,
+        sourceRef,
+        observedAt:
+          observedAt === undefined
+            ? undefined
+            : parseValidityTimestamp(observedAt),
+        batchId,
+        isCore,
+        ...validity,
+        cardinality,
+        changeKind,
+        changeReason,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              { ...result, citation: `fact:${result.factId}` },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
   );
 
   const searchThoughtsTool = server.tool(
@@ -248,7 +514,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall personal or project context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a small set of current core memories followed by a bounded set of hydrated relevance results. Set includeHistorical only for an explicitly historical question. Cite sources as `thought:<id>`.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend of current core facts/memories and relevant results. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -307,20 +573,38 @@ export function createMcpServer(convexAuthToken: string) {
         supersedes?: string[];
         changeReason?: string;
       };
+      type ContextFact = FactResult;
       const coreLimit = Math.min(3, limit);
-      const [coreThoughts, index]: [CoreThought[], IndexRow[]] =
-        await Promise.all([
-          convex.query(api.models.thoughts.mcpQueries.listCore, {
-            limit: coreLimit,
-          }),
-          convex.action(api.models.thoughts.mcpActions.search, {
-            query,
-            limit,
-            includeHistorical,
-          }),
-        ]);
+      const [coreFacts, coreThoughts, relevantFacts, index]: [
+        ContextFact[],
+        CoreThought[],
+        ContextFact[],
+        IndexRow[],
+      ] = await Promise.all([
+        convex.query(api.models.facts.mcpQueries.listCore, {
+          limit: coreLimit,
+        }),
+        convex.query(api.models.thoughts.mcpQueries.listCore, {
+          limit: coreLimit,
+        }),
+        convex.query(api.models.facts.mcpQueries.search, {
+          query,
+          limit,
+          includeHistorical,
+        }),
+        convex.action(api.models.thoughts.mcpActions.search, {
+          query,
+          limit,
+          includeHistorical,
+        }),
+      ]);
 
-      if (coreThoughts.length === 0 && index.length === 0) {
+      if (
+        coreFacts.length === 0 &&
+        coreThoughts.length === 0 &&
+        relevantFacts.length === 0 &&
+        index.length === 0
+      ) {
         return {
           content: [
             {
@@ -331,11 +615,32 @@ export function createMcpServer(convexAuthToken: string) {
         };
       }
 
-      const coreIds = new Set(coreThoughts.map((thought) => thought._id));
-      const relevanceLimit = Math.max(0, limit - coreThoughts.length);
+      const selectedCoreFacts = coreFacts.slice(0, Math.min(2, coreLimit));
+      const selectedCoreThoughts = coreThoughts.slice(
+        0,
+        Math.max(0, coreLimit - selectedCoreFacts.length),
+      );
+      const coreFactIds = new Set(selectedCoreFacts.map((fact) => fact.id));
+      const coreThoughtIds = new Set(
+        selectedCoreThoughts.map((thought) => thought._id),
+      );
+      const relevanceLimit = Math.max(
+        0,
+        limit - selectedCoreFacts.length - selectedCoreThoughts.length,
+      );
+      const factRelevanceLimit =
+        index.length === 0
+          ? relevanceLimit
+          : Math.min(
+              relevanceLimit,
+              Math.max(1, Math.ceil(relevanceLimit / 2)),
+            );
+      const relevanceFacts = relevantFacts
+        .filter((fact) => !coreFactIds.has(fact.id))
+        .slice(0, factRelevanceLimit);
       const relevanceIndex = index
-        .filter((row) => !coreIds.has(row._id))
-        .slice(0, relevanceLimit);
+        .filter((row) => !coreThoughtIds.has(row._id))
+        .slice(0, Math.max(0, relevanceLimit - relevanceFacts.length));
 
       type Thought = {
         _id: string;
@@ -367,10 +672,17 @@ export function createMcpServer(convexAuthToken: string) {
       const thoughtById = new Map(
         thoughts.map((thought) => [thought._id, thought]),
       );
-      const coreContext = coreThoughts.map((thought) => ({
+      const coreFactContext = selectedCoreFacts.map((fact) => ({
+        ...formatFactForMcp(fact),
+        memoryKind: "fact" as const,
+        source: "core" as const,
+      }));
+      const coreContext = selectedCoreThoughts.map((thought) => ({
         id: thought._id,
+        citation: `thought:${thought._id}`,
         content: truncateContext(thought.content),
         metadata: thought.metadata,
+        memoryKind: "thought" as const,
         source: "core" as const,
         memoryStatus: thought.memoryStatus ?? "current",
         isCore: true,
@@ -384,14 +696,21 @@ export function createMcpServer(convexAuthToken: string) {
             : undefined,
         createdAt: new Date(thought._creationTime).toISOString(),
       }));
+      const relevanceFactContext = relevanceFacts.map((fact) => ({
+        ...formatFactForMcp(fact),
+        memoryKind: "fact" as const,
+        source: "relevance" as const,
+      }));
       const relevanceContext = relevanceIndex.flatMap((row) => {
         const thought = thoughtById.get(row._id);
         if (!thought) return [];
         return [
           {
             id: thought._id,
+            citation: `thought:${thought._id}`,
             content: truncateContext(thought.content),
             metadata: thought.metadata,
+            memoryKind: "thought" as const,
             source: "relevance" as const,
             score: row.score,
             memoryStatus: thought.memoryStatus,
@@ -415,7 +734,12 @@ export function createMcpServer(convexAuthToken: string) {
           },
         ];
       });
-      const context = [...coreContext, ...relevanceContext];
+      const context = [
+        ...coreFactContext,
+        ...coreContext,
+        ...relevanceFactContext,
+        ...relevanceContext,
+      ];
 
       return {
         content: [
@@ -780,7 +1104,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const captureThoughtTool = server.tool(
     MCP_TOOL_NAMES.captureThought,
-    "Use this when the user states or explicitly confirms durable information worth carrying into future conversations: personal facts and preferences, relationships, project context or status, decisions, commitments, and recurring patterns. Call automatically without waiting for an explicit request. Do not save assistant suggestions, guesses, or inferences as user facts. Preserve the user's exact names, capitalization, identifiers, project names, and version strings. The server deduplicates and preserves changed or corrected prior information as linked history.",
+    "Store one atomic durable narrative memory: a decision with rationale, coherent project state, commitment, or recurring pattern whose parts change together. Use remember_fact instead for precise attributes and relationships. Never send biographies, dossiers, mixed people/projects, completed-task catalogs, activity logs, connector observations, assistant guesses, or inferred user facts. The admission gate may decline storage or request confirmation. The server deduplicates and preserves changed or corrected prior information as linked history.",
     {
       content: z
         .string()
@@ -788,8 +1112,30 @@ export function createMcpServer(convexAuthToken: string) {
         .min(1)
         .max(MAX_CAPTURE_CONTENT_CHARS)
         .describe(
-          "A standalone durable memory grounded in what the user stated or confirmed. Preserve exact proper nouns, identifiers, and version strings; do not add inferred facts.",
+          "One standalone durable narrative memory about one subject and one coherent change cadence. Preserve exact proper nouns, identifiers, and version strings.",
         ),
+      sourceType: z
+        .enum(["user_stated", "user_confirmed", "assistant_commitment"])
+        .describe(
+          "Grounding for this memory. Never label connector-derived or inferred content as user_stated.",
+        ),
+      sourceRef: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .optional()
+        .describe("Optional non-secret source label or reference"),
+      observedAt: validityTimestampSchema
+        .optional()
+        .describe("When the source was observed; not when the memory was true"),
+      batchId: z
+        .string()
+        .trim()
+        .min(1)
+        .max(160)
+        .optional()
+        .describe("Optional confirmed import batch identifier"),
       validFrom: validityTimestampSchema
         .optional()
         .describe(
@@ -808,9 +1154,18 @@ export function createMcpServer(convexAuthToken: string) {
         ),
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.captureThought],
-    async ({ content, validFrom, validTo, isCore }) => {
+    async ({
+      content,
+      sourceType,
+      sourceRef,
+      observedAt,
+      batchId,
+      validFrom,
+      validTo,
+      isCore,
+    }) => {
       type CaptureResult = {
-        thoughtId: string;
+        thoughtId?: string;
         metadata: {
           type: string;
           topics: string[];
@@ -818,33 +1173,60 @@ export function createMcpServer(convexAuthToken: string) {
           actionItems: string[];
           summary: string;
         };
+        disposition:
+          | "stored"
+          | "duplicate"
+          | "superseded"
+          | "corrected"
+          | "needs_confirmation"
+          | "skipped";
         operationSummary?: string;
       };
       const validity = parseValidityWindow(validFrom, validTo);
       const result: CaptureResult = await convex.action(
         api.models.thoughts.mcpActions.capture,
-        { content, ...validity, isCore },
+        {
+          content,
+          ...validity,
+          isCore,
+          sourceType,
+          sourceRef,
+          observedAt:
+            observedAt === undefined
+              ? undefined
+              : parseValidityTimestamp(observedAt),
+          batchId,
+        },
       );
 
-      const noopSummary = "Thought already captured — no changes made";
+      const stored = [
+        "stored",
+        "duplicate",
+        "superseded",
+        "corrected",
+      ].includes(result.disposition);
       const statusLine = result.operationSummary
-        ? result.operationSummary === noopSummary
-          ? `${result.operationSummary}.`
-          : `Thought captured. ${result.operationSummary}.`
-        : "Thought captured successfully.";
+        ? result.operationSummary
+        : stored
+          ? "Thought captured successfully"
+          : "Thought was not stored";
 
       return {
         content: [
           {
             type: "text" as const,
             text: [
-              statusLine,
+              `${statusLine}.`,
+              `Disposition: ${result.disposition}`,
+              result.thoughtId ? `Citation: thought:${result.thoughtId}` : "",
               "",
               `Type: ${result.metadata.type}`,
               `Topics: ${result.metadata.topics.join(", ") || "none"}`,
               `People: ${result.metadata.people.join(", ") || "none"}`,
               `Summary: ${result.metadata.summary}`,
-            ].join("\n"),
+            ]
+              .filter(Boolean)
+              .join("\n"),
           },
         ],
       };
@@ -1377,6 +1759,8 @@ export function createMcpServer(convexAuthToken: string) {
   );
 
   const registeredTools = {
+    [MCP_TOOL_NAMES.searchFacts]: searchFactsTool,
+    [MCP_TOOL_NAMES.rememberFact]: rememberFactTool,
     [MCP_TOOL_NAMES.searchThoughts]: searchThoughtsTool,
     [MCP_TOOL_NAMES.recallContext]: recallContextTool,
     [MCP_TOOL_NAMES.browseRecent]: browseRecentTool,

@@ -11,6 +11,7 @@ import {
 } from "./model";
 import { isMemoryActive } from "./memoryLifecycle";
 import {
+  memorySourceType,
   thoughtLifecycleFields,
   thoughtMetadata,
   thoughtType,
@@ -95,6 +96,11 @@ export const insertOne = internalMutation({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
+    sourceType: v.optional(memorySourceType),
+    sourceRef: v.optional(v.string()),
+    observedAt: v.optional(v.number()),
+    batchId: v.optional(v.string()),
+    confidence: v.optional(v.number()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -115,6 +121,11 @@ export const transitionMemory = internalMutation({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
+    sourceType: v.optional(memorySourceType),
+    sourceRef: v.optional(v.string()),
+    observedAt: v.optional(v.number()),
+    batchId: v.optional(v.string()),
+    confidence: v.optional(v.number()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -128,6 +139,11 @@ export const transitionMemory = internalMutation({
         validFrom: args.validFrom,
         validTo: args.validTo,
         isCore: args.isCore,
+        sourceType: args.sourceType,
+        sourceRef: args.sourceRef,
+        observedAt: args.observedAt,
+        batchId: args.batchId,
+        confidence: args.confidence,
       },
       args.previousIds,
       args.previousStatus,

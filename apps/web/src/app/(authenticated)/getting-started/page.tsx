@@ -14,8 +14,8 @@ const SETUP_STEPS = [
       {
         platform: "Claude Code",
         steps: [
-          "Run: /plugin marketplace add flippyhead/claude-workflow-analyst",
-          "Run: /plugin install open-brain@claude-workflow-analyst",
+          "Run: /plugin marketplace add flippyhead/ai-brain-plugin",
+          "Run: /plugin install ai-brain@ai-brain-plugin",
           "The Open Brain connector is bundled automatically.",
           "On first use, you'll be prompted to sign in to Open Brain in your browser.",
         ],
@@ -43,11 +43,10 @@ const SETUP_STEPS = [
     step: 2,
     title: "Run /brain-init",
     description:
-      "Automatically bootstrap your brain from your connected tools (email, calendar, ClickUp, GitHub, etc.) and Claude's memory. No manual data entry needed.",
-    example:
-      "/brain-init",
+      "Build a small atomic candidate set from explicit knowledge and connected sources, review it once, then store only what you approve.",
+    example: "/brain-init",
     skills: [
-      "/brain-init \u2014 Auto-discover connectors, pull meta-knowledge, build your profile",
+      "/brain-init \u2014 Discover sources, exclude noise, and preview up to 15 facts/memories for approval",
       "/brain-sync \u2014 Sync a project's context (README, git state, docs) into your brain",
       "/weekly-review \u2014 Weekly synthesis of thoughts, workflow insights, and goals",
     ],
@@ -98,14 +97,16 @@ Your workflow:
    - Apple Notes: Select all \u2192 copy, or use exporter tools
    - CSV: Explain expected columns
 3. Ask them to share the exported content
-4. For each note or fragment:
-   - Transform it into a clear, searchable standalone statement
-   - Remove formatting artifacts and metadata noise
-   - Preserve the core insight, decision, or fact
-   - Use the capture_thought tool to save it
-5. Summarize what was migrated and suggest next steps
+4. Extract no more than 15 high-confidence candidates at a time. For each candidate:
+   - Use a structured fact for a precise name, exact date, relationship, provider, school, employer, location, or scalar preference
+   - Use a narrative thought only for one coherent decision with rationale, project state, commitment, or recurring pattern
+   - Exclude derived ages, single mentions, completed-task catalogs, vendor/company lists, guesses, credentials, and secrets
+   - Show the source, confidence, temporal handling, and whether it should be core memory
+5. Preview the candidates and wait for my approval. Do not call any write tool before approval.
+6. Store only approved rows, one independently changeable fact or coherent narrative per record, with sourceType user_confirmed and one shared import batch id.
+7. Summarize what was stored, skipped, or left unchanged with fact:<id> and thought:<id> citations.
 
-Important: Each migrated thought should stand alone. Transform fragments like "meeting notes 3/15" into "On March 15, we decided to switch from REST to GraphQL because..." \u2014 context that future-you can actually search for and use.`,
+Important: Never infer an exact birth date from an age. A changed fact preserves the former value as history; a correction marks the former value inaccurate.`,
   },
   {
     title: "Open Brain Spark",
@@ -132,9 +133,9 @@ After gathering answers, output 5 personalized patterns:
 For each pattern, give a concrete example using their actual answers. End with: "Pick one pattern to start with this week. Which one resonates most?"`,
   },
   {
-    title: "Quick Capture Templates",
+    title: "Narrative Capture Templates",
     description:
-      "5 structured formats for common capture scenarios: decisions, people, insights, meetings, and AI saves.",
+      "Formats for coherent narrative memories. Precise personal attributes and relationships should use structured facts instead.",
     prompt: `Here are 5 quick capture templates you can use with Open Brain. Copy any of these and use them as a starting point when capturing thoughts.
 
 ---
@@ -150,14 +151,14 @@ Example:
 
 ---
 
-## 2. Person Note
-Use after a meaningful interaction to build relationship context.
+## 2. Interaction Insight
+Use after a meaningful interaction to retain one useful working pattern. Store a person's role, relationship, or preference as separate structured facts when explicitly confirmed.
 
 Format:
-"[Name] \u2014 [role/relationship]. [Key thing learned]. [Preferences or working style]. [Follow-up needed]."
+"After working with [Name] on [context], I learned [one durable interaction pattern]. This matters when [future situation]."
 
 Example:
-"Sarah Chen \u2014 new VP of Engineering. Values async communication, prefers Loom over meetings. Has background in distributed systems at Stripe. Follow up: share our architecture doc before next 1:1."
+"After preparing architecture reviews with Sarah Chen, I learned that sending the decision context in advance makes our review meetings substantially more productive. Reuse this pattern before future architecture reviews."
 
 ---
 
@@ -327,9 +328,12 @@ function SetupSection() {
                         style={{
                           fontSize: "0.9rem",
                           lineHeight: 1.5,
-                          fontFamily: s.startsWith("Run:") || s.startsWith("Enter URL:") || s.startsWith("Then run:")
-                            ? "monospace"
-                            : "inherit",
+                          fontFamily:
+                            s.startsWith("Run:") ||
+                            s.startsWith("Enter URL:") ||
+                            s.startsWith("Then run:")
+                              ? "monospace"
+                              : "inherit",
                         }}
                       >
                         {s}
@@ -370,7 +374,14 @@ function SetupSection() {
               }}
             >
               {step.skills.map((skill, i) => (
-                <li key={i} style={{ fontSize: "0.9rem", lineHeight: 1.5, fontFamily: "monospace" }}>
+                <li
+                  key={i}
+                  style={{
+                    fontSize: "0.9rem",
+                    lineHeight: 1.5,
+                    fontFamily: "monospace",
+                  }}
+                >
                   {skill}
                 </li>
               ))}

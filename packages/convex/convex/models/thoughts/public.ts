@@ -8,6 +8,7 @@ import {
   thoughtType,
 } from "./validators";
 import { _listByUser, _listCoreByUser, collectFiltered } from "./model";
+import { isFactActive } from "../facts/model";
 
 export const listRecent = query({
   args: {
@@ -90,8 +91,11 @@ export const getStats = query({
   args: {},
   returns: v.object({
     totalThoughts: v.number(),
+    totalFacts: v.number(),
     historicalThoughts: v.number(),
+    historicalFacts: v.number(),
     retractedThoughts: v.number(),
+    retractedFacts: v.number(),
     byType: v.array(v.object({ type: v.string(), count: v.number() })),
     topTopics: v.array(v.object({ topic: v.string(), count: v.number() })),
     topPeople: v.array(v.object({ person: v.string(), count: v.number() })),
@@ -107,6 +111,10 @@ export const getStats = query({
 
     const allThoughts = await ctx.db
       .query("thoughts")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .collect();
+    const allFacts = await ctx.db
+      .query("facts")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
     const activeAt = Date.now();
@@ -155,12 +163,18 @@ export const getStats = query({
 
     return {
       totalThoughts: currentThoughts.length,
+      totalFacts: allFacts.filter((fact) => isFactActive(fact, activeAt))
+        .length,
       historicalThoughts: allThoughts.filter(
         (thought) => thought.memoryStatus === "superseded",
       ).length,
+      historicalFacts: allFacts.filter((fact) => fact.status === "superseded")
+        .length,
       retractedThoughts: allThoughts.filter(
         (thought) => thought.memoryStatus === "retracted",
       ).length,
+      retractedFacts: allFacts.filter((fact) => fact.status === "retracted")
+        .length,
       byType,
       topTopics,
       topPeople,

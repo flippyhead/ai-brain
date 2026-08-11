@@ -1,7 +1,7 @@
 "use client";
 
-import { useAction } from "convex/react";
 import { api } from "@repo/db/convex/_generated/api";
+import { useAction } from "convex/react";
 import { useState } from "react";
 
 export function QuickCapture() {
@@ -18,11 +18,18 @@ export function QuickCapture() {
     setStatus("");
     try {
       const result = await captureThought({ content: content.trim() });
-      setStatus(
-        `Saved as ${result.metadata.type.replace("_", " ")}: ${result.metadata.summary}`,
-      );
-      setContent("");
-    } catch (error) {
+      if (result.thoughtId) {
+        setStatus(
+          `Saved as ${result.metadata.type.replace("_", " ")}: ${result.metadata.summary}`,
+        );
+        setContent("");
+      } else {
+        setStatus(
+          result.operationSummary ??
+            "This was not stored. Try one coherent durable narrative, or use a structured fact.",
+        );
+      }
+    } catch {
       setStatus("Failed to capture thought. Please try again.");
     } finally {
       setLoading(false);
@@ -55,7 +62,14 @@ export function QuickCapture() {
             fontFamily: "inherit",
           }}
         />
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 8 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 12,
+            alignItems: "center",
+            marginTop: 8,
+          }}
+        >
           <button
             type="submit"
             disabled={loading || !content.trim()}

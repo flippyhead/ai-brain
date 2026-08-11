@@ -6,10 +6,11 @@ Personal AI memory layer for Claude Code. Captures thoughts across sessions, syn
 
 AI Brain is a thin Claude Code plugin over a hosted MCP server. The server stores your thoughts, people, projects, and insights; the plugin exposes skills that let Claude read and write that store as part of your workflow.
 
-The server asks compatible AI clients to capture durable facts, preferences,
-project changes, and decisions automatically. Captures are deduplicated. When
-something changes, the new current memory is linked to the former memory,
-which remains available as explicit history rather than being overwritten.
+The server asks compatible AI clients to capture precise durable facts through
+typed entity relationships and coherent narrative memories separately.
+Captures are deduplicated. When something changes, the new current fact or
+memory is linked to the former record, which remains available as explicit
+history rather than being overwritten.
 For relevant prompts, the server also asks the client to recall a small core
 memory set plus query-specific current context before answering. Both behaviors
 remain client-mediated: the server cannot see a conversation unless the client
@@ -17,7 +18,7 @@ calls a tool.
 
 ### Five skills
 
-- **`/brain-init`** — Zero-input onboarding. Scans connected tools (email, calendar, ClickUp, GitHub, Slack) + your CLAUDE.md, then captures durable meta-knowledge.
+- **`/brain-init`** — Preview-first onboarding. Discovers available sources, excludes incidental or inferred noise, and proposes at most 15 atomic facts/memories for approval before writing anything.
 - **`/brain-sync`** — Sync the current project's context into the brain. Compares against existing thoughts via progressive disclosure and only captures new or changed info.
 - **`/weekly-review`** — Weekly synthesis cross-referencing thoughts, workflow insights (if `radar` is installed), and goals. Every claim cites its source.
 - **`/brain-thread <topic>`** — Reconstruct the evolution of your thinking on a topic. Walks the chronological neighbors around a seed thought.
@@ -51,7 +52,7 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 
 ## Tips for getting the most out of it
 
-- **Cite sources in responses.** When you ask Claude a question grounded in your brain, expect answers with `thought:<id>` or `insight:<id>` citations — click through to find provenance.
+- **Cite sources in responses.** When you ask Claude a question grounded in your brain, expect answers with `fact:<id>`, `thought:<id>`, or `insight:<id>` citations.
 - **Use `/brain-sync` when switching projects.** It only captures what's actually new, so running it every few days keeps the brain current without bloating it.
 - **Use `/brain-thread` for retrospectives.** When a decision didn't go the way you hoped, trace the thread back to see what you were optimizing for.
 - **Use `/brain-context` when returning from a break.** The brief restores ambient context — who you were working with, what was in flight — in under a minute.
