@@ -50,10 +50,12 @@ describe("temporal memory transitions", () => {
       }),
     ]);
 
-    const [currentMemories, fullHistory] = await t.run(async (ctx) => [
-      await _listByUser(ctx, userId, 20),
-      await _listByUser(ctx, userId, 20, true),
-    ]);
+    // Each list is its own function execution in production. Convex allows one
+    // pagination chain per execution, so they cannot share a single t.run.
+    const currentMemories = await t.run((ctx) => _listByUser(ctx, userId, 20));
+    const fullHistory = await t.run((ctx) =>
+      _listByUser(ctx, userId, 20, true),
+    );
 
     expect(currentMemories.map((memory) => memory._id)).toEqual([activeId]);
     expect(fullHistory.map((memory) => memory._id)).toEqual([
@@ -114,10 +116,12 @@ describe("temporal memory transitions", () => {
       validFrom: redwoodStart,
     });
 
-    const [currentMemories, fullHistory] = await t.run(async (ctx) => [
-      await _listByUser(ctx, userId, 20),
-      await _listByUser(ctx, userId, 20, true),
-    ]);
+    // Each list is its own function execution in production. Convex allows one
+    // pagination chain per execution, so they cannot share a single t.run.
+    const currentMemories = await t.run((ctx) => _listByUser(ctx, userId, 20));
+    const fullHistory = await t.run((ctx) =>
+      _listByUser(ctx, userId, 20, true),
+    );
     expect(currentMemories.map((memory) => memory._id)).toEqual([currentId]);
     expect(fullHistory.map((memory) => memory._id)).toEqual([
       currentId,

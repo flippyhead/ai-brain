@@ -12,7 +12,7 @@ import {
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
-  isMemoryActive,
+  isMemoryRetrievable,
   type MemoryStatus,
 } from "./memoryLifecycle";
 import { memoryStatus, thoughtMetadata, thoughtType } from "./validators";
@@ -316,7 +316,7 @@ export const hybridSearch = internalAction({
       return (
         doc !== undefined &&
         (args.type === undefined || doc.metadata.type === args.type) &&
-        (args.includeHistorical || isMemoryActive(doc, activeAt))
+        isMemoryRetrievable(doc, args.includeHistorical, activeAt)
       );
     });
 

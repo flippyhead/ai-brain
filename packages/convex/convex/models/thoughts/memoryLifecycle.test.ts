@@ -4,6 +4,7 @@ import {
   assertValidMemoryValidity,
   isCurrentMemory,
   isMemoryActive,
+  isMemoryRetrievable,
   parseMemoryClassification,
   safeSupersededValidTo,
 } from "./memoryLifecycle";
@@ -165,5 +166,33 @@ describe("temporal memory classification", () => {
     expect(
       safeSupersededValidTo({ validFrom: 100 }, undefined),
     ).toBeUndefined();
+  });
+});
+
+describe("isMemoryRetrievable", () => {
+  const at = 1_000;
+
+  test("returns current memories in both modes", () => {
+    const memory = { memoryStatus: "current" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(true);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(true);
+  });
+
+  test("returns superseded memories only for historical reads", () => {
+    const memory = { memoryStatus: "superseded" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(false);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(true);
+  });
+
+  test("withholds retracted memories from historical reads", () => {
+    const memory = { memoryStatus: "retracted" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(false);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(false);
+  });
+
+  test("respects business-time validity for non-historical reads", () => {
+    const expired = { memoryStatus: "current" as const, validTo: 500 };
+    expect(isMemoryRetrievable(expired, false, at)).toBe(false);
+    expect(isMemoryRetrievable(expired, true, at)).toBe(true);
   });
 });

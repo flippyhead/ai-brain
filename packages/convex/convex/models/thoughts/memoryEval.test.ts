@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { evaluateRetrievalCase, reciprocalRankFusion } from "./memory-eval";
-import { deterministicRetrievalFixtures } from "./memory-eval.fixtures";
+import { evaluateRetrievalCase, reciprocalRankFusion } from "./memoryEval";
+import { deterministicRetrievalFixtures } from "./memoryEval.fixtures";
 
 describe("deterministic memory retrieval evaluations", () => {
   test.each(deterministicRetrievalFixtures)("$name", (fixture) => {
@@ -18,19 +18,19 @@ describe("deterministic memory retrieval evaluations", () => {
     const evaluation = evaluateRetrievalCase({
       name: "bad retrieval",
       query: "What version is Atlas Memory on?",
-      expectedUserId: "jordan",
+      expectedUserId: "avery",
       expectedIds: ["expected"],
       expectedExactStrings: ["v2.7.1"],
       results: [
         {
           id: "stale",
-          userId: "jordan",
+          userId: "avery",
           memoryStatus: "superseded",
           content: "Version 2.7.1",
         },
         {
           id: "other-account",
-          userId: "noam",
+          userId: "rowan",
           memoryStatus: "current",
           content: "Private memory",
         },
@@ -45,6 +45,39 @@ describe("deterministic memory retrieval evaluations", () => {
       missingExactStrings: ["v2.7.1"],
       passed: false,
     });
+  });
+
+  test("rejects retracted memories even for historical queries", () => {
+    const evaluation = evaluateRetrievalCase({
+      name: "retracted surfaced as history",
+      query: "What has Avery's blood type been recorded as?",
+      expectedUserId: "avery",
+      expectedIds: ["corrected"],
+      includeHistorical: true,
+      results: [
+        {
+          id: "corrected",
+          userId: "avery",
+          memoryStatus: "current",
+          content: "Avery's blood type is A negative.",
+        },
+        {
+          id: "never-true",
+          userId: "avery",
+          memoryStatus: "retracted",
+          content: "Avery's blood type is O negative.",
+        },
+        {
+          id: "formerly-true",
+          userId: "avery",
+          memoryStatus: "superseded",
+          content: "Avery's clinic is Bayside Family Medicine.",
+        },
+      ],
+    });
+
+    expect(evaluation.unexpectedHistoricalIds).toEqual(["never-true"]);
+    expect(evaluation.passed).toBe(false);
   });
 
   test("RRF rewards agreement between semantic and keyword rankings", () => {
@@ -74,20 +107,20 @@ describe("deterministic memory retrieval evaluations", () => {
       evaluateRetrievalCase({
         name: "exact term below cutoff",
         query: "Which release?",
-        expectedUserId: "jordan",
+        expectedUserId: "avery",
         expectedIds: ["first"],
         expectedExactStrings: ["v2.7.1"],
         k: 1,
         results: [
           {
             id: "first",
-            userId: "jordan",
+            userId: "avery",
             memoryStatus: "current",
             content: "Atlas Memory release",
           },
           {
             id: "below-cutoff",
-            userId: "jordan",
+            userId: "avery",
             memoryStatus: "current",
             content: "Atlas Memory v2.7.1",
           },
