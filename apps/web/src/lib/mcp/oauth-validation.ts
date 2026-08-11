@@ -33,11 +33,19 @@ export const clientRegistrationRequestSchema = z.object({
       message: "Redirect URIs must be unique",
     }),
   grant_types: z
-    .array(z.literal("authorization_code"))
-    .length(1)
+    .array(z.enum(["authorization_code", "refresh_token"]))
+    .min(1)
+    .max(2)
+    .refine((values) => values.includes("authorization_code"), {
+      message: "Authorization code grant is required",
+    })
+    .refine((values) => new Set(values).size === values.length, {
+      message: "Grant types must be unique",
+    })
     .default(["authorization_code"]),
   response_types: z.array(z.literal("code")).length(1).default(["code"]),
   token_endpoint_auth_method: z.literal("none").default("none"),
+  application_type: z.enum(["native", "web"]).optional(),
 });
 
 export const authorizationRequestSchema = z.object({
