@@ -21,6 +21,9 @@ export const CONVEX_REQUIRED_VARIABLES = [
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
   "MCP_JWT_ISSUER",
+  "SITE_URL",
+  "JWT_PRIVATE_KEY",
+  "JWKS",
 ];
 
 function isAllowedOrigin(value) {

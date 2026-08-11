@@ -38,6 +38,9 @@ tracked file. Use the provider dashboards or an interactive CLI prompt.
 | `MCP_OAUTH_ENCRYPTION_KEY` | Vercel only       | Encrypts OAuth registrations and authorization codes; secret          |
 | `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                |
 | `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host  |
+| `SITE_URL`                 | Convex only       | Stable HTTPS origin of the Next.js app used by Convex Auth            |
+| `JWT_PRIVATE_KEY`          | Convex only       | Signs Convex Auth session tokens; generated secret                    |
+| `JWKS`                     | Convex only       | Public key set used to verify Convex Auth session tokens              |
 
 The capture path combines classification and metadata extraction in one
 schema-constrained Haiku request. It reuses the original embedding when the
@@ -85,7 +88,19 @@ file.
 Create a Convex project for the fork and link `packages/convex` to it. The
 production deployment will require `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`,
 but select and provision those credentials only during the secure credential
-phase. Set the non-secret issuer after the final stable Vercel origin is known:
+phase. Once the stable Vercel origin is known, configure Convex Auth using its
+official setup command:
+
+```sh
+pnpm --filter @repo/db exec auth --prod --web-server-url https://your-project.vercel.app
+```
+
+This sets `SITE_URL` and generates a matched `JWT_PRIVATE_KEY`/`JWKS` pair on
+the production Convex deployment. Treat the private key as a secret. If either
+key variable already exists, the command asks before rotating it; routine
+rotation is unnecessary and signs out existing sessions.
+
+Set the separate MCP issuer to the same stable origin:
 
 ```sh
 pnpm --filter @repo/db exec convex env --prod set MCP_JWT_ISSUER
@@ -94,8 +109,9 @@ pnpm --filter @repo/db exec convex env --prod set MCP_JWT_ISSUER
 Enter the final stable Vercel origin for `MCP_JWT_ISSUER`, for example
 `https://your-project.vercel.app`, with no path or trailing slash. The Convex
 and Vercel values must be identical. Do not deploy until the secure credential
-phase has supplied both provider variables. Deploying Convex is a production
-action; perform it only after reviewing the target project:
+phase has supplied both provider variables and all six required Convex names
+pass the production preflight. Deploying Convex is a production action;
+perform it only after reviewing the target project:
 
 ```sh
 pnpm --filter @repo/db deploy:prod
@@ -233,11 +249,12 @@ when its build artifacts were created with Preview-scoped variables.
 
 ## Common failures
 
-| Symptom                                   | Check                                                                                    |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Health endpoint returns 503               | Fix only the variable names listed in `issues`                                           |
-| OAuth metadata has the wrong host         | Make `MCP_JWT_ISSUER` the final stable HTTPS origin and redeploy Vercel                  |
-| Convex rejects MCP identity tokens        | Match `MCP_JWT_ISSUER` in both systems, then redeploy Convex                             |
-| All capture or search calls fail          | Confirm the two provider variable names exist on the production Convex deployment        |
-| Clients must authorize again unexpectedly | Check whether `MCP_OAUTH_ENCRYPTION_KEY` changed                                         |
-| Automatic capture is inconsistent         | Verify the client enabled the MCP server and inspect whether it called `capture_thought` |
+| Symptom                                    | Check                                                                                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Health endpoint returns 503                | Fix only the variable names listed in `issues`                                              |
+| OAuth metadata has the wrong host          | Make `MCP_JWT_ISSUER` the final stable HTTPS origin and redeploy Vercel                     |
+| Convex rejects MCP identity tokens         | Match `MCP_JWT_ISSUER` in both systems, then redeploy Convex                                |
+| All capture or search calls fail           | Confirm the two provider variable names exist on the production Convex deployment           |
+| Account creation fails after saving a user | Confirm `SITE_URL`, `JWT_PRIVATE_KEY`, and `JWKS` exist on the production Convex deployment |
+| Clients must authorize again unexpectedly  | Check whether `MCP_OAUTH_ENCRYPTION_KEY` changed                                            |
+| Automatic capture is inconsistent          | Verify the client enabled the MCP server and inspect whether it called `capture_thought`    |

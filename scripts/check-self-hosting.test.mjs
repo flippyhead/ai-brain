@@ -78,6 +78,11 @@ test("formatted output cannot include a rejected secret value", () => {
 test("Convex preflight checks names without needing values", () => {
   assert.deepEqual(
     validateConvexVariableNames(["OPENAI_API_KEY", "MCP_JWT_ISSUER"]),
-    [{ name: "ANTHROPIC_API_KEY", problem: "missing" }],
+    [
+      { name: "ANTHROPIC_API_KEY", problem: "missing" },
+      { name: "SITE_URL", problem: "missing" },
+      { name: "JWT_PRIVATE_KEY", problem: "missing" },
+      { name: "JWKS", problem: "missing" },
+    ],
   );
 });
