@@ -39,6 +39,13 @@ tracked file. Use the provider dashboards or an interactive CLI prompt.
 | `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                |
 | `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host  |
 
+The capture path combines classification and metadata extraction in one
+schema-constrained Haiku request. It reuses the original embedding when the
+stored text is unchanged, so a routine capture uses one call to each provider.
+These HTTP-only actions use Convex's default runtime, which supports `fetch`
+and `process.env`; enabling the Node runtime would add cold starts and a second
+bundle without providing a required API.
+
 `CONVEX_SITE_URL` is supplied by Convex and should not be created manually.
 `CONVEX_DEPLOYMENT` is local Convex CLI linkage, not an application secret and
 not a Convex backend environment variable. Convex backend variables are scoped
@@ -96,10 +103,13 @@ pnpm --filter @repo/db deploy:prod
 
 ## 3. Create and configure Vercel
 
-Import the fork as a new Vercel project with the repository root as the project
-root. Use a stable production domain before setting the issuer. Configure all
-of these for Production; use separate Preview values if preview deployments
-need a working OAuth flow:
+Import the fork as a new Vercel project with `apps/web` as the Vercel Root
+Directory and Next.js as the Framework Preset. Vercel still installs workspace
+dependencies from the pnpm monorepo; pointing the project at the repository
+root instead leaves the project on the generic framework preset and does not
+identify the web app's build output. Use a stable production domain before
+setting the issuer. Configure all of these for Production; use separate Preview
+values if preview deployments need a working OAuth flow:
 
 - `NEXT_PUBLIC_CONVEX_URL`
 - `MCP_JWT_ISSUER`
@@ -109,16 +119,18 @@ need a working OAuth flow:
 - `MCP_OAUTH_ENCRYPTION_KEY`
 
 Generate the signing pair and OAuth encryption key once on a trusted local
-machine:
+machine. Prefer writing them directly to the ignored local environment file so
+the secret values do not pass through terminal history or logs:
 
 ```sh
-pnpm generate:mcp-jwks
+pnpm generate:mcp-jwks -- --env-file apps/web/.env.local
 ```
 
-Copy each generated value directly into the matching Vercel environment
-variable. The command prints secret material, so do not save or paste its
-output into the repository or a conversation. Only
-`NEXT_PUBLIC_CONVEX_URL` may be exposed through a `NEXT_PUBLIC_` variable.
+The command refuses to replace configured values; clear a value explicitly if
+you intentionally need to rotate it. Running without `--env-file` prints the
+values for manual setup, so do not save or paste that output into the
+repository or a conversation. Only `NEXT_PUBLIC_CONVEX_URL` may be exposed
+through a `NEXT_PUBLIC_` variable.
 
 Do not rotate the signing or encryption values as routine maintenance for this
 personal deployment. Rotating the OAuth encryption key invalidates existing
@@ -206,6 +218,18 @@ Keep routine operations minimal:
   retrieval evaluation shows a concrete need;
 - review provider usage occasionally for unexpected spend; and
 - rerun both preflights after changing a domain, project, or credential.
+
+For a pre-production Vercel check, specify the target on both commands instead
+of relying on the CLI default:
+
+```sh
+vercel build --target preview
+vercel deploy --prebuilt --target preview
+```
+
+Review the reported target before treating the result as a preview. A
+production deployment can claim the stable project aliases immediately, even
+when its build artifacts were created with Preview-scoped variables.
 
 ## Common failures
 
