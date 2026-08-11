@@ -1,7 +1,7 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { requireWebUserId } from "../../lib/webAuth";
-import { isCurrentMemory } from "./memoryLifecycle";
+import { isMemoryActive } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
   thoughtMetadata,
@@ -40,13 +40,16 @@ export const listRecent = query({
           )
           .order("desc");
 
-      results = args.includeHistorical
-        ? await query().take(limit)
-        : await collectFiltered(
-            (cursor, numItems) => query().paginate({ cursor, numItems }),
-            (memory) => isCurrentMemory(memory.memoryStatus),
-            limit,
-          );
+      if (args.includeHistorical) {
+        results = await query().take(limit);
+      } else {
+        const activeAt = Date.now();
+        results = await collectFiltered(
+          (cursor, numItems) => query().paginate({ cursor, numItems }),
+          (memory) => isMemoryActive(memory, activeAt),
+          limit,
+        );
+      }
     } else {
       results = await _listByUser(
         ctx,
@@ -106,8 +109,9 @@ export const getStats = query({
       .query("thoughts")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
+    const activeAt = Date.now();
     const currentThoughts = allThoughts.filter((thought) =>
-      isCurrentMemory(thought.memoryStatus),
+      isMemoryActive(thought, activeAt),
     );
 
     const typeCounts = new Map<string, number>();

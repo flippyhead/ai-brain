@@ -5,6 +5,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
+  isMemoryActive,
   safeSupersededValidTo,
   type MemoryStatus,
   type MemoryValidity,
@@ -77,9 +78,10 @@ export async function _listByUser(
     return await query().take(limit);
   }
 
+  const activeAt = Date.now();
   return await collectFiltered(
     (cursor, numItems) => query().paginate({ cursor, numItems }),
-    (memory) => isCurrentMemory(memory.memoryStatus),
+    (memory) => isMemoryActive(memory, activeAt),
     limit,
   );
 }
@@ -105,8 +107,9 @@ export async function _listCoreByUser(
     .order("desc")
     .take(MAX_CORE_MEMORY_CANDIDATES);
 
+  const activeAt = Date.now();
   return candidates
-    .filter((memory) => isCurrentMemory(memory.memoryStatus))
+    .filter((memory) => isMemoryActive(memory, activeAt))
     .slice(0, limit);
 }
 

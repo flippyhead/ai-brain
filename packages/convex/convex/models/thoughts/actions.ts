@@ -12,6 +12,7 @@ import {
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
+  isMemoryActive,
   type MemoryStatus,
 } from "./memoryLifecycle";
 import { memoryStatus, thoughtMetadata, thoughtType } from "./validators";
@@ -273,6 +274,7 @@ export const hybridSearch = internalAction({
       { text: args.query },
     );
 
+    const activeAt = Date.now();
     const [vectorHits, textHits] = await Promise.all([
       ctx.vectorSearch("thoughts", "by_embedding", {
         vector: embedding,
@@ -285,6 +287,7 @@ export const hybridSearch = internalAction({
         type: args.type,
         limit: candidateCap,
         includeHistorical: args.includeHistorical,
+        activeAt,
       }),
     ]);
 
@@ -313,7 +316,7 @@ export const hybridSearch = internalAction({
       return (
         doc !== undefined &&
         (args.type === undefined || doc.metadata.type === args.type) &&
-        (args.includeHistorical || isCurrentMemory(doc.memoryStatus))
+        (args.includeHistorical || isMemoryActive(doc, activeAt))
       );
     });
 

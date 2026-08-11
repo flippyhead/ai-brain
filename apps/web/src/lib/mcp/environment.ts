@@ -150,6 +150,7 @@ export function validateMcpEnvironment(
   const toolProfile = environment.MCP_TOOL_PROFILE;
   if (
     toolProfile !== undefined &&
+    toolProfile !== "" &&
     toolProfile !== "memory" &&
     toolProfile !== "full"
   ) {

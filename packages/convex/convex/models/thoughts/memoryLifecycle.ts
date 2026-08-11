@@ -20,6 +20,22 @@ export function isCurrentMemory(status: MemoryStatus | undefined): boolean {
 }
 
 /**
+ * Returns whether a lifecycle-current memory is effective at `at` in business
+ * time. Validity windows are half-open: validFrom is inclusive and validTo is
+ * exclusive. Legacy memories without validity metadata remain active.
+ */
+export function isMemoryActive(
+  memory: MemoryValidity & { memoryStatus?: MemoryStatus },
+  at: number = Date.now(),
+): boolean {
+  return (
+    isCurrentMemory(memory.memoryStatus) &&
+    (memory.validFrom === undefined || memory.validFrom <= at) &&
+    (memory.validTo === undefined || at < memory.validTo)
+  );
+}
+
+/**
  * Validates a business-time interval without conflating it with recording
  * time. Open intervals are allowed; a closed interval must have positive
  * duration.

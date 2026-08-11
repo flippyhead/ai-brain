@@ -5,9 +5,10 @@ import { z } from "zod";
 
 import {
   MCP_TOOL_ANNOTATIONS,
-  resolveMcpToolProfile,
+  type McpToolName,
+  resolveEnabledMcpToolNames,
 } from "@/lib/mcp/tool-policy";
-import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
+import { MCP_TOOL_NAME_LIST, MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
 export const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory.
 
@@ -140,7 +141,7 @@ export function createMcpServer(convexAuthToken: string) {
     { instructions: SERVER_INSTRUCTIONS },
   );
 
-  server.tool(
+  const searchThoughtsTool = server.tool(
     MCP_TOOL_NAMES.searchThoughts,
     "Use this when you need to search durable memory by meaning and keyword. Pass the user's exact wording when possible, especially names, identifiers, and version strings. Current memories are searched by default. Set includeHistorical for questions about prior states, corrections, or how something changed. Returns a compact index; use `get_thoughts` to fetch full content. Cite sources as `thought:<id>`.",
     {
@@ -245,7 +246,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
     "Use this at the start of a relevant turn to recall personal or project context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a small set of current core memories followed by a bounded set of hydrated relevance results. Set includeHistorical only for an explicitly historical question. Cite sources as `thought:<id>`.",
     {
@@ -324,7 +325,7 @@ export function createMcpServer(convexAuthToken: string) {
           content: [
             {
               type: "text" as const,
-              text: "No relevant durable memories found.",
+              text: "Run /brain-init to add initial context, then try recall_context again.",
             },
           ],
         };
@@ -428,7 +429,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const browseRecentTool = server.tool(
     MCP_TOOL_NAMES.browseRecent,
     "Browse most recent current thoughts, optionally filtered by type or topic. Set includeHistorical to include superseded and corrected memories. Cite sources as `thought:<id>`.",
     {
@@ -538,7 +539,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getThoughtsTool = server.tool(
     MCP_TOOL_NAMES.getThoughts,
     "Fetch full content and lifecycle links for specific thought IDs. Use after `search_thoughts` and batch multiple IDs in one call. Treat current memories as authoritative; superseded memories were formerly current, while retracted memories were inaccurate.",
     {
@@ -627,7 +628,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const timelineThoughtsTool = server.tool(
     MCP_TOOL_NAMES.timelineThoughts,
     "Fetch thoughts captured around a specific point in time. Provide either `seedId` (anchor on another thought) or `aroundMs` (epoch ms). Returns compact index rows ordered oldest→newest — use `get_thoughts` for full content. Cite sources as `thought:<id>`.",
     {
@@ -755,7 +756,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const getStatsTool = server.tool(
     MCP_TOOL_NAMES.getStats,
     "Get overview statistics of what's stored in your brain",
     {},
@@ -777,7 +778,7 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  server.tool(
+  const captureThoughtTool = server.tool(
     MCP_TOOL_NAMES.captureThought,
     "Use this when the user states or explicitly confirms durable information worth carrying into future conversations: personal facts and preferences, relationships, project context or status, decisions, commitments, and recurring patterns. Call automatically without waiting for an explicit request. Do not save assistant suggestions, guesses, or inferences as user facts. Preserve the user's exact names, capitalization, identifiers, project names, and version strings. The server deduplicates and preserves changed or corrected prior information as linked history.",
     {
@@ -1375,22 +1376,29 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
-  if (resolveMcpToolProfile() === "memory") {
-    for (const tool of [
-      createReportTool,
-      getInsightsTool,
-      deleteInsightTool,
-      createListTool,
-      updateListTool,
-      getListsTool,
-      getListTool,
-      archiveListTool,
-      createListItemTool,
-      updateListItemTool,
-      getOpenItemsTool,
-    ]) {
-      tool.disable();
-    }
+  const registeredTools = {
+    [MCP_TOOL_NAMES.searchThoughts]: searchThoughtsTool,
+    [MCP_TOOL_NAMES.recallContext]: recallContextTool,
+    [MCP_TOOL_NAMES.browseRecent]: browseRecentTool,
+    [MCP_TOOL_NAMES.getThoughts]: getThoughtsTool,
+    [MCP_TOOL_NAMES.timelineThoughts]: timelineThoughtsTool,
+    [MCP_TOOL_NAMES.getStats]: getStatsTool,
+    [MCP_TOOL_NAMES.captureThought]: captureThoughtTool,
+    [MCP_TOOL_NAMES.createReport]: createReportTool,
+    [MCP_TOOL_NAMES.getInsights]: getInsightsTool,
+    [MCP_TOOL_NAMES.deleteInsight]: deleteInsightTool,
+    [MCP_TOOL_NAMES.createList]: createListTool,
+    [MCP_TOOL_NAMES.updateList]: updateListTool,
+    [MCP_TOOL_NAMES.getLists]: getListsTool,
+    [MCP_TOOL_NAMES.getList]: getListTool,
+    [MCP_TOOL_NAMES.archiveList]: archiveListTool,
+    [MCP_TOOL_NAMES.createListItem]: createListItemTool,
+    [MCP_TOOL_NAMES.updateListItem]: updateListItemTool,
+    [MCP_TOOL_NAMES.getOpenItems]: getOpenItemsTool,
+  } satisfies Record<McpToolName, { disable: () => void }>;
+  const enabledToolNames = new Set(resolveEnabledMcpToolNames());
+  for (const name of MCP_TOOL_NAME_LIST) {
+    if (!enabledToolNames.has(name)) registeredTools[name].disable();
   }
 
   return server;

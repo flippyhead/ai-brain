@@ -127,6 +127,7 @@ export function validateWebEnvironment(environment) {
 
   if (
     environment.MCP_TOOL_PROFILE !== undefined &&
+    environment.MCP_TOOL_PROFILE !== "" &&
     environment.MCP_TOOL_PROFILE !== "memory" &&
     environment.MCP_TOOL_PROFILE !== "full"
   ) {

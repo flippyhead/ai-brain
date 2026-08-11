@@ -34,6 +34,13 @@ describe("validateMcpEnvironment", () => {
     expect(() => assertMcpEnvironment(validEnvironment())).not.toThrow();
   });
 
+  it("accepts an empty tool profile as the full-profile default", () => {
+    const environment = validEnvironment();
+    environment.MCP_TOOL_PROFILE = "";
+
+    expect(validateMcpEnvironment(environment)).toEqual([]);
+  });
+
   it("accepts HTTP only for loopback development origins", () => {
     const environment = validEnvironment();
     environment.NEXT_PUBLIC_CONVEX_URL = "http://127.0.0.1:3210";

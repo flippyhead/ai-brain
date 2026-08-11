@@ -1,7 +1,7 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
-import { isCurrentMemory } from "./memoryLifecycle";
+import { isMemoryActive } from "./memoryLifecycle";
 import { thoughtLifecycleFields, thoughtMetadata } from "./validators";
 import { _listByUser, _listCoreByUser } from "./model";
 
@@ -71,8 +71,9 @@ export const getStats = query({
       .query("thoughts")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .collect();
+    const activeAt = Date.now();
     const currentThoughts = allThoughts.filter((thought) =>
-      isCurrentMemory(thought.memoryStatus),
+      isMemoryActive(thought, activeAt),
     );
 
     const typeCounts = new Map<string, number>();

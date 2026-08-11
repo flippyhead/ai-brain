@@ -9,7 +9,7 @@ import {
   _transitionMemory,
   collectFiltered,
 } from "./model";
-import { isCurrentMemory } from "./memoryLifecycle";
+import { isMemoryActive } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
   thoughtMetadata,
@@ -157,6 +157,7 @@ export const searchByText = internalQuery({
     type: v.optional(thoughtType),
     limit: v.optional(v.number()),
     includeHistorical: v.optional(v.boolean()),
+    activeAt: v.number(),
   },
   returns: v.array(
     v.object({
@@ -181,7 +182,7 @@ export const searchByText = internalQuery({
       ? await query().take(limit)
       : await collectFiltered(
           (cursor, numItems) => query().paginate({ cursor, numItems }),
-          (memory) => isCurrentMemory(memory.memoryStatus),
+          (memory) => isMemoryActive(memory, args.activeAt),
           limit,
         );
 

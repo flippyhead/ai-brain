@@ -57,6 +57,24 @@ describe("core memories", () => {
       });
       await ctx.db.insert("thoughts", {
         userId: ownerId,
+        content: "Owner expired core memory",
+        embedding,
+        metadata,
+        isCore: true,
+        memoryStatus: "current",
+        validTo: Date.now() - 60_000,
+      });
+      await ctx.db.insert("thoughts", {
+        userId: ownerId,
+        content: "Owner future core memory",
+        embedding,
+        metadata,
+        isCore: true,
+        memoryStatus: "current",
+        validFrom: Date.now() + 60_000,
+      });
+      await ctx.db.insert("thoughts", {
+        userId: ownerId,
         content: "Owner historical core memory",
         embedding,
         metadata,
