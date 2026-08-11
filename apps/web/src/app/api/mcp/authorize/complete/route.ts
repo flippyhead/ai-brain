@@ -2,7 +2,7 @@ import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 import { api } from "@repo/db/convex/_generated/api";
 import { ConvexHttpClient } from "convex/browser";
 
-import { isMcpResourceUri } from "@/lib/mcp/environment";
+import { getMcpResourceUri, isMcpResourceUri } from "@/lib/mcp/environment";
 import {
   assertOAuthEncryptionConfigured,
   decryptClientRegistration,
@@ -44,9 +44,14 @@ export async function POST(req: Request) {
   }
 
   const request = parsed.data;
-  if (!isMcpResourceUri(request.resource)) {
+  if (request.resource !== undefined && !isMcpResourceUri(request.resource)) {
     return errorResponse("Invalid MCP resource", 400);
   }
+  // Store the canonical form, not the caller's spelling. `isMcpResourceUri`
+  // accepts origin-case variants, so persisting the raw value would make the
+  // token endpoint's equality check fail for a client that sends the resource
+  // at authorize and omits it at token exchange.
+  const resource = getMcpResourceUri();
   const registration = decryptClientRegistration(request.clientId);
   if (
     !registration ||
@@ -82,7 +87,7 @@ export async function POST(req: Request) {
     clientId: request.clientId,
     codeChallenge: request.codeChallenge,
     redirectUri: request.redirectUri,
-    resource: request.resource,
+    resource,
     scope: request.scope ?? "open-brain",
     exp: Date.now() + 5 * 60 * 1000,
   });

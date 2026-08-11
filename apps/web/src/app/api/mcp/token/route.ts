@@ -3,7 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 
 import { authenticateApiKey } from "@/lib/mcp/auth";
 import { createConvexMcpToken } from "@/lib/mcp/convex-auth";
-import { isMcpResourceUri } from "@/lib/mcp/environment";
+import { getMcpResourceUri, isMcpResourceUri } from "@/lib/mcp/environment";
 import {
   assertOAuthEncryptionConfigured,
   decryptAuthCode,
@@ -62,9 +62,11 @@ export async function POST(req: Request) {
   }
 
   const request = parsed.data;
-  if (!isMcpResourceUri(request.resource)) {
+  if (request.resource !== undefined && !isMcpResourceUri(request.resource)) {
     return tokenError("invalid_target", "Invalid MCP resource");
   }
+  // Compare canonical forms; codes always store the canonical resource.
+  const resource = getMcpResourceUri();
   const data = decryptAuthCode(request.code);
   if (!data || Date.now() > data.exp) {
     return tokenError("invalid_grant", "Invalid or expired authorization code");
@@ -72,7 +74,7 @@ export async function POST(req: Request) {
   if (
     request.client_id !== data.clientId ||
     request.redirect_uri !== data.redirectUri ||
-    request.resource !== data.resource
+    resource !== data.resource
   ) {
     return tokenError("invalid_grant", "Authorization request mismatch");
   }

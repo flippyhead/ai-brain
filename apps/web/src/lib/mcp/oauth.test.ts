@@ -82,10 +82,18 @@ describe("MCP OAuth security", () => {
 
     expect(
       clientRegistrationRequestSchema.safeParse({
-        client_name: "ChatGPT",
-        redirect_uris: ["https://chatgpt.com/oauth/callback"],
+        client_name: "Claude",
+        redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+        grant_types: ["authorization_code", "refresh_token"],
+        application_type: "web",
       }).success,
     ).toBe(true);
+    expect(
+      clientRegistrationRequestSchema.safeParse({
+        redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+        grant_types: ["refresh_token"],
+      }).success,
+    ).toBe(false);
     expect(
       authorizationRequestSchema.safeParse({
         clientId: "registered-client",
@@ -100,6 +108,16 @@ describe("MCP OAuth security", () => {
       authorizationRequestSchema.safeParse({
         clientId: "registered-client",
         redirectUri: "https://chatgpt.com/oauth/callback",
+        codeChallenge: challenge,
+        codeChallengeMethod: "S256",
+        responseType: "code",
+      }).success,
+    ).toBe(true);
+    expect(
+      authorizationRequestSchema.safeParse({
+        clientId: "registered-client",
+        redirectUri: "https://chatgpt.com/oauth/callback",
+        resource: "",
         codeChallenge: challenge,
         codeChallengeMethod: "S256",
         responseType: "code",
@@ -113,6 +131,15 @@ describe("MCP OAuth security", () => {
         redirect_uri: "https://chatgpt.com/oauth/callback",
         client_id: "registered-client",
         resource: "https://brain.example.test/api/mcp",
+      }).success,
+    ).toBe(true);
+    expect(
+      tokenRequestSchema.safeParse({
+        grant_type: "authorization_code",
+        code: "authorization-code",
+        code_verifier: verifier,
+        redirect_uri: "https://chatgpt.com/oauth/callback",
+        client_id: "registered-client",
       }).success,
     ).toBe(true);
   });
@@ -136,26 +163,34 @@ describe("MCP OAuth security", () => {
     expect(decryptClientRegistration(clientId)).toBeNull();
   });
 
-  it("registers validated public clients with no-store responses", async () => {
+  it("registers MCP clients that advertise refresh support without overclaiming server grants", async () => {
     const response = await registerClient(
       new Request("https://brain.example.test/api/mcp/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_name: "ChatGPT",
-          redirect_uris: ["https://chatgpt.com/oauth/callback"],
+          client_name: "Claude",
+          redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+          grant_types: ["authorization_code", "refresh_token"],
           token_endpoint_auth_method: "none",
+          application_type: "web",
         }),
       }),
     );
 
     expect(response.status).toBe(201);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    const body = (await response.json()) as { client_id?: unknown };
+    const body = (await response.json()) as {
+      client_id?: unknown;
+      grant_types?: unknown;
+      application_type?: unknown;
+    };
     expect(typeof body.client_id).toBe("string");
+    expect(body.grant_types).toEqual(["authorization_code"]);
+    expect(body.application_type).toBe("web");
     expect(decryptClientRegistration(body.client_id as string)).toMatchObject({
-      clientName: "ChatGPT",
-      redirectUris: ["https://chatgpt.com/oauth/callback"],
+      clientName: "Claude",
+      redirectUris: ["https://claude.ai/api/mcp/auth_callback"],
     });
 
     const invalid = await registerClient(

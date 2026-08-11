@@ -17,7 +17,7 @@ function AuthorizeFlow() {
   const codeChallenge = searchParams.get("code_challenge") || "";
   const codeChallengeMethod = searchParams.get("code_challenge_method") || "";
   const responseType = searchParams.get("response_type") || "";
-  const resource = searchParams.get("resource") || "";
+  const resource = searchParams.get("resource") || undefined;
   const scope = searchParams.get("scope") || undefined;
   const state = searchParams.get("state") || "";
   let redirectDestination = "";
@@ -33,7 +33,6 @@ function AuthorizeFlow() {
     !codeChallenge ||
     codeChallengeMethod !== "S256" ||
     responseType !== "code" ||
-    !resource ||
     !redirectDestination ||
     (scope !== undefined && scope !== "open-brain")
   ) {

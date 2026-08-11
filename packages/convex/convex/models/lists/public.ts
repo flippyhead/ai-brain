@@ -1,6 +1,6 @@
 import { query, mutation } from "../../_generated/server";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { requireWebUserId } from "../../lib/webAuth";
 import { listItemStatus } from "./validators";
 import {
   _listsByUser,
@@ -23,8 +23,7 @@ export const getLists = query({
     includeArchived: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const lists = await _listsByUser(ctx, userId, { pinned: args.pinned, includeArchived: args.includeArchived });
     const listsWithCounts = await Promise.all(
@@ -50,8 +49,7 @@ export const getList = query({
     includeCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const list = await _findListById(ctx, args.listId);
     if (!list || list.userId !== userId) {
@@ -88,8 +86,7 @@ export const createList = mutation({
     pinned: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const listId = await _insertList(ctx, {
       name: args.name,
@@ -107,8 +104,7 @@ export const updateList = mutation({
     pinned: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const list = await _findListById(ctx, args.listId);
     if (!list || list.userId !== userId) {
@@ -127,8 +123,7 @@ export const archiveList = mutation({
     listId: v.id("lists"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const list = await _findListById(ctx, args.listId);
     if (!list || list.userId !== userId) {
@@ -143,8 +138,7 @@ export const unarchiveList = mutation({
     listId: v.id("lists"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const list = await _findListById(ctx, args.listId);
     if (!list || list.userId !== userId) {
@@ -160,8 +154,7 @@ export const createListItem = mutation({
     title: v.string(),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const list = await _findListById(ctx, args.listId);
     if (!list || list.userId !== userId) {
@@ -192,8 +185,7 @@ export const updateListItem = mutation({
     status: v.optional(listItemStatus),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const item = await _findItemById(ctx, args.itemId);
     if (!item || item.userId !== userId) {
@@ -224,8 +216,7 @@ export const deleteListItem = mutation({
     itemId: v.id("listItems"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const item = await _findItemById(ctx, args.itemId);
     if (!item || item.userId !== userId) {

@@ -1,7 +1,7 @@
 import { query, mutation } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { requireWebUserId } from "../../lib/webAuth";
 import {
   insightCategory,
   insightStatus,
@@ -59,8 +59,7 @@ export const listReports = query({
   },
   returns: v.array(reportReturn),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     return await _listReportsByUser(ctx, userId, args.limit ?? 20);
   },
@@ -70,8 +69,7 @@ export const getLatestReport = query({
   args: {},
   returns: v.union(reportReturn, v.null()),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const results = await _listReportsByUser(ctx, userId, 1);
     return results[0] ?? null;
@@ -84,8 +82,7 @@ export const listInsightsByReport = query({
   },
   returns: v.array(insightReturn),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const report = await _findReportById(ctx, args.reportId);
     if (!report) throw new Error("Report not found");
@@ -99,8 +96,7 @@ export const listUnresolvedInsights = query({
   args: {},
   returns: v.array(insightReturn),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const [newInsights, notedInsights] = await Promise.all([
       _listInsightsByUserAndStatus(ctx, userId, "new"),
@@ -118,8 +114,7 @@ export const listAllInsights = query({
   args: {},
   returns: v.array(insightReturn),
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const [newI, notedI, doneI, dismissedI] = await Promise.all([
       _listInsightsByUserAndStatus(ctx, userId, "new"),
@@ -147,8 +142,7 @@ export const updateInsightStatus = mutation({
   },
   returns: v.null(),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const insight = await _findInsightById(ctx, args.insightId);
     if (!insight) throw new Error("Insight not found");
@@ -181,8 +175,7 @@ export const deleteInsight = mutation({
     insightId: v.id("insights"),
   },
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     const insight = await ctx.db.get(args.insightId);
     if (!insight || insight.userId !== userId) throw new Error("Insight not found");
@@ -202,8 +195,7 @@ export const deleteInsight = mutation({
 export const clearAllInsightsAndReports = mutation({
   args: {},
   handler: async (ctx) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     // Delete all insights
     const [newI, notedI, doneI, dismissedI] = await Promise.all([

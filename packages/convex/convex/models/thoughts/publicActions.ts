@@ -1,7 +1,7 @@
 import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
+import { requireWebUserId } from "../../lib/webAuth";
 import { memoryStatus, thoughtMetadata } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,8 +20,7 @@ export const capture = action({
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     return await ctx.runAction(
       internal.models.thoughts.actions.captureThought,
@@ -57,8 +56,7 @@ export const search = action({
     }),
   ),
   handler: async (ctx, args) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+    const userId = await requireWebUserId(ctx);
 
     return await ctx.runAction(internal.models.thoughts.actions.hybridSearch, {
       userId,
