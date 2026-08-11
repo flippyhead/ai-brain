@@ -51,7 +51,7 @@ export const clientRegistrationRequestSchema = z.object({
 export const authorizationRequestSchema = z.object({
   clientId: z.string().min(1).max(8192),
   redirectUri,
-  resource: z.string().min(1).max(2048),
+  resource: z.string().min(1).max(2048).optional(),
   codeChallenge: z.string().regex(S256_CHALLENGE),
   codeChallengeMethod: z.literal("S256"),
   responseType: z.literal("code"),
@@ -65,7 +65,7 @@ export const tokenRequestSchema = z.object({
   code_verifier: z.string().regex(PKCE_VALUE),
   redirect_uri: redirectUri,
   client_id: z.string().min(1).max(8192),
-  resource: z.string().min(1).max(2048),
+  resource: z.string().min(1).max(2048).optional(),
 });
 
 export const clientRegistrationPayloadSchema = z.object({

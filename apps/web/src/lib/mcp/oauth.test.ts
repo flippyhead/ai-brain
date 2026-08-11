@@ -112,6 +112,16 @@ describe("MCP OAuth security", () => {
         codeChallengeMethod: "S256",
         responseType: "code",
       }).success,
+    ).toBe(true);
+    expect(
+      authorizationRequestSchema.safeParse({
+        clientId: "registered-client",
+        redirectUri: "https://chatgpt.com/oauth/callback",
+        resource: "",
+        codeChallenge: challenge,
+        codeChallengeMethod: "S256",
+        responseType: "code",
+      }).success,
     ).toBe(false);
     expect(
       tokenRequestSchema.safeParse({
@@ -121,6 +131,15 @@ describe("MCP OAuth security", () => {
         redirect_uri: "https://chatgpt.com/oauth/callback",
         client_id: "registered-client",
         resource: "https://brain.example.test/api/mcp",
+      }).success,
+    ).toBe(true);
+    expect(
+      tokenRequestSchema.safeParse({
+        grant_type: "authorization_code",
+        code: "authorization-code",
+        code_verifier: verifier,
+        redirect_uri: "https://chatgpt.com/oauth/callback",
+        client_id: "registered-client",
       }).success,
     ).toBe(true);
   });

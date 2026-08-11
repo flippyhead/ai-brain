@@ -3,7 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 
 import { authenticateApiKey } from "@/lib/mcp/auth";
 import { createConvexMcpToken } from "@/lib/mcp/convex-auth";
-import { isMcpResourceUri } from "@/lib/mcp/environment";
+import { getMcpResourceUri, isMcpResourceUri } from "@/lib/mcp/environment";
 import {
   assertOAuthEncryptionConfigured,
   decryptAuthCode,
@@ -62,7 +62,8 @@ export async function POST(req: Request) {
   }
 
   const request = parsed.data;
-  if (!isMcpResourceUri(request.resource)) {
+  const resource = request.resource ?? getMcpResourceUri();
+  if (!isMcpResourceUri(resource)) {
     return tokenError("invalid_target", "Invalid MCP resource");
   }
   const data = decryptAuthCode(request.code);
@@ -72,7 +73,7 @@ export async function POST(req: Request) {
   if (
     request.client_id !== data.clientId ||
     request.redirect_uri !== data.redirectUri ||
-    request.resource !== data.resource
+    resource !== data.resource
   ) {
     return tokenError("invalid_grant", "Authorization request mismatch");
   }
