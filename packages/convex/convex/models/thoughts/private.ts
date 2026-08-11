@@ -7,6 +7,7 @@ import {
   _listCoreByUser,
   _setCoreStatus,
   _transitionMemory,
+  collectFiltered,
 } from "./model";
 import { isCurrentMemory } from "./memoryLifecycle";
 import {
@@ -170,23 +171,21 @@ export const searchByText = internalQuery({
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    const fetchLimit = args.includeHistorical
-      ? limit
-      : Math.min(limit * 4, 200);
-    const results = await ctx.db
-      .query("thoughts")
-      .withSearchIndex("by_content", (q) => {
+    const query = () =>
+      ctx.db.query("thoughts").withSearchIndex("by_content", (q) => {
         const base = q.search("content", args.query).eq("userId", args.userId);
         return args.type ? base.eq("metadata.type", args.type) : base;
-      })
-      .take(fetchLimit);
-    return results
-      .filter(
-        (memory) =>
-          args.includeHistorical || isCurrentMemory(memory.memoryStatus),
-      )
-      .slice(0, limit)
-      .map(({ embedding: _embedding, ...rest }) => rest);
+      });
+
+    const results = args.includeHistorical
+      ? await query().take(limit)
+      : await collectFiltered(
+          (cursor, numItems) => query().paginate({ cursor, numItems }),
+          (memory) => isCurrentMemory(memory.memoryStatus),
+          limit,
+        );
+
+    return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
 

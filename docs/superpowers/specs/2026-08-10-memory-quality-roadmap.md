@@ -48,8 +48,15 @@ integration decision, not a storage-engine decision.
   inference.
 - Ask clients to recall with the verbatim user message so proper nouns, version
   numbers, and other exact terms reach keyword search.
-- Combine a bounded set of explicitly marked core memories with query-specific
-  search results, then hydrate and deduplicate them before returning context.
+- Combine explicitly marked core memories with query-specific search results,
+  then hydrate and deduplicate them before returning context.
+- The core bound is on *retrieval*, not storage: `recall_context` returns at
+  most `DEFAULT_CORE_MEMORY_LIMIT` (10, capped at 25) core memories, but
+  nothing limits how many memories a client may mark `isCore`. As the marked
+  set grows, "core" converges on the most recently marked entries rather than
+  the most important ones. A storage-side cap needs a demotion policy —
+  deciding which core memory is evicted — so it is deliberately deferred until
+  live use shows how large the marked set actually gets.
 - Keep normal search current-only and require an explicit historical option.
 
 ### 4. Memory-quality evaluation

@@ -52,35 +52,48 @@ export const captureThought = internalAction({
       .filter((r) => r._score >= SIMILARITY_THRESHOLD)
       .slice(0, MAX_CANDIDATES * 5);
 
-    const candidateDocs = await Promise.all(
-      candidates.map(async (r) => {
-        const doc = await ctx.runQuery(
-          internal.models.thoughts.private.getById,
-          { id: r._id },
-        );
-        return doc &&
-          doc.userId === args.userId &&
-          isCurrentMemory(doc.memoryStatus)
-          ? {
-              _id: r._id as string,
-              content: doc.content,
-              metadata: {
-                type: doc.metadata.type,
-                topics: doc.metadata.topics,
-                people: doc.metadata.people,
-                summary: doc.metadata.summary,
-              },
-              createdAt: doc._creationTime,
-              validFrom: doc.validFrom,
-              validTo: doc.validTo,
-            }
-          : null;
-      }),
+    // One batched read rather than a query per candidate. The vector search is
+    // already scoped to this account; the ownership check below is defence in
+    // depth against an index that outlives a reassignment.
+    const candidateDocs: Array<{
+      _id: Id<"thoughts">;
+      _creationTime: number;
+      content: string;
+      metadata: Infer<typeof thoughtMetadata>;
+      userId: string;
+      memoryStatus?: MemoryStatus;
+      validFrom?: number;
+      validTo?: number;
+    }> = await ctx.runQuery(internal.models.thoughts.private.getByIds, {
+      ids: candidates.map((r) => r._id),
+    });
+    const candidateById = new Map(
+      candidateDocs.map((doc) => [doc._id as string, doc]),
     );
 
-    const validCandidates = candidateDocs
-      .filter((d): d is NonNullable<typeof d> => d !== null)
-      .slice(0, MAX_CANDIDATES);
+    // Preserve vector-search ranking; `getByIds` does not guarantee order.
+    const validCandidates = candidates
+      .map((r) => candidateById.get(r._id as string))
+      .filter(
+        (doc): doc is NonNullable<typeof doc> =>
+          doc !== undefined &&
+          doc.userId === args.userId &&
+          isCurrentMemory(doc.memoryStatus),
+      )
+      .slice(0, MAX_CANDIDATES)
+      .map((doc) => ({
+        _id: doc._id as string,
+        content: doc.content,
+        metadata: {
+          type: doc.metadata.type,
+          topics: doc.metadata.topics,
+          people: doc.metadata.people,
+          summary: doc.metadata.summary,
+        },
+        createdAt: doc._creationTime,
+        validFrom: doc.validFrom,
+        validTo: doc.validTo,
+      }));
 
     let analysis: ThoughtAnalysis | null = null;
     try {
