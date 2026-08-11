@@ -7,7 +7,7 @@ import {
   thoughtMetadata,
   thoughtType,
 } from "./validators";
-import { _listByUser } from "./model";
+import { _listByUser, _listCoreByUser, collectFiltered } from "./model";
 
 export const listRecent = query({
   args: {
@@ -33,21 +33,21 @@ export const listRecent = query({
     let results;
     if (args.type) {
       const limit = args.limit ?? 20;
-      const fetchLimit = args.includeHistorical
-        ? limit
-        : Math.min(limit * 5, 500);
-      const candidates = await ctx.db
-        .query("thoughts")
-        .withIndex("by_userId_and_type", (q) =>
-          q.eq("userId", userId).eq("metadata.type", args.type!),
-        )
-        .order("desc")
-        .take(fetchLimit);
-      results = (
-        args.includeHistorical
-          ? candidates
-          : candidates.filter((memory) => isCurrentMemory(memory.memoryStatus))
-      ).slice(0, limit);
+      const query = () =>
+        ctx.db
+          .query("thoughts")
+          .withIndex("by_userId_and_type", (q) =>
+            q.eq("userId", userId).eq("metadata.type", args.type!),
+          )
+          .order("desc");
+
+      results = args.includeHistorical
+        ? await query().take(limit)
+        : await collectFiltered(
+            (cursor, numItems) => query().paginate({ cursor, numItems }),
+            (memory) => isCurrentMemory(memory.memoryStatus),
+            limit,
+          );
     } else {
       results = await _listByUser(
         ctx,
@@ -57,6 +57,30 @@ export const listRecent = query({
       );
     }
 
+    return results.map(({ embedding: _, ...rest }) => rest);
+  },
+});
+
+export const listCore = query({
+  args: {
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const results = await _listCoreByUser(ctx, userId, args.limit);
     return results.map(({ embedding: _, ...rest }) => rest);
   },
 });

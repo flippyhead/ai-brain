@@ -5,7 +5,120 @@ import { z } from "zod";
 
 import { MCP_TOOL_NAMES } from "@/lib/mcp/tools";
 
-const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory. Use capture_thought automatically when the user reveals information that will likely matter in a future conversation: stable personal facts and preferences, relationships, project context or status changes, decisions and their rationale, commitments, and recurring working patterns. Do not wait for an explicit "remember this" request. Do not capture transient small talk, speculative ideas presented only for discussion, passwords, authentication tokens, or other credentials. Send changed information to capture_thought once; the server will preserve prior states as linked history. For present-tense questions, search current memories (the default). Set includeHistorical only when the user asks what used to be true, how something changed, or for a history/timeline. Routine successful captures can remain unobtrusive.`;
+export const SERVER_INSTRUCTIONS = `AI Brain is durable personal memory.
+
+Recall: At the start of a turn that could benefit from personal, relationship, project, preference, decision, or commitment context, call recall_context with query set to the user's complete current message verbatim before answering. Do not paraphrase the query: exact names, capitalization, identifiers, project names, and version strings improve retrieval. Current memories are authoritative by default. Include historical memories only when the user asks what used to be true, how something changed, or for a history/timeline.
+
+Capture: Use capture_thought automatically when the user states or explicitly confirms information likely to matter in a future conversation: stable personal facts and preferences, relationships, project context or status changes, decisions and their rationale, commitments, and recurring working patterns. Do not wait for an explicit "remember this" request. Preserve exact proper nouns, capitalization, identifiers, project names, and version strings from the user. Never turn assistant suggestions, guesses, deductions, or unconfirmed implications into facts about the user. If an assistant commitment is worth saving, attribute it explicitly as an assistant commitment. Mark isCore true only for the small set of enduring identity facts, constraints, and preferences useful across many conversations; omit it for ordinary durable memories. Do not capture transient small talk, speculative ideas presented only for discussion, passwords, authentication tokens, or other credentials. Send changed information once; the server will preserve prior states as linked history. Routine successful captures can remain unobtrusive.
+
+This server cannot observe conversations or force tool calls; recall and capture remain client-mediated.`;
+
+const ISO_VALIDITY_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
+const MAX_CAPTURE_CONTENT_CHARS = 20_000;
+
+/** Parse an explicit real-world validity date without using the server's timezone. */
+export function parseValidityTimestamp(value: string): number {
+  const match = ISO_VALIDITY_PATTERN.exec(value);
+  if (!match) {
+    throw new Error(
+      "Use an ISO-8601 date or timezone-qualified datetime (for example, 2026-08-10 or 2026-08-10T15:30:00-07:00)",
+    );
+  }
+
+  const [
+    ,
+    yearText,
+    monthText,
+    dayText,
+    hourText,
+    minuteText,
+    secondText,
+    ,
+    zone,
+  ] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const calendarCheck = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarCheck.getUTCFullYear() !== year ||
+    calendarCheck.getUTCMonth() !== month - 1 ||
+    calendarCheck.getUTCDate() !== day
+  ) {
+    throw new Error("Validity date is not a real calendar date");
+  }
+
+  if (hourText === undefined) {
+    return calendarCheck.getTime();
+  }
+
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+  const second = Number(secondText ?? "0");
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new Error("Validity datetime contains an invalid time");
+  }
+  if (!zone) {
+    throw new Error("Validity datetime must include a UTC offset");
+  }
+  if (zone !== "Z") {
+    const [offsetHourText, offsetMinuteText] = zone.slice(1).split(":");
+    const offsetHour = Number(offsetHourText);
+    const offsetMinute = Number(offsetMinuteText);
+    if (
+      offsetHour > 14 ||
+      offsetMinute > 59 ||
+      (offsetHour === 14 && offsetMinute !== 0)
+    ) {
+      throw new Error("Validity datetime contains an invalid UTC offset");
+    }
+  }
+
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error("Validity datetime is invalid");
+  }
+  return timestamp;
+}
+
+export function parseValidityWindow(
+  validFrom?: string,
+  validTo?: string,
+): { validFrom?: number; validTo?: number } {
+  const parsedFrom = validFrom ? parseValidityTimestamp(validFrom) : undefined;
+  const parsedTo = validTo ? parseValidityTimestamp(validTo) : undefined;
+  if (
+    parsedFrom !== undefined &&
+    parsedTo !== undefined &&
+    parsedFrom >= parsedTo
+  ) {
+    throw new Error("validFrom must be earlier than validTo");
+  }
+  return { validFrom: parsedFrom, validTo: parsedTo };
+}
+
+const validityTimestampSchema = z.string().refine(
+  (value) => {
+    try {
+      parseValidityTimestamp(value);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  {
+    message:
+      "Use an ISO-8601 date or timezone-qualified datetime, not a relative or inferred date",
+  },
+);
+
+function truncateContext(content: string, maxChars = 4_000): string {
+  const chars = Array.from(content);
+  return chars.length > maxChars
+    ? `${chars.slice(0, maxChars).join("")}…`
+    : content;
+}
 
 export function createMcpServer(convexAuthToken: string) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -25,7 +138,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   server.tool(
     MCP_TOOL_NAMES.searchThoughts,
-    "Search stored thoughts by meaning AND keyword (hybrid). Current memories are searched by default. Set includeHistorical for questions about prior states, corrections, or how something changed. Returns a compact index — `id`, summary, short snippet, type, topics, lifecycle status, score. Use `get_thoughts` to fetch full content. Cite sources as `thought:<id>`.",
+    "Use this when you need to search durable memory by meaning and keyword. Pass the user's exact wording when possible, especially names, identifiers, and version strings. Current memories are searched by default. Set includeHistorical for questions about prior states, corrections, or how something changed. Returns a compact index; use `get_thoughts` to fetch full content. Cite sources as `thought:<id>`.",
     {
       query: z.string().describe("Natural language or keyword query"),
       type: z
@@ -62,6 +175,9 @@ export function createMcpServer(convexAuthToken: string) {
         score: number;
         createdAt: number;
         memoryStatus: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
         supersededAt?: number;
         changeReason?: string;
       };
@@ -99,6 +215,15 @@ export function createMcpServer(convexAuthToken: string) {
                 topics: r.topics,
                 score: r.score,
                 memoryStatus: r.memoryStatus,
+                isCore: r.isCore ?? false,
+                validFrom:
+                  r.validFrom !== undefined
+                    ? new Date(r.validFrom).toISOString()
+                    : undefined,
+                validTo:
+                  r.validTo !== undefined
+                    ? new Date(r.validTo).toISOString()
+                    : undefined,
                 supersededAt: r.supersededAt
                   ? new Date(r.supersededAt).toISOString()
                   : undefined,
@@ -108,6 +233,194 @@ export function createMcpServer(convexAuthToken: string) {
               null,
               2,
             ),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
+      };
+    },
+  );
+
+  server.tool(
+    MCP_TOOL_NAMES.recallContext,
+    "Use this at the start of a relevant turn to recall personal or project context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a small set of current core memories followed by a bounded set of hydrated relevance results. Set includeHistorical only for an explicitly historical question. Cite sources as `thought:<id>`.",
+    {
+      query: z
+        .string()
+        .min(1)
+        .max(12_000)
+        .describe("The user's complete current message, copied verbatim"),
+      limit: z
+        .number()
+        .min(1)
+        .max(8)
+        .default(5)
+        .describe("Maximum memories to recall"),
+      includeHistorical: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Include superseded and retracted memories only for explicitly historical questions",
+        ),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    async ({ query, limit, includeHistorical }) => {
+      type IndexRow = {
+        _id: string;
+        summary: string;
+        snippet: string;
+        type: string;
+        topics: string[];
+        score: number;
+        createdAt: number;
+        memoryStatus: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
+        supersededAt?: number;
+        changeReason?: string;
+      };
+      type CoreThought = {
+        _id: string;
+        _creationTime: number;
+        content: string;
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
+        userId: string;
+        updatedAt?: number;
+        memoryStatus?: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
+        supersededAt?: number;
+        supersededBy?: string;
+        supersedes?: string[];
+        changeReason?: string;
+      };
+      const coreLimit = Math.min(3, limit);
+      const [coreThoughts, index]: [CoreThought[], IndexRow[]] =
+        await Promise.all([
+          convex.query(api.models.thoughts.mcpQueries.listCore, {
+            limit: coreLimit,
+          }),
+          convex.action(api.models.thoughts.mcpActions.search, {
+            query,
+            limit,
+            includeHistorical,
+          }),
+        ]);
+
+      if (coreThoughts.length === 0 && index.length === 0) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "No relevant durable memories found.",
+            },
+          ],
+        };
+      }
+
+      const coreIds = new Set(coreThoughts.map((thought) => thought._id));
+      const relevanceLimit = Math.max(0, limit - coreThoughts.length);
+      const relevanceIndex = index
+        .filter((row) => !coreIds.has(row._id))
+        .slice(0, relevanceLimit);
+
+      type Thought = {
+        _id: string;
+        content: string;
+        metadata: {
+          type: string;
+          topics: string[];
+          people: string[];
+          actionItems: string[];
+          summary: string;
+        };
+        createdAt: number;
+        updatedAt?: number;
+        memoryStatus: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
+        supersededAt?: number;
+        supersededBy?: string;
+        supersedes?: string[];
+        changeReason?: string;
+      };
+      const thoughts: Thought[] =
+        relevanceIndex.length === 0
+          ? []
+          : await convex.action(api.models.thoughts.mcpActions.getByIds, {
+              ids: relevanceIndex.map((row) => row._id) as never,
+            });
+      const thoughtById = new Map(
+        thoughts.map((thought) => [thought._id, thought]),
+      );
+      const coreContext = coreThoughts.map((thought) => ({
+        id: thought._id,
+        content: truncateContext(thought.content),
+        metadata: thought.metadata,
+        source: "core" as const,
+        memoryStatus: thought.memoryStatus ?? "current",
+        isCore: true,
+        validFrom:
+          thought.validFrom !== undefined
+            ? new Date(thought.validFrom).toISOString()
+            : undefined,
+        validTo:
+          thought.validTo !== undefined
+            ? new Date(thought.validTo).toISOString()
+            : undefined,
+        createdAt: new Date(thought._creationTime).toISOString(),
+      }));
+      const relevanceContext = relevanceIndex.flatMap((row) => {
+        const thought = thoughtById.get(row._id);
+        if (!thought) return [];
+        return [
+          {
+            id: thought._id,
+            content: truncateContext(thought.content),
+            metadata: thought.metadata,
+            source: "relevance" as const,
+            score: row.score,
+            memoryStatus: thought.memoryStatus,
+            isCore: thought.isCore ?? false,
+            validFrom:
+              thought.validFrom !== undefined
+                ? new Date(thought.validFrom).toISOString()
+                : undefined,
+            validTo:
+              thought.validTo !== undefined
+                ? new Date(thought.validTo).toISOString()
+                : undefined,
+            supersededAt:
+              thought.supersededAt !== undefined
+                ? new Date(thought.supersededAt).toISOString()
+                : undefined,
+            supersededBy: thought.supersededBy,
+            supersedes: thought.supersedes,
+            changeReason: thought.changeReason,
+            createdAt: new Date(thought.createdAt).toISOString(),
+          },
+        ];
+      });
+      const context = [...coreContext, ...relevanceContext];
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(context, null, 2),
           },
         ],
         _meta: { "anthropic/maxResultSizeChars": 50000 },
@@ -156,6 +469,9 @@ export function createMcpServer(convexAuthToken: string) {
         };
         userId: string;
         memoryStatus?: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
         supersededAt?: number;
         changeReason?: string;
       };
@@ -196,6 +512,15 @@ export function createMcpServer(convexAuthToken: string) {
                 content: t.content,
                 metadata: t.metadata,
                 memoryStatus: t.memoryStatus ?? "current",
+                isCore: t.isCore ?? false,
+                validFrom:
+                  t.validFrom !== undefined
+                    ? new Date(t.validFrom).toISOString()
+                    : undefined,
+                validTo:
+                  t.validTo !== undefined
+                    ? new Date(t.validTo).toISOString()
+                    : undefined,
                 supersededAt: t.supersededAt
                   ? new Date(t.supersededAt).toISOString()
                   : undefined,
@@ -236,6 +561,9 @@ export function createMcpServer(convexAuthToken: string) {
         createdAt: number;
         updatedAt?: number;
         memoryStatus: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
         supersededAt?: number;
         supersededBy?: string;
         supersedes?: string[];
@@ -271,6 +599,15 @@ export function createMcpServer(convexAuthToken: string) {
                   ? new Date(r.updatedAt).toISOString()
                   : undefined,
                 memoryStatus: r.memoryStatus,
+                isCore: r.isCore ?? false,
+                validFrom:
+                  r.validFrom !== undefined
+                    ? new Date(r.validFrom).toISOString()
+                    : undefined,
+                validTo:
+                  r.validTo !== undefined
+                    ? new Date(r.validTo).toISOString()
+                    : undefined,
                 supersededAt: r.supersededAt
                   ? new Date(r.supersededAt).toISOString()
                   : undefined,
@@ -356,6 +693,9 @@ export function createMcpServer(convexAuthToken: string) {
         topics: string[];
         createdAt: number;
         memoryStatus: "current" | "superseded" | "retracted";
+        isCore?: boolean;
+        validFrom?: number;
+        validTo?: number;
       };
       const results: IndexRow[] = await convex.action(
         api.models.thoughts.mcpActions.timeline,
@@ -391,6 +731,15 @@ export function createMcpServer(convexAuthToken: string) {
                 type: r.type,
                 topics: r.topics,
                 memoryStatus: r.memoryStatus,
+                isCore: r.isCore ?? false,
+                validFrom:
+                  r.validFrom !== undefined
+                    ? new Date(r.validFrom).toISOString()
+                    : undefined,
+                validTo:
+                  r.validTo !== undefined
+                    ? new Date(r.validTo).toISOString()
+                    : undefined,
                 createdAt: new Date(r.createdAt).toISOString(),
               })),
               null,
@@ -426,15 +775,34 @@ export function createMcpServer(convexAuthToken: string) {
 
   server.tool(
     MCP_TOOL_NAMES.captureThought,
-    "Automatically save durable information for future conversations: personal facts and preferences, people and relationships, project context or status, decisions, commitments, and recurring patterns. Call this without waiting for an explicit request whenever such information appears. The server deduplicates and preserves changed or corrected prior information as linked history.",
+    "Use this when the user states or explicitly confirms durable information worth carrying into future conversations: personal facts and preferences, relationships, project context or status, decisions, commitments, and recurring patterns. Call automatically without waiting for an explicit request. Do not save assistant suggestions, guesses, or inferences as user facts. Preserve the user's exact names, capitalization, identifiers, project names, and version strings. The server deduplicates and preserves changed or corrected prior information as linked history.",
     {
       content: z
         .string()
+        .trim()
+        .min(1)
+        .max(MAX_CAPTURE_CONTENT_CHARS)
         .describe(
-          "A standalone durable memory. State what is true now and include useful context from the conversation.",
+          "A standalone durable memory grounded in what the user stated or confirmed. Preserve exact proper nouns, identifiers, and version strings; do not add inferred facts.",
+        ),
+      validFrom: validityTimestampSchema
+        .optional()
+        .describe(
+          "When the fact became true in the real world, only if the user explicitly stated or confirmed it. ISO-8601 date or timezone-qualified datetime. Never use capture or supersession time.",
+        ),
+      validTo: validityTimestampSchema
+        .optional()
+        .describe(
+          "When the fact stopped being true in the real world, only if the user explicitly stated or confirmed it. ISO-8601 date or timezone-qualified datetime. Never use capture or supersession time.",
+        ),
+      isCore: z
+        .boolean()
+        .optional()
+        .describe(
+          "True only for the small set of enduring identity facts, constraints, and preferences useful across many conversations. False explicitly demotes an existing core memory. Omit for ordinary durable memories.",
         ),
     },
-    async ({ content }) => {
+    async ({ content, validFrom, validTo, isCore }) => {
       type CaptureResult = {
         thoughtId: string;
         metadata: {
@@ -446,9 +814,10 @@ export function createMcpServer(convexAuthToken: string) {
         };
         operationSummary?: string;
       };
+      const validity = parseValidityWindow(validFrom, validTo);
       const result: CaptureResult = await convex.action(
         api.models.thoughts.mcpActions.capture,
-        { content },
+        { content, ...validity, isCore },
       );
 
       const noopSummary = "Thought already captured — no changes made";

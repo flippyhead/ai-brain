@@ -12,6 +12,7 @@
     "dev": "convex dev",
     "deploy:dev": "convex dev --once",
     "deploy:prod": "convex deploy -y",
+    "check-types": "tsc --noEmit",
     "test": "vitest",
     "test:once": "vitest run"
   },
@@ -22,7 +23,9 @@
   },
   "devDependencies": {
     "@edge-runtime/vm": "^5.0.0",
+    "@types/node": "25.3.3",
     "convex-test": "^0.0.55",
+    "vite": "8.2.1",
     "vitest": "^4.1.10"
   }
 }

@@ -10,6 +10,10 @@ The server asks compatible AI clients to capture durable facts, preferences,
 project changes, and decisions automatically. Captures are deduplicated. When
 something changes, the new current memory is linked to the former memory,
 which remains available as explicit history rather than being overwritten.
+For relevant prompts, the server also asks the client to recall a small core
+memory set plus query-specific current context before answering. Both behaviors
+remain client-mediated: the server cannot see a conversation unless the client
+calls a tool.
 
 ### Five skills
 
@@ -52,6 +56,7 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 - **Use `/brain-thread` for retrospectives.** When a decision didn't go the way you hoped, trace the thread back to see what you were optimizing for.
 - **Use `/brain-context` when returning from a break.** The brief restores ambient context — who you were working with, what was in flight — in under a minute.
 - **Ask historical questions naturally.** Search defaults to current memories; the plugin can include superseded or corrected memories when you ask what used to be true or how something changed.
+- **Mark core context sparingly.** Core memories are always considered during grounded recall, so reserve them for durable identity, relationship, preference, and active-project facts.
 
 ## Troubleshooting
 

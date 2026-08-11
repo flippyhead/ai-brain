@@ -1,6 +1,14 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
-import { _findById, _insertOne, _listByUser, _transitionMemory } from "./model";
+import {
+  _findById,
+  _insertOne,
+  _listByUser,
+  _listCoreByUser,
+  _setCoreStatus,
+  _transitionMemory,
+  collectFiltered,
+} from "./model";
 import { isCurrentMemory } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
@@ -56,12 +64,37 @@ export const listByUser = internalQuery({
   },
 });
 
+export const listCoreByUser = internalQuery({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      _id: v.id("thoughts"),
+      _creationTime: v.number(),
+      content: v.string(),
+      embedding: v.array(v.float64()),
+      metadata: thoughtMetadata,
+      userId: v.id("users"),
+      updatedAt: v.optional(v.number()),
+      ...thoughtLifecycleFields,
+    }),
+  ),
+  handler: async (ctx, args) => {
+    return await _listCoreByUser(ctx, args.userId, args.limit);
+  },
+});
+
 export const insertOne = internalMutation({
   args: {
     content: v.string(),
     embedding: v.array(v.float64()),
     metadata: thoughtMetadata,
     userId: v.id("users"),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -79,6 +112,9 @@ export const transitionMemory = internalMutation({
     previousStatus: v.union(v.literal("superseded"), v.literal("retracted")),
     reason: v.string(),
     transitionedAt: v.number(),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.id("thoughts"),
   handler: async (ctx, args) => {
@@ -89,12 +125,28 @@ export const transitionMemory = internalMutation({
         embedding: args.embedding,
         metadata: args.metadata,
         userId: args.userId,
+        validFrom: args.validFrom,
+        validTo: args.validTo,
+        isCore: args.isCore,
       },
       args.previousIds,
       args.previousStatus,
       args.reason,
       args.transitionedAt,
     );
+  },
+});
+
+export const setCoreStatus = internalMutation({
+  args: {
+    userId: v.id("users"),
+    id: v.id("thoughts"),
+    isCore: v.boolean(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await _setCoreStatus(ctx, args.userId, args.id, args.isCore);
+    return null;
   },
 });
 
@@ -119,23 +171,21 @@ export const searchByText = internalQuery({
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    const fetchLimit = args.includeHistorical
-      ? limit
-      : Math.min(limit * 4, 200);
-    const results = await ctx.db
-      .query("thoughts")
-      .withSearchIndex("by_content", (q) => {
+    const query = () =>
+      ctx.db.query("thoughts").withSearchIndex("by_content", (q) => {
         const base = q.search("content", args.query).eq("userId", args.userId);
         return args.type ? base.eq("metadata.type", args.type) : base;
-      })
-      .take(fetchLimit);
-    return results
-      .filter(
-        (memory) =>
-          args.includeHistorical || isCurrentMemory(memory.memoryStatus),
-      )
-      .slice(0, limit)
-      .map(({ embedding: _embedding, ...rest }) => rest);
+      });
+
+    const results = args.includeHistorical
+      ? await query().take(limit)
+      : await collectFiltered(
+          (cursor, numItems) => query().paginate({ cursor, numItems }),
+          (memory) => isCurrentMemory(memory.memoryStatus),
+          limit,
+        );
+
+    return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
 

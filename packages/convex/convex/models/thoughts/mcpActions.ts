@@ -1,5 +1,3 @@
-"use node";
-
 import { action } from "../../_generated/server";
 import { internal as _internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
@@ -27,6 +25,9 @@ function truncateSnippet(content: string): string {
 export const capture = action({
   args: {
     content: v.string(),
+    validFrom: v.optional(v.number()),
+    validTo: v.optional(v.number()),
+    isCore: v.optional(v.boolean()),
   },
   returns: v.object({
     thoughtId: v.id("thoughts"),
@@ -37,7 +38,13 @@ export const capture = action({
     const userId = await requireMcpUserId(ctx);
     return await ctx.runAction(
       internal.models.thoughts.actions.captureThought,
-      { userId, content: args.content },
+      {
+        userId,
+        content: args.content,
+        validFrom: args.validFrom,
+        validTo: args.validTo,
+        isCore: args.isCore,
+      },
     );
   },
 });
@@ -68,6 +75,9 @@ export const search = action({
       score: v.float64(),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
+      validFrom: v.optional(v.number()),
+      validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
       changeReason: v.optional(v.string()),
     }),
@@ -81,6 +91,9 @@ export const search = action({
       score: number;
       createdAt: number;
       memoryStatus: MemoryStatus;
+      isCore?: boolean;
+      validFrom?: number;
+      validTo?: number;
       supersededAt?: number;
       changeReason?: string;
     }> = await ctx.runAction(internal.models.thoughts.actions.hybridSearch, {
@@ -100,6 +113,9 @@ export const search = action({
       score: h.score,
       createdAt: h.createdAt,
       memoryStatus: h.memoryStatus,
+      isCore: h.isCore,
+      validFrom: h.validFrom,
+      validTo: h.validTo,
       supersededAt: h.supersededAt,
       changeReason: h.changeReason,
     }));
@@ -118,6 +134,9 @@ export const getByIds = action({
       createdAt: v.number(),
       updatedAt: v.optional(v.number()),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
+      validFrom: v.optional(v.number()),
+      validTo: v.optional(v.number()),
       supersededAt: v.optional(v.number()),
       supersededBy: v.optional(v.id("thoughts")),
       supersedes: v.optional(v.array(v.id("thoughts"))),
@@ -134,6 +153,9 @@ export const getByIds = action({
       userId: string;
       updatedAt?: number;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
+      validFrom?: number;
+      validTo?: number;
       supersededAt?: number;
       supersededBy?: Id<"thoughts">;
       supersedes?: Array<Id<"thoughts">>;
@@ -152,6 +174,9 @@ export const getByIds = action({
         createdAt: d._creationTime,
         updatedAt: d.updatedAt,
         memoryStatus: d.memoryStatus ?? "current",
+        isCore: d.isCore,
+        validFrom: d.validFrom,
+        validTo: d.validTo,
         supersededAt: d.supersededAt,
         supersededBy: d.supersededBy,
         supersedes: d.supersedes,
@@ -186,6 +211,9 @@ export const timeline = action({
       topics: v.array(v.string()),
       createdAt: v.number(),
       memoryStatus,
+      isCore: v.optional(v.boolean()),
+      validFrom: v.optional(v.number()),
+      validTo: v.optional(v.number()),
     }),
   ),
   handler: async (ctx, args) => {
@@ -208,6 +236,9 @@ export const timeline = action({
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
+      validFrom?: number;
+      validTo?: number;
     } | null = null;
     if (args.seedId) {
       const seed = await ctx.runQuery(
@@ -223,6 +254,9 @@ export const timeline = action({
         content: seed.content,
         metadata: seed.metadata,
         memoryStatus: seed.memoryStatus,
+        isCore: seed.isCore,
+        validFrom: seed.validFrom,
+        validTo: seed.validTo,
       };
       if (aroundMs === undefined) {
         aroundMs = seed._creationTime;
@@ -238,6 +272,9 @@ export const timeline = action({
       content: string;
       metadata: Infer<typeof thoughtMetadata>;
       memoryStatus?: MemoryStatus;
+      isCore?: boolean;
+      validFrom?: number;
+      validTo?: number;
     }> = await ctx.runQuery(internal.models.thoughts.private.listAroundTime, {
       userId,
       aroundMs,
@@ -254,6 +291,9 @@ export const timeline = action({
       topics: d.metadata.topics,
       createdAt: d._creationTime,
       memoryStatus: d.memoryStatus ?? "current",
+      isCore: d.isCore,
+      validFrom: d.validFrom,
+      validTo: d.validTo,
     }));
 
     // Splice the seed into its chronological position. listAroundTime
@@ -269,6 +309,9 @@ export const timeline = action({
         topics: seedDoc.metadata.topics,
         createdAt: seedDoc._creationTime,
         memoryStatus: seedDoc.memoryStatus ?? "current",
+        isCore: seedDoc.isCore,
+        validFrom: seedDoc.validFrom,
+        validTo: seedDoc.validTo,
       };
       let insertAt = mapped.length;
       for (let i = 0; i < mapped.length; i++) {
