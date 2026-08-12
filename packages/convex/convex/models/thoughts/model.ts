@@ -1,12 +1,11 @@
 import type { Infer } from "convex/values";
+import type { Expression, FilterBuilder, NamedTableInfo } from "convex/server";
 
-import type { Id } from "../../_generated/dataModel";
+import type { DataModel, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
-  isMemoryActive,
-  isMemoryRetrievable,
   safeSupersededValidTo,
   type MemoryStatus,
   type MemoryValidity,
@@ -26,50 +25,44 @@ type ThoughtProvenance = {
 
 export const DEFAULT_CORE_MEMORY_LIMIT = 10;
 export const MAX_CORE_MEMORY_LIMIT = 25;
-const MAX_CORE_MEMORY_CANDIDATES = 250;
 
 export async function _findById(ctx: QueryCtx, id: Id<"thoughts">) {
   return await ctx.db.get(id);
 }
 
-/**
- * Pages through an ordered query, keeping only rows that pass `predicate`,
- * until `limit` rows are collected or the source is exhausted.
- *
- * Lifecycle status cannot be filtered at the index: memories written before
- * the temporal-memory change have no `memoryStatus` at all, and `undefined`
- * means "current". Filtering on the stored value would silently drop every
- * legacy memory, so the filter has to run after the read. A fixed over-fetch
- * multiplier would instead under-fill the page once an account accumulates
- * enough superseded memories, with no signal that anything was dropped —
- * paging until the quota is met keeps the result honest either way.
- */
-export async function collectFiltered<T>(
-  fetchPage: (
-    cursor: string | null,
-    numItems: number,
-  ) => Promise<{ page: T[]; isDone: boolean; continueCursor: string }>,
-  predicate: (row: T) => boolean,
-  limit: number,
-  maxPages = 20,
-): Promise<T[]> {
-  const collected: T[] = [];
-  const pageSize = Math.min(Math.max(limit * 2, 50), 500);
-  let cursor: string | null = null;
+type ThoughtFilterBuilder = FilterBuilder<
+  NamedTableInfo<DataModel, "thoughts">
+>;
 
-  for (let page = 0; page < maxPages && collected.length < limit; page += 1) {
-    const result = await fetchPage(cursor, pageSize);
-    for (const row of result.page) {
-      if (predicate(row)) {
-        collected.push(row);
-        if (collected.length === limit) break;
-      }
-    }
-    if (result.isDone) break;
-    cursor = result.continueCursor;
+/**
+ * Express memory lifecycle and business-time validity inside a Convex query.
+ * Legacy rows omit `memoryStatus`, so undefined remains equivalent to current.
+ * Applying this before `take` fills the requested result window without trying
+ * to issue a second `.paginate()` call in the same function execution.
+ */
+export function memoryRetrievabilityFilter(
+  q: ThoughtFilterBuilder,
+  includeHistorical: boolean | undefined,
+  activeAt: number,
+): Expression<boolean> {
+  const memoryStatus = q.field("memoryStatus");
+  if (includeHistorical) {
+    return q.neq(memoryStatus, "retracted");
   }
 
-  return collected;
+  const validFrom = q.field("validFrom");
+  const validTo = q.field("validTo");
+  return q.and(
+    q.or(q.eq(memoryStatus, undefined), q.eq(memoryStatus, "current")),
+    q.or(
+      q.eq(validFrom, undefined),
+      q.lte(validFrom as Expression<number>, activeAt),
+    ),
+    q.or(
+      q.eq(validTo, undefined),
+      q.gt(validTo as Expression<number>, activeAt),
+    ),
+  );
 }
 
 export async function _listByUser(
@@ -78,18 +71,13 @@ export async function _listByUser(
   limit: number = 20,
   includeHistorical = false,
 ) {
-  const query = () =>
-    ctx.db
-      .query("thoughts")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .order("desc");
-
   const activeAt = Date.now();
-  return await collectFiltered(
-    (cursor, numItems) => query().paginate({ cursor, numItems }),
-    (memory) => isMemoryRetrievable(memory, includeHistorical, activeAt),
-    limit,
-  );
+  return await ctx.db
+    .query("thoughts")
+    .withIndex("by_userId", (q) => q.eq("userId", userId))
+    .order("desc")
+    .filter((q) => memoryRetrievabilityFilter(q, includeHistorical, activeAt))
+    .take(limit);
 }
 
 export async function _listCoreByUser(
@@ -105,18 +93,15 @@ export async function _listCoreByUser(
     throw new Error("Core memory limit must be a positive integer");
   }
   const limit = Math.min(requestedLimit, MAX_CORE_MEMORY_LIMIT);
-  const candidates = await ctx.db
+  const activeAt = Date.now();
+  return await ctx.db
     .query("thoughts")
     .withIndex("by_userId_and_isCore", (q) =>
       q.eq("userId", userId).eq("isCore", true),
     )
     .order("desc")
-    .take(MAX_CORE_MEMORY_CANDIDATES);
-
-  const activeAt = Date.now();
-  return candidates
-    .filter((memory) => isMemoryActive(memory, activeAt))
-    .slice(0, limit);
+    .filter((q) => memoryRetrievabilityFilter(q, false, activeAt))
+    .take(limit);
 }
 
 export async function _insertOne(

@@ -89,6 +89,18 @@ describe("core memories", () => {
         isCore: true,
         memoryStatus: "current",
       });
+      // These are newer than the retrievable core set. The previous fixed
+      // 250-candidate window returned nothing once enough history accumulated.
+      for (let index = 0; index < 260; index += 1) {
+        await ctx.db.insert("thoughts", {
+          userId: ownerId,
+          content: `Owner retracted core memory ${index}`,
+          embedding,
+          metadata,
+          isCore: true,
+          memoryStatus: "retracted",
+        });
+      }
     });
 
     const owner = t.withIdentity({ issuer, subject: ownerId });

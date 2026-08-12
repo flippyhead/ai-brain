@@ -7,9 +7,8 @@ import {
   _listCoreByUser,
   _setCoreStatus,
   _transitionMemory,
-  collectFiltered,
+  memoryRetrievabilityFilter,
 } from "./model";
-import { isMemoryRetrievable } from "./memoryLifecycle";
 import {
   memorySourceType,
   thoughtLifecycleFields,
@@ -188,18 +187,16 @@ export const searchByText = internalQuery({
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    const query = () =>
-      ctx.db.query("thoughts").withSearchIndex("by_content", (q) => {
+    const results = await ctx.db
+      .query("thoughts")
+      .withSearchIndex("by_content", (q) => {
         const base = q.search("content", args.query).eq("userId", args.userId);
         return args.type ? base.eq("metadata.type", args.type) : base;
-      });
-
-    const results = await collectFiltered(
-      (cursor, numItems) => query().paginate({ cursor, numItems }),
-      (memory) =>
-        isMemoryRetrievable(memory, args.includeHistorical, args.activeAt),
-      limit,
-    );
+      })
+      .filter((q) =>
+        memoryRetrievabilityFilter(q, args.includeHistorical, args.activeAt),
+      )
+      .take(limit);
 
     return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
