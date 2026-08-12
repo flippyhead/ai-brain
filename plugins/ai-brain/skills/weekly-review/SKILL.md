@@ -7,7 +7,7 @@ description: Weekly synthesis of your brain thoughts, workflow insights, and goa
 
 A weekly synthesis that cross-references your brain thoughts, workflow insights, and goals to surface what you'd miss looking at any one source alone.
 
-Every claim in the output must be grounded in a source — cite thoughts as `thought:<id>`, insights as `insight:<id>`, lists as `list:<id>`.
+Every claim in the output must be grounded in a source — cite structured facts as `fact:<id>`, thoughts as `thought:<id>`, insights as `insight:<id>`, lists as `list:<id>`.
 
 ## Workflow
 
