@@ -287,16 +287,49 @@ implementations of that lifecycle will drift, and the divergence will show up
 as exactly the store-disagreement failure described above. Share the transition
 logic across both tables rather than reimplementing it per table.
 
-### Open questions
+### Questions resolved on 2026-08-12
 
-- Precedence. When a predicate is covered by structured storage, does narrative
-  capture of the same information get routed to `remember_fact`, rejected as
-  redundant, or stored twice? Blended recall makes this a correctness question,
-  not a tidiness one.
-- ADD, ASK, and SKIP against the existing ADD, NOOP, SUPERSEDE, and RETRACT
-  actions. These are different axes: whether to capture, and what to do with
-  what is captured. Whether they collapse into one model response or stay as
-  two decisions determines how much of `classify.ts` moves.
-- Validity fields on typed facts. `validFrom` and `validTo` must mean the same
-  thing in both tables, and rejecting derived ages is the same principle
-  applied at write time.
+- Precedence. Narrative capture refuses information a structured predicate
+  already records. `captureThought` passes overlapping current facts to the
+  admission gate; a NOOP citing a fact returns the `duplicate` disposition and
+  writes nothing, and content contradicting a fact returns ASK so the
+  correction goes through `remember_fact`. Storing both was rejected because it
+  leaves the stores able to hold contradictory current values indefinitely and
+  moves reconciliation into every query. Auto-routing free text to
+  `(subject, predicate, value)` was rejected for now because a misfire writes a
+  wrong structured fact silently; it remains an upgrade to this design rather
+  than an alternative to it.
+- ADD, ASK, and SKIP stayed on the same axis as the existing actions, in one
+  model response. The gate returns exactly one action, so `classify.ts` did not
+  need to split.
+- Validity fields mean the same thing in both tables, and the derived-age
+  rejection is enforced at write time in `normalizePredicate`.
+
+### Status as of 2026-08-12
+
+Merged: the recall baseline harness and `isMemoryRetrievable` (#27), structured
+facts with the precedence refusal (#26), and the ungrounded-capture fallback
+(#28). Both stores now share one retrievability rule.
+
+Outstanding, in the order they are worth doing:
+
+- Re-record the baseline now that facts have merged, and compare against the
+  table above. This is the delta the first run exists to make measurable.
+- The cross-store fixture, which precedence unblocked: seed a fact, attempt a
+  narrative capture of the same information, assert exactly one current value
+  across both stores.
+- Phase 2's remaining items: `forget_thought` spanning thoughts, facts, and
+  entities; the `procedural` thought type; the automatic recall hook.
+- Core-memory deduplication stays evidence-gated and may now be unnecessary,
+  since a fact keyed by entity and predicate cannot be restated into a
+  duplicate.
+
+Operational items that are not code:
+
+- Vercel preview deploys fail on pull requests from the `jordan-hivemind` fork
+  with "Authorization required to deploy" and need a one-time authorization.
+  Production is unaffected, and CI runs `pnpm build`, so the build stays
+  covered either way.
+- Qodo's citation ruleset is configured outside this repository and still
+  rejects `fact:<id>`. Both in-repo enumerations were updated; the external
+  rule needs the token added.
