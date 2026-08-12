@@ -27,11 +27,26 @@ export type SeedQuery = {
   expectedKeys: string[];
   includeHistorical?: boolean;
   expectedExactStrings?: string[];
+  /** Values that must never appear — another account's, or a store disagreeing. */
+  forbiddenExactStrings?: string[];
+};
+
+export type SeedFact = {
+  key: string;
+  subjectKey: string;
+  subjectName: string;
+  predicate: string;
+  value: string;
+  isCore?: boolean;
+  validFrom?: string;
+  /** Key of a fact this one corrects because it was never true. */
+  corrects?: string;
 };
 
 export type SeedAccount = {
   label: string;
   memories: SeedMemory[];
+  facts?: SeedFact[];
   queries: SeedQuery[];
 };
 
@@ -80,6 +95,39 @@ export const liveRecallCorpus: SeedAccount[] = [
         isCore: true,
       },
     ],
+    facts: [
+      {
+        key: "fact-school",
+        subjectKey: "person:zevin",
+        subjectName: "Zevin",
+        predicate: "school",
+        value: "Redwood Academy",
+        validFrom: "2026-08-01",
+      },
+      {
+        key: "fact-blood-wrong",
+        subjectKey: "person:avery",
+        subjectName: "Avery",
+        predicate: "blood_type",
+        value: "O negative",
+      },
+      {
+        key: "fact-blood-right",
+        subjectKey: "person:avery",
+        subjectName: "Avery",
+        predicate: "blood_type",
+        value: "A negative",
+        corrects: "fact-blood-wrong",
+      },
+      {
+        key: "fact-diet",
+        subjectKey: "person:avery",
+        subjectName: "Avery",
+        predicate: "dietary_restriction",
+        value: "vegetarian, no shellfish",
+        isCore: true,
+      },
+    ],
     queries: [
       {
         name: "exact product and ticket identifiers",
@@ -90,8 +138,9 @@ export const liveRecallCorpus: SeedAccount[] = [
       {
         name: "current school only",
         query: "Where does Zevin go to school now?",
-        expectedKeys: ["school-new"],
+        expectedKeys: ["school-new", "fact-school"],
         expectedExactStrings: ["Redwood Academy"],
+        forbiddenExactStrings: ["Brightwater"],
       },
       {
         name: "school history when asked historically",
@@ -108,7 +157,7 @@ export const liveRecallCorpus: SeedAccount[] = [
       {
         name: "correction never resurfaces as history",
         query: "What has Avery's blood type been recorded as?",
-        expectedKeys: ["blood-right"],
+        expectedKeys: ["blood-right", "fact-blood-right"],
         includeHistorical: true,
       },
       {
@@ -134,6 +183,15 @@ export const liveRecallCorpus: SeedAccount[] = [
       },
       { key: "rowan-school", content: "Zevin attends Brightwater School." },
     ],
+    facts: [
+      {
+        key: "rowan-fact-school",
+        subjectKey: "person:zevin",
+        subjectName: "Zevin",
+        predicate: "school",
+        value: "Brightwater School",
+      },
+    ],
     queries: [
       {
         name: "other account sees only its own version",
@@ -144,8 +202,9 @@ export const liveRecallCorpus: SeedAccount[] = [
       {
         name: "other account sees only its own school record",
         query: "Where does Zevin go to school?",
-        expectedKeys: ["rowan-school"],
+        expectedKeys: ["rowan-school", "rowan-fact-school"],
         expectedExactStrings: ["Brightwater School"],
+        forbiddenExactStrings: ["Redwood"],
       },
     ],
   },

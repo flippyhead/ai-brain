@@ -15,6 +15,12 @@ export type RetrievalEvaluationCase = {
   results: RetrievalEvaluationResult[];
   includeHistorical?: boolean;
   expectedExactStrings?: string[];
+  /**
+   * Strings that must NOT appear in the retrieved window. Catches two failures
+   * a recall count cannot: another account's value reaching this account, and
+   * the structured and narrative stores disagreeing on the same predicate.
+   */
+  forbiddenExactStrings?: string[];
   k?: number;
   minimumRecall?: number;
 };
@@ -25,6 +31,7 @@ export type RetrievalEvaluation = {
   tenantLeakIds: string[];
   unexpectedHistoricalIds: string[];
   missingExactStrings: string[];
+  presentForbiddenStrings: string[];
   passed: boolean;
 };
 
@@ -69,6 +76,9 @@ export function evaluateRetrievalCase(
   const missingExactStrings = (
     evaluationCase.expectedExactStrings ?? []
   ).filter((value) => !retrievedContent.includes(value));
+  const presentForbiddenStrings = (
+    evaluationCase.forbiddenExactStrings ?? []
+  ).filter((value) => retrievedContent.includes(value));
   const minimumRecall = evaluationCase.minimumRecall ?? 1;
 
   return {
@@ -77,11 +87,13 @@ export function evaluateRetrievalCase(
     tenantLeakIds,
     unexpectedHistoricalIds,
     missingExactStrings,
+    presentForbiddenStrings,
     passed:
       recallAtK >= minimumRecall &&
       tenantLeakIds.length === 0 &&
       unexpectedHistoricalIds.length === 0 &&
-      missingExactStrings.length === 0,
+      missingExactStrings.length === 0 &&
+      presentForbiddenStrings.length === 0,
   };
 }
 

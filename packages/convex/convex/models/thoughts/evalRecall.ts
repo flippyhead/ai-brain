@@ -46,11 +46,22 @@ export const createEvalUser = internalMutation({
 export const deleteEvalSeed = internalMutation({
   args: {
     thoughtIds: v.array(v.id("thoughts")),
+    factIds: v.optional(v.array(v.id("facts"))),
     userIds: v.array(v.id("users")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     for (const id of args.thoughtIds) await ctx.db.delete(id);
+    for (const id of args.factIds ?? []) await ctx.db.delete(id);
+    // Entities are created implicitly by fact writes, so they are removed by
+    // owner rather than by collected id.
+    for (const userId of args.userIds) {
+      const entities = await ctx.db
+        .query("entities")
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .collect();
+      for (const entity of entities) await ctx.db.delete(entity._id);
+    }
     for (const id of args.userIds) await ctx.db.delete(id);
     return null;
   },
@@ -75,6 +86,9 @@ export const runBaseline = internalAction({
     // to it rather than silently ignored.
     const ownerByThoughtId = new Map<string, { key: string; label: string }>();
     const createdThoughtIds: Array<Id<"thoughts">> = [];
+    const factIdByKey = new Map<string, Id<"facts">>();
+    const ownerByFactId = new Map<string, { key: string; label: string }>();
+    const createdFactIds: Array<Id<"facts">> = [];
 
     try {
       for (const account of liveRecallCorpus) {
@@ -133,6 +147,36 @@ export const runBaseline = internalAction({
           });
           createdThoughtIds.push(thoughtId);
         }
+
+        for (const fact of account.facts ?? []) {
+          const result: { factId: Id<"facts"> } = await ctx.runMutation(
+            internal.models.facts.private.seedFact,
+            {
+              userId,
+              subject: {
+                key: fact.subjectKey,
+                kind: "person",
+                name: fact.subjectName,
+              },
+              predicate: fact.predicate,
+              value: { type: "text", value: fact.value },
+              sourceType: "user_stated",
+              isCore: fact.isCore,
+              validFrom: parseValidity(fact.validFrom),
+              changeKind: fact.corrects === undefined ? undefined : "corrected",
+              changeReason:
+                fact.corrects === undefined
+                  ? undefined
+                  : "memory eval baseline seed",
+            },
+          );
+          factIdByKey.set(fact.key, result.factId);
+          ownerByFactId.set(result.factId as string, {
+            key: fact.key,
+            label: account.label,
+          });
+          createdFactIds.push(result.factId);
+        }
       }
 
       const cases = [];
@@ -153,7 +197,32 @@ export const runBaseline = internalAction({
             },
           );
 
-          const results: RetrievalEvaluationResult[] = hits.map((hit) => {
+          const factRows: Array<{
+            id: string;
+            statement: string;
+            status: string;
+          }> = await ctx.runQuery(internal.models.facts.private.recallFacts, {
+            userId,
+            query: query.query,
+            includeHistorical: query.includeHistorical,
+          });
+
+          const factResults: RetrievalEvaluationResult[] = factRows.map(
+            (row) => {
+              const owner = ownerByFactId.get(row.id);
+              return {
+                id: owner?.key ?? `unseeded:${row.id}`,
+                userId: owner?.label ?? "unknown",
+                memoryStatus:
+                  row.status === "superseded" || row.status === "retracted"
+                    ? row.status
+                    : "current",
+                content: row.statement,
+              };
+            },
+          );
+
+          const thoughtResults: RetrievalEvaluationResult[] = hits.map((hit) => {
             const owner = ownerByThoughtId.get(hit._id);
             return {
               // An unseeded id means the deployment held pre-existing data;
@@ -172,7 +241,8 @@ export const runBaseline = internalAction({
             expectedIds: query.expectedKeys,
             includeHistorical: query.includeHistorical,
             expectedExactStrings: query.expectedExactStrings,
-            results,
+            forbiddenExactStrings: query.forbiddenExactStrings,
+            results: [...factResults, ...thoughtResults],
           };
           const atFive = evaluateRetrievalCase({ ...shared, k: 5 });
           const atTen = evaluateRetrievalCase({ ...shared, k: SEARCH_LIMIT });
@@ -184,7 +254,10 @@ export const runBaseline = internalAction({
             leakedIds: atTen.tenantLeakIds,
             retractedOrStaleIds: atTen.unexpectedHistoricalIds,
             missingExactStrings: atTen.missingExactStrings,
-            returnedKeys: results.map((result) => result.id),
+            presentForbiddenStrings: atTen.presentForbiddenStrings,
+            returnedKeys: [...factResults, ...thoughtResults].map(
+              (result) => result.id,
+            ),
           });
         }
       }
@@ -201,7 +274,8 @@ export const runBaseline = internalAction({
       const blocking = cases.filter(
         (result) =>
           result.leakedIds.length > 0 ||
-          result.retractedOrStaleIds.length > 0,
+          result.retractedOrStaleIds.length > 0 ||
+          result.presentForbiddenStrings.length > 0,
       );
       const summary = {
         recallAtFive: mean(cases.map((result) => result.recallAtFive)),
@@ -228,6 +302,9 @@ export const runBaseline = internalAction({
                   result.retractedOrStaleIds.length > 0
                     ? `retracted or stale: ${result.retractedOrStaleIds.join(", ")}`
                     : null,
+                  result.presentForbiddenStrings.length > 0
+                    ? `forbidden value present: ${result.presentForbiddenStrings.join(", ")}`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(" — "),
@@ -243,6 +320,7 @@ export const runBaseline = internalAction({
           internal.models.thoughts.evalRecall.deleteEvalSeed,
           {
             thoughtIds: createdThoughtIds,
+            factIds: createdFactIds,
             userIds: [...userIdByLabel.values()],
           },
         );
