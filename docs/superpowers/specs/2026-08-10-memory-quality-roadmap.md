@@ -177,8 +177,46 @@ text leg, the vector leg, the shared list model, and the web list. They now
 route through one `isMemoryRetrievable` predicate that admits superseded
 memories for historical reads and withholds retracted ones in every mode.
 
-Re-record this table after the structured facts work merges. The delta, not
-the absolute value, is the evidence.
+#### Second baseline, 2026-08-12, blended stores
+
+Re-run after the structured facts work merged, with the harness extended to
+seed facts and score the blend `recall_context` actually serves — core facts,
+relevant facts, core memories, and hybrid narrative results together.
+
+| Measure | First run | Blended run |
+| --- | --- | --- |
+| R@5 | 1.0 | 1.0 |
+| R@10 | 1.0 | 1.0 |
+| Account leaks | 0 | 0 |
+| Cross-store disagreements | not measured | 0 |
+
+The recall figures did not move, and were not expected to: `hybridSearch` is
+thoughts-only and the facts work did not touch it. Re-running the original
+harness unchanged would have proved nothing, so the harness itself was the
+thing that needed to grow.
+
+What is new is the disagreement check. Scoring now supports
+`forbiddenExactStrings`, and both accounts hold a `school` fact for the same
+child with different values. One account's query requires "Redwood Academy" and
+forbids "Brightwater"; the other requires the reverse. A cross-account leak or
+a structured/narrative disagreement on the same predicate now fails the run
+rather than being invisible, and the assertion is non-vacuous because the
+forbidden value genuinely exists in the other account.
+
+One fixture was wrong on the first attempt and is worth recording: forbidding
+"O negative" on the correction case failed, because the retraction convention
+deliberately states the corrected value *and* names the earlier claim as
+inaccurate, so the string legitimately appears. Withholding the retracted fact
+is covered by the status check instead.
+
+The blend policy itself is now a single shared function, `models/recallBlend`,
+used by both the MCP tool and the harness. The first version of this harness
+prepended every fact before every memory, which is not what a client receives:
+core facts are capped at two, remaining core slots go to memories, and the
+relevance budget is split between the stores. Because scoring is top-k, that
+ordering difference meant the harness could score a window nobody sees and miss
+the very disagreements it was added to catch. Ordering is part of the contract,
+so it belongs in one place rather than two.
 
 ### Phase 2 — gaps that need no further evidence
 

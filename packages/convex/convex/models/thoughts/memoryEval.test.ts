@@ -10,6 +10,7 @@ describe("deterministic memory retrieval evaluations", () => {
       tenantLeakIds: [],
       unexpectedHistoricalIds: [],
       missingExactStrings: [],
+      presentForbiddenStrings: [],
       passed: true,
     });
   });
@@ -43,6 +44,7 @@ describe("deterministic memory retrieval evaluations", () => {
       tenantLeakIds: ["other-account"],
       unexpectedHistoricalIds: ["stale"],
       missingExactStrings: ["v2.7.1"],
+      presentForbiddenStrings: [],
       passed: false,
     });
   });
@@ -127,5 +129,37 @@ describe("deterministic memory retrieval evaluations", () => {
         ],
       }).passed,
     ).toBe(false);
+  });
+});
+
+describe("cross-store disagreement", () => {
+  test("fails when a forbidden value reaches the retrieved window", () => {
+    // The structured and narrative stores must not answer the same predicate
+    // differently, and one account's value must never appear for another.
+    const evaluation = evaluateRetrievalCase({
+      name: "stores disagree on the same predicate",
+      query: "Where does Zevin go to school now?",
+      expectedUserId: "avery",
+      expectedIds: ["fact-school"],
+      forbiddenExactStrings: ["Brightwater"],
+      results: [
+        {
+          id: "fact-school",
+          userId: "avery",
+          memoryStatus: "current",
+          content: "Zevin — school: Redwood Academy.",
+        },
+        {
+          id: "stale-narrative",
+          userId: "avery",
+          memoryStatus: "current",
+          content: "Zevin attends Brightwater School.",
+        },
+      ],
+    });
+
+    expect(evaluation.recallAtK).toBe(1);
+    expect(evaluation.presentForbiddenStrings).toEqual(["Brightwater"]);
+    expect(evaluation.passed).toBe(false);
   });
 });

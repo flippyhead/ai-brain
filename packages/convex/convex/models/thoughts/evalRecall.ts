@@ -7,6 +7,7 @@ import {
   type RetrievalEvaluationResult,
 } from "./memoryEval";
 import { liveRecallCorpus, type SeedMemory } from "./memoryEval.corpus";
+import { blendRecallContext, coreLimitFor } from "../recallBlend";
 
 // Matches the pattern in mcpActions.ts: the generated API type collapses under
 // action-to-action recursion.
@@ -46,11 +47,22 @@ export const createEvalUser = internalMutation({
 export const deleteEvalSeed = internalMutation({
   args: {
     thoughtIds: v.array(v.id("thoughts")),
+    factIds: v.optional(v.array(v.id("facts"))),
     userIds: v.array(v.id("users")),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     for (const id of args.thoughtIds) await ctx.db.delete(id);
+    for (const id of args.factIds ?? []) await ctx.db.delete(id);
+    // Entities are created implicitly by fact writes, so they are removed by
+    // owner rather than by collected id.
+    for (const userId of args.userIds) {
+      const entities = await ctx.db
+        .query("entities")
+        .withIndex("by_userId", (q) => q.eq("userId", userId))
+        .collect();
+      for (const entity of entities) await ctx.db.delete(entity._id);
+    }
     for (const id of args.userIds) await ctx.db.delete(id);
     return null;
   },
@@ -75,6 +87,9 @@ export const runBaseline = internalAction({
     // to it rather than silently ignored.
     const ownerByThoughtId = new Map<string, { key: string; label: string }>();
     const createdThoughtIds: Array<Id<"thoughts">> = [];
+    const factIdByKey = new Map<string, Id<"facts">>();
+    const ownerByFactId = new Map<string, { key: string; label: string }>();
+    const createdFactIds: Array<Id<"facts">> = [];
 
     try {
       for (const account of liveRecallCorpus) {
@@ -133,6 +148,54 @@ export const runBaseline = internalAction({
           });
           createdThoughtIds.push(thoughtId);
         }
+
+        for (const fact of account.facts ?? []) {
+          if (fact.corrects !== undefined) {
+            const prior = (account.facts ?? []).find(
+              (candidate) => candidate.key === fact.corrects,
+            );
+            // Correction metadata is driven by subject and predicate, so a
+            // dangling or mismatched reference would silently seed an ordinary
+            // fact and quietly weaken the case that depends on it.
+            if (
+              prior === undefined ||
+              !factIdByKey.has(fact.corrects) ||
+              prior.subjectKey !== fact.subjectKey ||
+              prior.predicate !== fact.predicate
+            ) {
+              throw new Error(
+                `Corpus fact "${fact.key}" corrects "${fact.corrects}", which is not an already-seeded fact with the same subject and predicate`,
+              );
+            }
+          }
+          const result: { factId: Id<"facts"> } = await ctx.runMutation(
+            internal.models.facts.private.seedFact,
+            {
+              userId,
+              subject: {
+                key: fact.subjectKey,
+                kind: "person",
+                name: fact.subjectName,
+              },
+              predicate: fact.predicate,
+              value: { type: "text", value: fact.value },
+              sourceType: "user_stated",
+              isCore: fact.isCore,
+              validFrom: parseValidity(fact.validFrom),
+              changeKind: fact.corrects === undefined ? undefined : "corrected",
+              changeReason:
+                fact.corrects === undefined
+                  ? undefined
+                  : "memory eval baseline seed",
+            },
+          );
+          factIdByKey.set(fact.key, result.factId);
+          ownerByFactId.set(result.factId as string, {
+            key: fact.key,
+            label: account.label,
+          });
+          createdFactIds.push(result.factId);
+        }
       }
 
       const cases = [];
@@ -153,7 +216,39 @@ export const runBaseline = internalAction({
             },
           );
 
-          const results: RetrievalEvaluationResult[] = hits.map((hit) => {
+          const factRows: Array<{
+            id: string;
+            statement: string;
+            status: string;
+            source: "core" | "relevant";
+          }> = await ctx.runQuery(internal.models.facts.private.recallFacts, {
+            userId,
+            query: query.query,
+            includeHistorical: query.includeHistorical,
+          });
+
+          const toFactResult = (row: {
+            id: string;
+            statement: string;
+            status: string;
+          }): RetrievalEvaluationResult => {
+            const owner = ownerByFactId.get(row.id);
+            return {
+              id: owner?.key ?? `unseeded:${row.id}`,
+              userId: owner?.label ?? "unknown",
+              memoryStatus:
+                row.status === "superseded" || row.status === "retracted"
+                  ? row.status
+                  : "current",
+              content: row.statement,
+            };
+          };
+
+          const toThoughtResult = (hit: {
+            _id: Id<"thoughts">;
+            content: string;
+            memoryStatus: "current" | "superseded" | "retracted";
+          }): RetrievalEvaluationResult => {
             const owner = ownerByThoughtId.get(hit._id);
             return {
               // An unseeded id means the deployment held pre-existing data;
@@ -163,7 +258,48 @@ export const runBaseline = internalAction({
               memoryStatus: hit.memoryStatus,
               content: hit.content,
             };
-          });
+          };
+
+          const coreThoughtDocs: Array<{
+            _id: Id<"thoughts">;
+            content: string;
+            memoryStatus?: "current" | "superseded" | "retracted";
+          }> = await ctx.runQuery(
+            internal.models.thoughts.private.listCoreByUser,
+            { userId, limit: coreLimitFor(SEARCH_LIMIT) },
+          );
+
+          // Score the window a client actually receives. `recall_context`
+          // defaults to five results, so the blend is rebuilt per cutoff rather
+          // than sliced from one oversized list — the core allocation itself
+          // depends on the limit.
+          const blendAt = (limit: number): RetrievalEvaluationResult[] => {
+            const blend = blendRecallContext({
+              coreFacts: factRows.filter((row) => row.source === "core"),
+              coreThoughts: coreThoughtDocs,
+              relevantFacts: factRows.filter((row) => row.source === "relevant"),
+              relevantThoughts: hits,
+              limit,
+              factId: (row) => row.id,
+              coreThoughtId: (doc) => doc._id as string,
+              relevantThoughtId: (hit) => hit._id as string,
+            });
+            return [
+              ...blend.coreFacts.map(toFactResult),
+              ...blend.coreThoughts.map((doc) =>
+                toThoughtResult({
+                  _id: doc._id,
+                  content: doc.content,
+                  memoryStatus: doc.memoryStatus ?? "current",
+                }),
+              ),
+              ...blend.relevanceFacts.map(toFactResult),
+              ...blend.relevanceThoughts.map(toThoughtResult),
+            ];
+          };
+
+          const blendedAtFive = blendAt(5);
+          const blendedResults = blendAt(SEARCH_LIMIT);
 
           const shared = {
             name: `${account.label}: ${query.name}`,
@@ -172,9 +308,14 @@ export const runBaseline = internalAction({
             expectedIds: query.expectedKeys,
             includeHistorical: query.includeHistorical,
             expectedExactStrings: query.expectedExactStrings,
-            results,
+            forbiddenExactStrings: query.forbiddenExactStrings,
+            results: blendedResults,
           };
-          const atFive = evaluateRetrievalCase({ ...shared, k: 5 });
+          const atFive = evaluateRetrievalCase({
+            ...shared,
+            results: blendedAtFive,
+            k: 5,
+          });
           const atTen = evaluateRetrievalCase({ ...shared, k: SEARCH_LIMIT });
 
           cases.push({
@@ -184,7 +325,8 @@ export const runBaseline = internalAction({
             leakedIds: atTen.tenantLeakIds,
             retractedOrStaleIds: atTen.unexpectedHistoricalIds,
             missingExactStrings: atTen.missingExactStrings,
-            returnedKeys: results.map((result) => result.id),
+            presentForbiddenStrings: atTen.presentForbiddenStrings,
+            returnedKeys: blendedResults.map((result) => result.id),
           });
         }
       }
@@ -201,7 +343,8 @@ export const runBaseline = internalAction({
       const blocking = cases.filter(
         (result) =>
           result.leakedIds.length > 0 ||
-          result.retractedOrStaleIds.length > 0,
+          result.retractedOrStaleIds.length > 0 ||
+          result.presentForbiddenStrings.length > 0,
       );
       const summary = {
         recallAtFive: mean(cases.map((result) => result.recallAtFive)),
@@ -228,6 +371,9 @@ export const runBaseline = internalAction({
                   result.retractedOrStaleIds.length > 0
                     ? `retracted or stale: ${result.retractedOrStaleIds.join(", ")}`
                     : null,
+                  result.presentForbiddenStrings.length > 0
+                    ? `forbidden value present: ${result.presentForbiddenStrings.join(", ")}`
+                    : null,
                 ]
                   .filter(Boolean)
                   .join(" — "),
@@ -243,6 +389,7 @@ export const runBaseline = internalAction({
           internal.models.thoughts.evalRecall.deleteEvalSeed,
           {
             thoughtIds: createdThoughtIds,
+            factIds: createdFactIds,
             userIds: [...userIdByLabel.values()],
           },
         );
