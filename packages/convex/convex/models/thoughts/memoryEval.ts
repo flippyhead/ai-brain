@@ -51,11 +51,17 @@ export function evaluateRetrievalCase(
   const tenantLeakIds = evaluationCase.results
     .filter((result) => result.userId !== evaluationCase.expectedUserId)
     .map((result) => result.id);
-  const unexpectedHistoricalIds = evaluationCase.includeHistorical
-    ? []
-    : evaluationCase.results
-        .filter((result) => result.memoryStatus !== "current")
-        .map((result) => result.id);
+  // A superseded memory is a legitimate answer to an explicitly historical
+  // question. A retracted memory was never true, so presenting it as prior
+  // history is wrong in either mode.
+  const unexpectedHistoricalIds = evaluationCase.results
+    .filter((result) =>
+      result.memoryStatus === "retracted"
+        ? true
+        : !evaluationCase.includeHistorical &&
+          result.memoryStatus !== "current",
+    )
+    .map((result) => result.id);
   const retrievedContent = topResults
     .filter((result) => result.userId === evaluationCase.expectedUserId)
     .map((result) => result.content)

@@ -4,6 +4,7 @@ import {
   assertValidMemoryValidity,
   isCurrentMemory,
   isMemoryActive,
+  isMemoryRetrievable,
   parseMemoryClassification,
   safeSupersededValidTo,
 } from "./memoryLifecycle";
@@ -165,5 +166,42 @@ describe("temporal memory classification", () => {
     expect(
       safeSupersededValidTo({ validFrom: 100 }, undefined),
     ).toBeUndefined();
+  });
+});
+
+describe("isMemoryRetrievable", () => {
+  const at = 1_000;
+
+  test("returns current memories in both modes", () => {
+    const memory = { memoryStatus: "current" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(true);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(true);
+  });
+
+  test("returns superseded memories only for historical reads", () => {
+    const memory = { memoryStatus: "superseded" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(false);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(true);
+  });
+
+  test("withholds retracted memories from historical reads", () => {
+    const memory = { memoryStatus: "retracted" as const };
+    expect(isMemoryRetrievable(memory, false, at)).toBe(false);
+    expect(isMemoryRetrievable(memory, true, at)).toBe(false);
+  });
+
+  test("respects business-time validity for non-historical reads", () => {
+    const expired = { memoryStatus: "current" as const, validTo: 500 };
+    expect(isMemoryRetrievable(expired, false, at)).toBe(false);
+    expect(isMemoryRetrievable(expired, true, at)).toBe(true);
+  });
+
+  test("returns scheduled memories to historical reads but not current ones", () => {
+    // A not-yet-effective memory states something accurate about a later point
+    // in time, so the audit view shows it. This is deliberately unlike a
+    // retracted memory, which was never accurate at any point.
+    const scheduled = { memoryStatus: "current" as const, validFrom: 5_000 };
+    expect(isMemoryRetrievable(scheduled, false, at)).toBe(false);
+    expect(isMemoryRetrievable(scheduled, true, at)).toBe(true);
   });
 });

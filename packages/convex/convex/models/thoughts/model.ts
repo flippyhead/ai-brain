@@ -6,6 +6,7 @@ import {
   assertValidMemoryValidity,
   isCurrentMemory,
   isMemoryActive,
+  isMemoryRetrievable,
   safeSupersededValidTo,
   type MemoryStatus,
   type MemoryValidity,
@@ -83,14 +84,10 @@ export async function _listByUser(
       .withIndex("by_userId", (q) => q.eq("userId", userId))
       .order("desc");
 
-  if (includeHistorical) {
-    return await query().take(limit);
-  }
-
   const activeAt = Date.now();
   return await collectFiltered(
     (cursor, numItems) => query().paginate({ cursor, numItems }),
-    (memory) => isMemoryActive(memory, activeAt),
+    (memory) => isMemoryRetrievable(memory, includeHistorical, activeAt),
     limit,
   );
 }

@@ -9,7 +9,7 @@ import {
   _transitionMemory,
   collectFiltered,
 } from "./model";
-import { isMemoryActive } from "./memoryLifecycle";
+import { isMemoryRetrievable } from "./memoryLifecycle";
 import {
   memorySourceType,
   thoughtLifecycleFields,
@@ -194,13 +194,12 @@ export const searchByText = internalQuery({
         return args.type ? base.eq("metadata.type", args.type) : base;
       });
 
-    const results = args.includeHistorical
-      ? await query().take(limit)
-      : await collectFiltered(
-          (cursor, numItems) => query().paginate({ cursor, numItems }),
-          (memory) => isMemoryActive(memory, args.activeAt),
-          limit,
-        );
+    const results = await collectFiltered(
+      (cursor, numItems) => query().paginate({ cursor, numItems }),
+      (memory) =>
+        isMemoryRetrievable(memory, args.includeHistorical, args.activeAt),
+      limit,
+    );
 
     return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
