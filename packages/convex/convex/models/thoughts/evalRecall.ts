@@ -203,14 +203,40 @@ export const runBaseline = internalAction({
           result.leakedIds.length > 0 ||
           result.retractedOrStaleIds.length > 0,
       );
-
-      return {
+      const summary = {
         recallAtFive: mean(cases.map((result) => result.recallAtFive)),
         recallAtTen: mean(cases.map((result) => result.recallAtTen)),
         blockingFailures: blocking.map((result) => result.name),
         passed: blocking.length === 0,
         cases,
       };
+
+      // An account leak or a retracted memory presented as history is a release
+      // blocker, so it has to fail the process rather than appear in returned
+      // JSON that a caller has to remember to inspect. Throwing still runs the
+      // cleanup in `finally`.
+      if (blocking.length > 0) {
+        throw new Error(
+          `Recall baseline failed (R@5 ${summary.recallAtFive}, R@10 ${summary.recallAtTen}). ` +
+            blocking
+              .map((result) =>
+                [
+                  result.name,
+                  result.leakedIds.length > 0
+                    ? `leaked: ${result.leakedIds.join(", ")}`
+                    : null,
+                  result.retractedOrStaleIds.length > 0
+                    ? `retracted or stale: ${result.retractedOrStaleIds.join(", ")}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(" — "),
+              )
+              .join("; "),
+        );
+      }
+
+      return summary;
     } finally {
       if (!args.keepSeed) {
         await ctx.runMutation(
