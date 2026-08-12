@@ -4,7 +4,7 @@ import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
 import type { MemoryStatus } from "./memoryLifecycle";
-import { memoryStatus, thoughtMetadata } from "./validators";
+import { memorySourceType, memoryStatus, thoughtMetadata } from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const internal = _internal as any;
@@ -28,10 +28,22 @@ export const capture = action({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
+    sourceType: memorySourceType,
+    sourceRef: v.optional(v.string()),
+    observedAt: v.optional(v.number()),
+    batchId: v.optional(v.string()),
   },
   returns: v.object({
-    thoughtId: v.id("thoughts"),
+    thoughtId: v.optional(v.id("thoughts")),
     metadata: thoughtMetadata,
+    disposition: v.union(
+      v.literal("stored"),
+      v.literal("duplicate"),
+      v.literal("superseded"),
+      v.literal("corrected"),
+      v.literal("needs_confirmation"),
+      v.literal("skipped"),
+    ),
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
@@ -44,6 +56,10 @@ export const capture = action({
         validFrom: args.validFrom,
         validTo: args.validTo,
         isCore: args.isCore,
+        sourceType: args.sourceType,
+        sourceRef: args.sourceRef,
+        observedAt: args.observedAt,
+        batchId: args.batchId,
       },
     );
   },

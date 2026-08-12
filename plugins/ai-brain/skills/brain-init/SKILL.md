@@ -1,127 +1,135 @@
 ---
 name: brain-init
-description: Bootstrap your AI Brain from connected tools and Claude's memory. Zero-input onboarding — discovers your connectors, pulls meta-knowledge, and saves it automatically.
+description: Bootstrap AI Brain with a small, reviewed set of atomic durable facts and narrative memories. Connector data produces candidates only; nothing is stored before user approval.
 ---
 
 # Brain Init
 
-Bootstrap your AI Brain by automatically discovering what tools you have connected and extracting durable meta-knowledge from them.
+Build a high-signal initial memory set. This workflow is deliberately conservative: discovery and storage are separate phases, and the user approves the proposed set before any write tool is called.
 
 ## Prerequisites
 
-The AI Brain connector must be available. If `mcp__ai-brain__capture_thought` and `mcp__ai-brain__search_thoughts` MCP tools are not available, stop and tell the user to connect AI Brain first.
+The AI Brain connector must expose `mcp__ai-brain__remember_fact`, `mcp__ai-brain__capture_thought`, `mcp__ai-brain__search_facts`, and `mcp__ai-brain__search_thoughts`. If any are unavailable, stop and ask the user to reconnect or update AI Brain.
 
-## Workflow
+## Non-negotiable rules
 
-### Step 1: Check Brain Status
+- Do not call any AI Brain write tool before Step 6 approval.
+- Propose at most 15 candidates in one run.
+- Each candidate must contain one subject and one independently changeable fact or one coherent narrative unit whose parts change together.
+- Prefer precise structured facts over prose whenever the information is a name, exact date, relationship, provider, school, employer, location, or scalar preference.
+- Never store a current age, tenure, or other derived value. Store an exact date of birth only when the complete date was explicitly stated or confirmed. Never infer a birth date from an age.
+- Never infer a relationship, role, preference, priority, or permanence from activity patterns.
+- A single email, meeting, message, repository interaction, or company mention is not durable knowledge.
+- Skip completed-task catalogs, vendor/company lists, browsing or activity logs, small talk, speculative ideas, credentials, authentication data, and secrets.
+- Existing assistant memory and connector content are evidence, not automatically true user facts.
+- If a fact may have changed, distinguish `changed` (old value was formerly true) from `corrected` (old value was inaccurate).
 
-Call `mcp__ai-brain__get_stats` to see if the brain already has content.
+## Step 1: Check current brain
 
-- If the brain has thoughts, tell the user: "Your brain already has [N] thoughts. Running brain-init will add new knowledge without duplicating what's already there. Proceeding..."
-- If the brain is empty, tell the user: "Setting up your AI Brain for the first time. I'll scan your connected tools and build your knowledge base automatically."
+Call `mcp__ai-brain__get_stats`. Tell the user whether this is an empty bootstrap or a proposed addition to an existing brain. Do not imply that existing content will be overwritten.
 
-### Step 2: Discover Connectors
+## Step 2: Discover sources
 
-Enumerate available MCP tools by checking what's loaded in this session. Look for these patterns:
+Identify sources available in the current session:
 
-| Connector | Tool patterns to look for | What it tells us |
-|-----------|--------------------------|------------------|
-| Email | `email_search`, `outlook_email_search`, `gmail_*` | Communication patterns, key contacts |
-| Calendar | `calendar_*`, `google_calendar_*`, `outlook_calendar_*` | Meeting rhythm, team structure |
-| ClickUp | `clickup_*`, `get_task`, `search_tasks` | Projects, responsibilities |
-| GitHub | GitHub MCP tools or `gh` CLI available | Repos, collaborators |
-| Slack | `slack_*`, `send_message`, `search_messages` | Team context, channels |
-| Linear | `linear_*` | Projects, issue tracking |
-| Jira | `jira_*` | Projects, issue tracking |
+1. Direct statements and confirmations in the current conversation.
+2. User-authored instruction or memory files such as `~/.claude/CLAUDE.md`, when the client can read them.
+3. Existing AI Brain facts and thoughts.
+4. Connected email, calendar, Slack, GitHub, project-management, or file tools.
 
-Report which connectors were found: "I found connections to: [list]. I'll use these to learn about your work."
+Report only which source categories are available. Do not perform an exhaustive scan.
 
-If no connectors beyond AI Brain are available, skip to Step 4 (Claude Memory) and then Step 5 (Fallback Questions).
+## Step 3: Gather bounded evidence
 
-### Step 3: Pull Meta-Knowledge from Connectors
+Use the smallest amount of source material needed to find durable candidates.
 
-For each available connector, extract **durable meta-knowledge** — not transient task data.
+- Direct user statements may support a candidate by themselves.
+- User-authored instruction files may support explicit preferences or identity facts.
+- Connected tools may suggest candidates, but never establish them. Use recent data only to identify a small number of potentially important people, projects, or recurring contexts worth asking about.
+- Do not enumerate frequent contacts, companies, meetings, tasks, channels, or repositories into memory.
+- Do not quote or save private message/email content. In the preview, name the source category and provide a short paraphrased rationale.
 
-**For email/communication tools:**
-- Search recent emails (last 14 days) to identify the 5-10 most frequent contacts
-- Note relationships: who do they report to? who reports to them? who do they collaborate with?
-- Do NOT save email content — just relationship patterns
+Stop gathering once 15 plausible high-value candidates have been found.
 
-**For calendar:**
-- List events from the last 14 days
-- Identify recurring meetings: name, frequency, attendees
-- Infer: team structure, work rhythm, role (e.g., "has 3 direct report 1:1s = likely a manager")
-- Do NOT save individual event details — just patterns
+## Step 4: Normalize and admit candidates
 
-**For project management (ClickUp/Linear/Jira):**
-- List spaces/projects the user is active in
-- Identify what they're assigned to most
-- Note project names and their apparent purpose
-- Do NOT save individual task details
+For every candidate, decide one of:
 
-**For GitHub:**
-- List repos with recent activity
-- Note primary languages, collaborators
-- Identify PR review patterns (who reviews whose code?)
+- `PROPOSE`: explicit or plausibly important, durable, atomic, and useful later.
+- `ASK`: potentially useful but needs the user's confirmation or a missing exact value/date.
+- `SKIP`: incidental, inferred, derived, transient, noisy, sensitive, or redundant.
 
-**For Slack:**
-- List channels the user is most active in
-- Note frequent conversation partners
-- Do NOT save message content
+Do not show ordinary `SKIP` items unless explaining why a tempting category was excluded. Never turn an `ASK` candidate into a stored fact without a user answer.
 
-Compile findings into structured notes organized by: role signals, key people, active projects, work patterns.
+Choose a storage form:
 
-### Step 4: Import Claude Memory
+### Structured fact
 
-Check for existing knowledge Claude has about this user:
+Use for precise subject-predicate-value knowledge. Prepare:
 
-1. Read `~/.claude/CLAUDE.md` if it exists — this contains user-stated preferences and instructions
-2. Read memory files from `~/.claude/projects/*/memory/` — these contain stored memories from previous sessions
-3. Draw on conversation context — what Claude already knows from prior sessions
+- subject `key`, `kind`, and canonical `name`
+- stable snake_case `predicate`
+- typed `value`
+- `validFrom` or `validTo` only if explicitly known
+- `isCore` only for a very small set of broadly useful enduring facts
 
-Organize findings into: people, projects, preferences, decisions, recurring topics.
+Examples:
 
-### Step 5: Fallback Questions (only if no connectors found)
+- `person:zevin` / `date_of_birth` / exact date
+- `person:jordan` / `primary_care_provider` / entity `person:dr-jane-smith`
+- `person:zevin` / `current_school` / entity `organization:downtown-school`
 
-If no connectors beyond AI Brain were discovered in Step 2, ask these 3-4 quick questions:
+### Narrative thought
 
-1. "What's your role? (e.g., frontend engineer, product manager, founder)"
-2. "What are you mainly working on right now? (1-3 projects)"
-3. "Who do you work with most closely? (2-5 people and their roles)"
+Use only for one durable decision with rationale, one coherent project state, one commitment, or one recurring pattern. Keep it concise. Do not use headings such as “About me,” “My team,” or “Active projects” to combine unrelated knowledge.
 
-Use the answers as the basis for Step 6 instead of connector data.
+## Step 5: Check for existing knowledge
 
-### Step 6: Synthesize and Save
+For each proposed fact, call `mcp__ai-brain__search_facts` using the exact subject name and predicate. For each proposed narrative, call `mcp__ai-brain__search_thoughts` using exact names and identifiers.
 
-Consolidate all sources into focused brain thoughts. Before saving each thought, call `mcp__ai-brain__search_thoughts` with the topic to check for duplicates.
+- Remove duplicates.
+- If a current single-valued fact conflicts, explicitly ask whether the new value represents a change or a correction.
+- Do not erase or silently overwrite the older state.
 
-Note: `search_thoughts` returns a compact index — `{id, summary, snippet, type, topics, score}`. If a candidate looks like a duplicate from its `summary` + `snippet`, call `mcp__ai-brain__get_thoughts` with the candidate's `id` to fetch full content and confirm before deciding.
+## Step 6: Preview and request approval
 
-**Thoughts to create:**
+Show one compact table with no more than 15 rows:
 
-1. **About me** — Role, responsibilities, what I work on, communication style, tools I use.
-   Format: "About me: [role] at [company if known]. Responsibilities: [list]. Primary tools: [list]. Communication style: [preferences from CLAUDE.md or inferred]."
+| #   | Proposed memory | Form | Source | Temporal handling | Core? |
+| --- | --------------- | ---- | ------ | ----------------- | ----- |
 
-2. **My team** — Key people, their roles, how we work together.
-   Format: "My team: [Person] ([role]) — [relationship/how we work together]. [repeat for each key person]."
+Then list any `ASK` questions separately. State how many noisy candidates were excluded and give category-level examples, not a long rejected list.
 
-3. **Active projects** — Current focus areas with context.
-   Format: "Active projects: [Project 1] — [what it is, my role in it]. [Project 2] — [description]. Priority order: [if determinable]."
+Ask the user to approve all, approve selected row numbers, edit them, or cancel. Stop and wait. Do not write anything in this step.
 
-4. **Work patterns** — Meeting rhythm, schedule patterns, preferences.
-   Format: "Work patterns: [recurring meetings]. Typical schedule: [if determinable]. Preferences: [from CLAUDE.md or inferred]."
+## Step 7: Store only approved candidates
 
-Save each via `mcp__ai-brain__capture_thought`. `capture_thought` returns the new thought's `thoughtId` — collect these so Step 7 can cite them.
+Create one batch id in the form `brain-init:<ISO timestamp>`.
 
-**Additionally:** If enough signal exists to identify project priorities, create a pinned goal list via `mcp__ai-brain__create_list` with the top projects, then call `mcp__ai-brain__update_list` to pin it.
+For each approved structured fact, call `mcp__ai-brain__remember_fact` with:
 
-### Step 7: Report
+- `sourceType: user_confirmed`
+- the batch id
+- one subject, predicate, and typed value
+- `cardinality: single` unless concurrent values are genuinely valid
+- `changeKind: changed` or `corrected` based on the user's answer
+- validity dates only when explicitly known
 
-Show the user a summary of what was captured, with each item cited as `thought:<id>` so they can trace provenance:
+For each approved narrative, call `mcp__ai-brain__capture_thought` with:
 
-- Which connectors were scanned
-- What was saved — one bullet per thought, each cited as `thought:<id>`
-- Whether a goals list was created (and its id)
-- Next steps: "Try `/brain-thread <topic>` to trace how your thinking on a theme evolves, or `/brain-context <date>` to restore what was on your mind at a specific time."
+- `sourceType: user_confirmed`
+- the batch id
+- one concise coherent narrative unit
 
-End with: "Does this look right? Anything missing or incorrect?"
+If a write is declined by the admission gate, report it; do not weaken or reword the candidate merely to force storage.
+
+## Step 8: Report
+
+Report:
+
+- facts stored, citing each as `fact:<id>`
+- narrative memories stored, citing each as `thought:<id>`
+- duplicates left unchanged
+- candidates not stored and why
+
+End by saying that future direct durable facts can be captured automatically; connector-derived information will continue to require confirmation.

@@ -28,20 +28,20 @@ tracked file. Use the provider dashboards or an interactive CLI prompt.
 
 ## Configuration map
 
-| Variable                   | Location          | Purpose                                                                   |
-| -------------------------- | ----------------- | ------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_CONVEX_URL`   | Vercel/Next.js    | Public Convex client origin; intentionally browser-visible                |
-| `MCP_JWT_ISSUER`           | Vercel and Convex | Stable HTTPS origin of the Next.js gateway; values must match exactly     |
-| `MCP_JWT_PRIVATE_JWK`      | Vercel only       | Signs 60-second Convex identity tokens; secret                            |
-| `MCP_JWT_PUBLIC_JWK`       | Vercel only       | Published through the MCP JWKS endpoint                                   |
-| `MCP_JWT_KEY_ID`           | Vercel only       | Identifies the signing key; generated with the key pair                   |
-| `MCP_OAUTH_ENCRYPTION_KEY` | Vercel only       | Encrypts OAuth registrations and authorization codes; secret              |
-| `MCP_TOOL_PROFILE`         | Vercel only       | `full` by default (all tools); set to `memory` to expose only the seven memory tools |
-| `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                    |
-| `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host      |
-| `SITE_URL`                 | Convex only       | Stable HTTPS origin of the Next.js app used by Convex Auth                |
-| `JWT_PRIVATE_KEY`          | Convex only       | Signs Convex Auth session tokens; generated secret                        |
-| `JWKS`                     | Convex only       | Public key set used to verify Convex Auth session tokens                  |
+| Variable                   | Location          | Purpose                                                                                          |
+| -------------------------- | ----------------- | ------------------------------------------------------------------------------------------------ |
+| `NEXT_PUBLIC_CONVEX_URL`   | Vercel/Next.js    | Public Convex client origin; intentionally browser-visible                                       |
+| `MCP_JWT_ISSUER`           | Vercel and Convex | Stable HTTPS origin of the Next.js gateway; values must match exactly                            |
+| `MCP_JWT_PRIVATE_JWK`      | Vercel only       | Signs 60-second Convex identity tokens; secret                                                   |
+| `MCP_JWT_PUBLIC_JWK`       | Vercel only       | Published through the MCP JWKS endpoint                                                          |
+| `MCP_JWT_KEY_ID`           | Vercel only       | Identifies the signing key; generated with the key pair                                          |
+| `MCP_OAUTH_ENCRYPTION_KEY` | Vercel only       | Encrypts OAuth registrations and authorization codes; secret                                     |
+| `MCP_TOOL_PROFILE`         | Vercel only       | `full` by default (all tools); set to `memory` to expose only the nine fact/thought memory tools |
+| `OPENAI_API_KEY`           | Convex only       | Creates embeddings; secret and billed to the self-host                                           |
+| `ANTHROPIC_API_KEY`        | Convex only       | Extracts and classifies memories; secret and billed to the self-host                             |
+| `SITE_URL`                 | Convex only       | Stable HTTPS origin of the Next.js app used by Convex Auth                                       |
+| `JWT_PRIVATE_KEY`          | Convex only       | Signs Convex Auth session tokens; generated secret                                               |
+| `JWKS`                     | Convex only       | Public key set used to verify Convex Auth session tokens                                         |
 
 The capture path combines classification and metadata extraction in one
 schema-constrained Haiku request. It reuses the original embedding when the
@@ -251,12 +251,13 @@ when its build artifacts were created with Preview-scoped variables.
 
 ## Common failures
 
-| Symptom                                    | Check                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| Health endpoint returns 503                | Fix only the variable names listed in `issues`                                              |
-| OAuth metadata has the wrong host          | Make `MCP_JWT_ISSUER` the final stable HTTPS origin and redeploy Vercel                     |
-| Convex rejects MCP identity tokens         | Match `MCP_JWT_ISSUER` in both systems, then redeploy Convex                                |
-| All capture or search calls fail           | Confirm the two provider variable names exist on the production Convex deployment           |
-| Account creation fails after saving a user | Confirm `SITE_URL`, `JWT_PRIVATE_KEY`, and `JWKS` exist on the production Convex deployment |
-| Clients must authorize again unexpectedly  | Check whether `MCP_OAUTH_ENCRYPTION_KEY` changed                                            |
-| Automatic capture is inconsistent          | Verify the client enabled the MCP server and inspect whether it called `capture_thought`    |
+| Symptom                                    | Check                                                                                                       |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Health endpoint returns 503                | Fix only the variable names listed in `issues`                                                              |
+| OAuth metadata has the wrong host          | Make `MCP_JWT_ISSUER` the final stable HTTPS origin and redeploy Vercel                                     |
+| Convex rejects MCP identity tokens         | Match `MCP_JWT_ISSUER` in both systems, then redeploy Convex                                                |
+| All capture or search calls fail           | Confirm the two provider variable names exist on the production Convex deployment                           |
+| Account creation fails after saving a user | Confirm `SITE_URL`, `JWT_PRIVATE_KEY`, and `JWKS` exist on the production Convex deployment                 |
+| Clients must authorize again unexpectedly  | Check whether `MCP_OAUTH_ENCRYPTION_KEY` changed                                                            |
+| Automatic capture is inconsistent          | Verify the client enabled the MCP server and inspect whether it called `remember_fact` or `capture_thought` |
+| Bootstrap creates broad or noisy memories  | Update/reinstall the bundled plugin, rerun `/brain-init`, and approve only the atomic preview               |

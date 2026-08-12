@@ -11,9 +11,18 @@ import {
   type MemoryStatus,
   type MemoryValidity,
 } from "./memoryLifecycle";
-import { thoughtMetadata } from "./validators";
+import { memorySourceType, thoughtMetadata } from "./validators";
 
 type ThoughtMetadata = Infer<typeof thoughtMetadata>;
+type MemorySourceType = Infer<typeof memorySourceType>;
+
+type ThoughtProvenance = {
+  sourceType?: MemorySourceType;
+  sourceRef?: string;
+  observedAt?: number;
+  batchId?: string;
+  confidence?: number;
+};
 
 export const DEFAULT_CORE_MEMORY_LIMIT = 10;
 export const MAX_CORE_MEMORY_LIMIT = 25;
@@ -118,7 +127,8 @@ export async function _insertOne(
     metadata: ThoughtMetadata;
     userId: Id<"users">;
     isCore?: boolean;
-  } & MemoryValidity,
+  } & MemoryValidity &
+    ThoughtProvenance,
 ) {
   assertValidMemoryValidity(fields);
   return await ctx.db.insert("thoughts", {
@@ -135,7 +145,8 @@ export async function _transitionMemory(
     metadata: ThoughtMetadata;
     userId: Id<"users">;
     isCore?: boolean;
-  } & MemoryValidity,
+  } & MemoryValidity &
+    ThoughtProvenance,
   previousIds: Array<Id<"thoughts">>,
   previousStatus: Exclude<MemoryStatus, "current">,
   reason: string,

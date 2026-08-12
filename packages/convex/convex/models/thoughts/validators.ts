@@ -23,6 +23,12 @@ export const memoryStatus = v.union(
   v.literal("retracted"),
 );
 
+export const memorySourceType = v.union(
+  v.literal("user_stated"),
+  v.literal("user_confirmed"),
+  v.literal("assistant_commitment"),
+);
+
 export const thoughtLifecycleFields = {
   // Core memories are a small, explicitly selected set suitable for always-on
   // context. Legacy memories without the marker are treated as non-core.
@@ -36,6 +42,11 @@ export const thoughtLifecycleFields = {
   supersededBy: v.optional(v.id("thoughts")),
   supersedes: v.optional(v.array(v.id("thoughts"))),
   changeReason: v.optional(v.string()),
+  sourceType: v.optional(memorySourceType),
+  sourceRef: v.optional(v.string()),
+  observedAt: v.optional(v.number()),
+  batchId: v.optional(v.string()),
+  confidence: v.optional(v.number()),
 };
 
 export const thoughtFields = {

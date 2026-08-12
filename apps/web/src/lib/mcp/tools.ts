@@ -1,4 +1,6 @@
 export const MCP_TOOL_NAMES = {
+  searchFacts: "search_facts",
+  rememberFact: "remember_fact",
   searchThoughts: "search_thoughts",
   recallContext: "recall_context",
   browseRecent: "browse_recent",

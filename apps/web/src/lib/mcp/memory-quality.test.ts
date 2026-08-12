@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const convexMocks = vi.hoisted(() => ({
   action: vi.fn(),
+  mutation: vi.fn(),
   query: vi.fn(),
   setAuth: vi.fn(),
 }));
@@ -11,6 +12,7 @@ const convexMocks = vi.hoisted(() => ({
 vi.mock("convex/browser", () => ({
   ConvexHttpClient: class {
     action = convexMocks.action;
+    mutation = convexMocks.mutation;
     query = convexMocks.query;
     setAuth = convexMocks.setAuth;
   },
@@ -50,8 +52,10 @@ describe("MCP memory quality contract", () => {
       const instructions = client.getInstructions();
       expect(instructions).toContain("complete current message verbatim");
       expect(instructions).toContain(
-        "Never turn assistant suggestions, guesses, deductions, or unconfirmed implications into facts",
+        "Never turn assistant suggestions, guesses, deductions, unconfirmed implications, or incidental connector mentions into user memory",
       );
+      expect(instructions).toContain("Never store a derived age");
+      expect(instructions).toContain("present a small atomic preview");
       expect(instructions).toContain("version strings");
       expect(instructions).toContain("Mark isCore true only");
       expect(instructions).toContain("client-mediated");
@@ -70,6 +74,8 @@ describe("MCP memory quality contract", () => {
       }
       const recall = tools.find((tool) => tool.name === "recall_context");
       const capture = tools.find((tool) => tool.name === "capture_thought");
+      const rememberFact = tools.find((tool) => tool.name === "remember_fact");
+      const searchFacts = tools.find((tool) => tool.name === "search_facts");
 
       expect(recall).toMatchObject({
         annotations: {
@@ -82,19 +88,23 @@ describe("MCP memory quality contract", () => {
       expect(recall?.description).toContain(
         "complete current message verbatim",
       );
-      expect(recall?.description).toContain("core memories");
+      expect(recall?.description).toContain("core facts/memories");
       expect(recall?.inputSchema.properties).toHaveProperty("query");
-      expect(capture?.description).toContain(
-        "Do not save assistant suggestions, guesses, or inferences as user facts",
-      );
-      expect(capture?.description).toContain("version strings");
+      expect(capture?.description).toContain("one atomic durable narrative");
+      expect(capture?.description).toContain("biographies");
       expect(capture?.inputSchema.properties).toHaveProperty("validFrom");
       expect(capture?.inputSchema.properties).toHaveProperty("validTo");
       expect(capture?.inputSchema.properties).toHaveProperty("isCore");
+      expect(capture?.inputSchema.properties).toHaveProperty("sourceType");
       expect(capture?.inputSchema.properties).toHaveProperty(
         "content.maxLength",
-        20_000,
+        2_000,
       );
+      expect(searchFacts?.annotations?.readOnlyHint).toBe(true);
+      expect(rememberFact?.description).toContain("Never store a derived age");
+      expect(rememberFact?.inputSchema.properties).toHaveProperty("subject");
+      expect(rememberFact?.inputSchema.properties).toHaveProperty("predicate");
+      expect(rememberFact?.inputSchema.properties).toHaveProperty("value");
       expect(capture?.annotations).toEqual({
         readOnlyHint: false,
         destructiveHint: false,
@@ -136,7 +146,7 @@ describe("MCP memory quality contract", () => {
 
   test("returns current core context before deduplicated relevance hits", async () => {
     const query = "What changed in Atlas Memory v2.7.1 for ticket ATLAS-184?";
-    convexMocks.query.mockResolvedValue([
+    const coreThoughts = [
       {
         _id: "core-preference",
         _creationTime: Date.UTC(2026, 7, 1),
@@ -182,7 +192,11 @@ describe("MCP memory quality contract", () => {
         memoryStatus: "current",
         isCore: true,
       },
-    ]);
+    ];
+    convexMocks.query
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(coreThoughts)
+      .mockResolvedValueOnce([]);
     convexMocks.action
       .mockResolvedValueOnce([
         {
@@ -309,6 +323,12 @@ describe("MCP memory quality contract", () => {
         includeHistorical: false,
       });
       expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 3 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 3 });
+      expect(convexMocks.query.mock.calls[2]?.[1]).toEqual({
+        query,
+        limit: 5,
+        includeHistorical: false,
+      });
       expect(convexMocks.action.mock.calls[1]?.[1]).toEqual({
         ids: ["atlas-version", "atlas-migration"],
       });
@@ -352,6 +372,7 @@ describe("MCP memory quality contract", () => {
   test("passes explicit validity and core status through capture", async () => {
     convexMocks.action.mockResolvedValue({
       thoughtId: "captured",
+      disposition: "stored",
       metadata: {
         type: "reference",
         topics: ["Atlas Memory"],
@@ -377,6 +398,7 @@ describe("MCP memory quality contract", () => {
           validFrom: "2026-08-10",
           validTo: "2026-08-11T12:00:00Z",
           isCore: false,
+          sourceType: "user_stated",
         },
       });
 
@@ -386,7 +408,89 @@ describe("MCP memory quality contract", () => {
         validFrom: Date.UTC(2026, 7, 10),
         validTo: Date.parse("2026-08-11T12:00:00Z"),
         isCore: false,
+        sourceType: "user_stated",
+        sourceRef: undefined,
+        observedAt: undefined,
+        batchId: undefined,
       });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("passes a typed relationship fact with explicit provenance and time", async () => {
+    convexMocks.mutation.mockResolvedValue({
+      factId: "pcp-fact",
+      statement: "Jordan — primary care provider: Dr. Rivera.",
+      operation: "stored",
+    });
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "remember_fact",
+        arguments: {
+          subject: {
+            key: "person:jordan",
+            kind: "person",
+            name: "Jordan",
+          },
+          predicate: "primary_care_provider",
+          value: {
+            type: "entity",
+            entity: {
+              key: "person:dr-rivera",
+              kind: "person",
+              name: "Dr. Rivera",
+            },
+          },
+          sourceType: "user_stated",
+          sourceRef: "current conversation",
+          observedAt: "2026-08-11T14:00:00-07:00",
+          validFrom: "2026-08-01",
+          cardinality: "single",
+          changeKind: "changed",
+        },
+      });
+
+      expect(result.isError).not.toBe(true);
+      expect(convexMocks.mutation.mock.calls[0]?.[1]).toEqual({
+        subject: {
+          key: "person:jordan",
+          kind: "person",
+          name: "Jordan",
+        },
+        predicate: "primary_care_provider",
+        value: {
+          type: "entity",
+          entity: {
+            key: "person:dr-rivera",
+            kind: "person",
+            name: "Dr. Rivera",
+          },
+        },
+        sourceType: "user_stated",
+        sourceRef: "current conversation",
+        observedAt: Date.parse("2026-08-11T21:00:00Z"),
+        batchId: undefined,
+        isCore: undefined,
+        validFrom: Date.UTC(2026, 7, 1),
+        validTo: undefined,
+        cardinality: "single",
+        changeKind: "changed",
+        changeReason: undefined,
+      });
+      expect(
+        (result as { content?: Array<{ text?: string }> }).content?.[0]?.text,
+      ).toContain("fact:pcp-fact");
     } finally {
       await client.close();
       await server.close();

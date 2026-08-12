@@ -7,6 +7,7 @@ import {
   canReuseEmbedding,
   fallbackThoughtMetadata,
   normalizeCaptureContent,
+  preflightNarrativeAdmission,
   type ThoughtAnalysis,
 } from "./memoryAnalysis";
 import {
@@ -16,6 +17,7 @@ import {
   type MemoryStatus,
 } from "./memoryLifecycle";
 import { memoryStatus, thoughtMetadata, thoughtType } from "./validators";
+import { memorySourceType } from "./validators";
 
 // Break circular type inference — actions.ts exports are part of `internal`'s type,
 // so referencing `internal` here creates a cycle. Runtime behavior is unchanged.
@@ -29,15 +31,50 @@ export const captureThought = internalAction({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
+    sourceType: memorySourceType,
+    sourceRef: v.optional(v.string()),
+    observedAt: v.optional(v.number()),
+    batchId: v.optional(v.string()),
   },
   returns: v.object({
-    thoughtId: v.id("thoughts"),
+    thoughtId: v.optional(v.id("thoughts")),
     metadata: thoughtMetadata,
+    disposition: v.union(
+      v.literal("stored"),
+      v.literal("duplicate"),
+      v.literal("superseded"),
+      v.literal("corrected"),
+      v.literal("needs_confirmation"),
+      v.literal("skipped"),
+    ),
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
     assertValidMemoryValidity(args);
+    if (
+      (args.observedAt !== undefined && !Number.isFinite(args.observedAt)) ||
+      (args.sourceRef !== undefined &&
+        (!args.sourceRef.trim() || args.sourceRef.length > 500)) ||
+      (args.batchId !== undefined &&
+        (!args.batchId.trim() || args.batchId.length > 160))
+    ) {
+      throw new Error("Invalid memory provenance");
+    }
     const content = normalizeCaptureContent(args.content);
+    const preflight = preflightNarrativeAdmission(content);
+    if (preflight) {
+      return {
+        metadata: fallbackThoughtMetadata(content),
+        disposition:
+          preflight.action === "ASK"
+            ? ("needs_confirmation" as const)
+            : ("skipped" as const),
+        operationSummary:
+          preflight.action === "ASK"
+            ? `Memory was not stored: ${preflight.reason}`
+            : `Memory was skipped: ${preflight.reason}`,
+      };
+    }
     const embedding = await ctx.runAction(
       internal.models.thoughts.helpers.generateEmbedding,
       { text: content },
@@ -96,29 +133,74 @@ export const captureThought = internalAction({
         validTo: doc.validTo,
       }));
 
+    // Structured storage owns the predicates it records, so the gate has to see
+    // covering facts before it can decide this content is new.
+    const coveringFacts: Array<{ id: string; statement: string }> =
+      await ctx.runQuery(internal.models.facts.private.searchCoveringFacts, {
+        userId: args.userId,
+        query: content,
+      });
+
     let analysis: ThoughtAnalysis | null = null;
     try {
       analysis = await ctx.runAction(
         internal.models.thoughts.classify.analyzeThought,
         {
           newContent: content,
+          sourceType: args.sourceType,
           newValidFrom: args.validFrom,
           newValidTo: args.validTo,
           candidates: validCandidates,
+          coveringFacts,
         },
       );
     } catch (error) {
       console.error(
-        "[Smart Save] Memory analysis failed, falling back to ADD:",
+        "[Smart Save] Memory analysis failed; declining automatic storage:",
         error,
       );
     }
 
     let classification = analysis?.classification ?? null;
 
+    if (!classification) {
+      const metadata = fallbackThoughtMetadata(content);
+      return {
+        metadata,
+        disposition: "needs_confirmation" as const,
+        operationSummary:
+          "Memory was not stored because the admission check was unavailable",
+      };
+    }
+
+    if (classification.action === "ASK" || classification.action === "SKIP") {
+      return {
+        metadata: analysis?.metadata ?? fallbackThoughtMetadata(content),
+        disposition:
+          classification.action === "ASK"
+            ? ("needs_confirmation" as const)
+            : ("skipped" as const),
+        operationSummary:
+          classification.action === "ASK"
+            ? `Memory was not stored: ${classification.reason}`
+            : `Memory was skipped: ${classification.reason}`,
+      };
+    }
+
     if (classification?.action === "NOOP") {
-      const existingId = classification.relatedThoughtIds[0] as
-        Id<"thoughts"> | undefined;
+      const citedId = classification.relatedThoughtIds[0];
+      // The cited id may name a fact rather than a thought. Check before it
+      // reaches a query validated as `v.id("thoughts")`.
+      const coveringFact = coveringFacts.find((fact) => fact.id === citedId);
+      if (coveringFact) {
+        return {
+          metadata: analysis?.metadata ?? fallbackThoughtMetadata(content),
+          disposition: "duplicate" as const,
+          operationSummary: `Already recorded as a structured fact: ${coveringFact.statement}`,
+        };
+      }
+
+      const existingId = citedId as Id<"thoughts"> | undefined;
       const existing = existingId
         ? await ctx.runQuery(internal.models.thoughts.private.getById, {
             id: existingId,
@@ -142,6 +224,7 @@ export const captureThought = internalAction({
         return {
           thoughtId: existing._id,
           metadata: existing.metadata,
+          disposition: "duplicate" as const,
           operationSummary:
             args.isCore === undefined
               ? "Thought already captured — no changes made"
@@ -189,6 +272,11 @@ export const captureThought = internalAction({
               validFrom: args.validFrom,
               validTo: args.validTo,
               isCore: args.isCore,
+              sourceType: args.sourceType,
+              sourceRef: args.sourceRef?.trim(),
+              observedAt: args.observedAt,
+              batchId: args.batchId?.trim(),
+              confidence: 1,
             },
           );
           const count = classification.relatedThoughtIds.length;
@@ -208,6 +296,10 @@ export const captureThought = internalAction({
           return {
             thoughtId,
             metadata: replacementMetadata,
+            disposition:
+              classification.action === "SUPERSEDE"
+                ? ("superseded" as const)
+                : ("corrected" as const),
             operationSummary,
           };
         } catch (error) {
@@ -233,10 +325,15 @@ export const captureThought = internalAction({
         validFrom: args.validFrom,
         validTo: args.validTo,
         isCore: args.isCore,
+        sourceType: args.sourceType,
+        sourceRef: args.sourceRef?.trim(),
+        observedAt: args.observedAt,
+        batchId: args.batchId?.trim(),
+        confidence: 1,
       },
     );
 
-    return { thoughtId, metadata };
+    return { thoughtId, metadata, disposition: "stored" as const };
   },
 });
 

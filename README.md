@@ -26,19 +26,32 @@ Run the local verification suite with:
     pnpm test:once
     pnpm build
 
-## Automatic capture, grounded recall, and temporal memory
+## Structured facts, narrative memory, and grounded recall
 
-The MCP server instructs capable clients to call `capture_thought`
-automatically when a conversation reveals durable personal facts,
-preferences, relationships, project changes, decisions, or recurring working
-patterns. This is client-mediated: an MCP server cannot observe a conversation
-unless the client invokes one of its tools.
+AI Brain uses a hybrid memory model:
+
+- `entities` give people, organizations, projects, and places stable identities.
+- `facts` store precise typed subject-predicate-value knowledge such as exact
+  dates, relationships, providers, schools, employers, and scalar preferences.
+- `thoughts` store one coherent narrative decision, project state, commitment,
+  or recurring pattern.
+
+Readable fact statements are generated from structured data for search and
+display; the typed value remains authoritative. The MCP server instructs
+capable clients to call `remember_fact` or `capture_thought` automatically for
+explicit durable information. This remains client-mediated: an MCP server
+cannot observe a conversation unless the client invokes one of its tools.
 
 For relevant prompts, `recall_context` combines a small set of explicitly
-marked core memories with query-specific hybrid search results and returns the
-full records needed to answer. Clients are instructed to send the user's
-complete current message so exact names, identifiers, and version strings reach
-keyword search as well as semantic search.
+marked core facts/memories with query-specific fact and thought search results.
+Clients are instructed to send the user's complete current message so exact
+names, identifiers, and version strings reach retrieval unchanged.
+
+Precise facts are account-isolated, source-labelled, and optionally associated
+with an import batch. A single-valued fact change creates a new current record
+and preserves the former record as `superseded`; a correction marks the
+inaccurate record `retracted`. Derived ages are rejected in favor of an exact
+`date_of_birth` value when the date is actually known.
 
 Smart Save compares each capture with the account's current memories:
 
@@ -48,6 +61,8 @@ Smart Save compares each capture with the account's current memories:
   memory as `superseded`.
 - A correction creates a new current memory and marks the incorrect memory as
   `retracted`.
+- Broad, incidental, inferred, derived, or non-atomic candidates are returned
+  as `ASK` or `SKIP` without being stored.
 
 Superseded and retracted memories are preserved and linked to their replacement;
 they are not overwritten or deleted. Normal search and browsing return current
@@ -64,8 +79,9 @@ are retracted and have no historical validity interval.
 
 The Convex backend currently uses OpenAI
 `text-embedding-3-small` for semantic search and Anthropic Claude Haiku for
-one schema-constrained Smart Save analysis that combines classification and
-metadata extraction. A capture normally uses one embedding and one Haiku call;
+one schema-constrained Smart Save analysis that combines admission,
+classification, and metadata extraction for narrative thoughts. A narrative
+capture normally uses one embedding and one Haiku call;
 a second embedding is created only when a changed fact produces different
 standalone replacement text. Set `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` on
 your Convex deployment.

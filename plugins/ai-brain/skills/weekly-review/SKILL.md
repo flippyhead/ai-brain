@@ -7,7 +7,7 @@ description: Weekly synthesis of your brain thoughts, workflow insights, and goa
 
 A weekly synthesis that cross-references your brain thoughts, workflow insights, and goals to surface what you'd miss looking at any one source alone.
 
-Every claim in the output must be grounded in a source — cite thoughts as `thought:<id>`, insights as `insight:<id>`, lists as `list:<id>`.
+Every claim in the output must be grounded in a source — cite structured facts as `fact:<id>`, thoughts as `thought:<id>`, insights as `insight:<id>`, lists as `list:<id>`.
 
 ## Workflow
 
@@ -23,6 +23,7 @@ Call this `weekStartMs`.
 ### Step 2: Pull the Week's Timeline
 
 Call `mcp__ai-brain__timeline_thoughts` with:
+
 - `aroundMs`: `weekStartMs`
 - `before`: `0`
 - `after`: `50`
@@ -67,11 +68,13 @@ Cite 2-3 anchor thoughts: `thought:<id>`.
 Compare workflow insights (what you actually did) against pinned goals (what you intended to do).
 
 Flag:
+
 - Goals with no corresponding session activity — "You said [goal] is a priority but had no sessions related to it" — cite the goal as `list:<id>`.
 - Heavy activity on topics not in your goals — "[Topic] consumed [X]% of sessions but isn't in your goals" — cite `insight:<id>`.
 - Momentum shifts — "[Topic] went from [X]% to [Y]% of sessions week over week" — cite `insight:<id>`.
 
 If no workflow insights are available, display instead:
+
 > "Install the `radar` plugin (`/plugin install radar@flippyhead/radar`) for time allocation analysis."
 
 ---
@@ -81,6 +84,7 @@ If no workflow insights are available, display instead:
 Review the themes from saved thoughts this week. Cite each theme to an anchor thought.
 
 Highlight:
+
 - Topics with workflow insights but no saved thoughts — "You worked on [topic] but didn't save any knowledge about it — is there something worth persisting?" — cite `insight:<id>`.
 - Repeated thought topics — building momentum on a theme — cite 2-3 `thought:<id>` examples.
 - Cross-domain connections — thoughts from different contexts that might be related — cite the connected thoughts.
@@ -90,6 +94,7 @@ Highlight:
 **Open Loops**
 
 Aggregate unfinished threads from all sources:
+
 - Open items from pinned lists — cite each `list:<id>` with item counts.
 - Workflow insights still marked "new" — cite each `insight:<id>`.
 - Decisions mentioned in thoughts that lack clear resolution — cite the `thought:<id>` where the decision was raised.
@@ -109,5 +114,7 @@ After presenting the review, ask:
 
 If yes, save a condensed version via `mcp__ai-brain__capture_thought` with format:
 "Weekly review (week of [ISO date]): [2-3 sentence summary of key themes, attention vs. intention highlights, and top recommendation]. Grounded in: thought:<id1>, thought:<id2>, insight:<id1>."
+
+Pass `sourceType: user_confirmed`. Keep the review to one coherent weekly retrospective rather than adding unrelated personal facts.
 
 Return the new `thought:<id>` to the user so they can find this review later via `/brain-thread` or `/brain-context`.

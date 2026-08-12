@@ -15,8 +15,16 @@ export const capture = action({
     isCore: v.optional(v.boolean()),
   },
   returns: v.object({
-    thoughtId: v.id("thoughts"),
+    thoughtId: v.optional(v.id("thoughts")),
     metadata: thoughtMetadata,
+    disposition: v.union(
+      v.literal("stored"),
+      v.literal("duplicate"),
+      v.literal("superseded"),
+      v.literal("corrected"),
+      v.literal("needs_confirmation"),
+      v.literal("skipped"),
+    ),
     operationSummary: v.optional(v.string()),
   }),
   handler: async (ctx, args) => {
@@ -30,6 +38,7 @@ export const capture = action({
         validFrom: args.validFrom,
         validTo: args.validTo,
         isCore: args.isCore,
+        sourceType: "user_confirmed",
       },
     );
   },

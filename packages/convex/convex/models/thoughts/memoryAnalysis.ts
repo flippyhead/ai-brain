@@ -3,7 +3,7 @@ import {
   type MemoryClassification,
 } from "./memoryLifecycle";
 
-export const MAX_CAPTURE_CONTENT_CHARS = 20_000;
+export const MAX_CAPTURE_CONTENT_CHARS = 2_000;
 
 export const THOUGHT_TYPES = [
   "decision",
@@ -27,6 +27,11 @@ export type ThoughtMetadataValue = {
 export type ThoughtAnalysis = {
   classification: MemoryClassification;
   metadata: ThoughtMetadataValue;
+};
+
+export type NarrativePreflightDecision = {
+  action: "ASK" | "SKIP";
+  reason: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +58,56 @@ export function normalizeCaptureContent(content: string): string {
     );
   }
   return normalized;
+}
+
+/**
+ * Rejects the clearest bad ingestion shapes before paying for embeddings or a
+ * model admission call. The model still makes the nuanced durability decision;
+ * this guard keeps known bootstrap failure modes deterministic.
+ */
+export function preflightNarrativeAdmission(
+  content: string,
+): NarrativePreflightDecision | null {
+  const normalized = content.trim();
+  const hasDerivedAge =
+    /\bage\s*[:=]?\s*\d{1,3}\b/i.test(normalized) ||
+    /\b\d{1,3}\s*(?:years?|yrs?)\s+old\b/i.test(normalized);
+  if (hasDerivedAge) {
+    const mostlyAgeClaim =
+      Array.from(normalized).length <= 200 &&
+      normalized.split(/[.!?](?:\s|$)/).filter(Boolean).length <= 2;
+    return {
+      action: mostlyAgeClaim ? "SKIP" : "ASK",
+      reason: mostlyAgeClaim
+        ? "Derived ages go stale; store an exact date_of_birth fact only when explicitly known"
+        : "This bundle contains a derived age and must be atomized; omit the age or replace it with an explicitly known date_of_birth fact",
+    };
+  }
+
+  const bulletCount = normalized
+    .split("\n")
+    .filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line)).length;
+  const sentenceCount = normalized
+    .split(/[.!?](?:\s|$)/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean).length;
+  const broadHeading =
+    /^(?:about me|my team|active projects|work patterns|personal profile|biography)\s*:/i.test(
+      normalized,
+    );
+  if (
+    Array.from(normalized).length > 1_200 ||
+    bulletCount > 3 ||
+    sentenceCount > 5 ||
+    broadHeading
+  ) {
+    return {
+      action: "ASK",
+      reason:
+        "This looks like a broad bucket or activity catalog; split it into atomic structured facts and coherent narrative memories before storage",
+    };
+  }
+  return null;
 }
 
 export function fallbackThoughtMetadata(content: string): ThoughtMetadataValue {

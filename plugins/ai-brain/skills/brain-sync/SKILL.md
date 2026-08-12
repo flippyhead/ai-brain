@@ -85,13 +85,13 @@ For each unchanged fact, note the `thought:<id>` that already captures it — yo
 Based on the diff from Step 4:
 
 **First sync** (no hydrated thoughts, or all candidates were unrelated):
-Capture a comprehensive project summary via `mcp__ai-brain__capture_thought`. Structure the content with the project name first. Example format:
+Do not create a comprehensive bucket. Store up to three independently changeable units:
 
-```
-Project: <name> — <one-line description>. Tech stack: <technologies>. Key features: <features>. Current status: <status>. Next steps: <direction>.
-```
+- Use `mcp__ai-brain__remember_fact` for an explicit project name, one-line purpose, repository, or other precise scalar attribute. Use subject kind `project`, a stable `project:<slug>` key, `sourceType: user_confirmed`, and cite the project file in `sourceRef`.
+- Use `mcp__ai-brain__capture_thought` for one coherent current project state or one decision/roadmap direction. Pass `sourceType: user_confirmed` and a project-file `sourceRef`.
+- Do not store a dependency/technology inventory unless the user has said it is strategically important. Do not store completed commit or PR catalogs.
 
-If the summary would be excessively long, split into 2-3 focused thoughts (e.g., project overview, current status/roadmap). Collect each `thoughtId` returned.
+Collect each returned `factId` or `thoughtId`.
 
 **Subsequent syncs** (hydrated thoughts found):
 Only capture thoughts for meaningful changes. Frame each as an update:
@@ -101,6 +101,8 @@ Update: <project-name> — <what changed> (<date>). <new status or direction>.
 ```
 
 Skip unchanged information. If nothing meaningful has changed, capture no thoughts.
+
+Pass `sourceType: user_confirmed` and the relevant file path as `sourceRef` for every capture. Route precise attribute changes through `remember_fact`; use `changeKind: changed` when the old value was formerly true and `corrected` only when it was inaccurate.
 
 `capture_thought` performs the temporal reconciliation. When the prior state
 is known, make the update standalone and include both what is true now and the
