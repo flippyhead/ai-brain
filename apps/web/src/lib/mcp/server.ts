@@ -1,5 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { api } from "@repo/db/convex/_generated/api";
+import {
+  blendRecallContext,
+  coreLimitFor,
+} from "@repo/db/convex/models/recallBlend";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
@@ -591,7 +595,7 @@ export function createMcpServer(convexAuthToken: string) {
         changeReason?: string;
       };
       type ContextFact = FactResult;
-      const coreLimit = Math.min(3, limit);
+      const coreLimit = coreLimitFor(limit);
       const [coreFacts, coreThoughts, relevantFacts, index]: [
         ContextFact[],
         CoreThought[],
@@ -632,32 +636,21 @@ export function createMcpServer(convexAuthToken: string) {
         };
       }
 
-      const selectedCoreFacts = coreFacts.slice(0, Math.min(2, coreLimit));
-      const selectedCoreThoughts = coreThoughts.slice(
-        0,
-        Math.max(0, coreLimit - selectedCoreFacts.length),
-      );
-      const coreFactIds = new Set(selectedCoreFacts.map((fact) => fact.id));
-      const coreThoughtIds = new Set(
-        selectedCoreThoughts.map((thought) => thought._id),
-      );
-      const relevanceLimit = Math.max(
-        0,
-        limit - selectedCoreFacts.length - selectedCoreThoughts.length,
-      );
-      const factRelevanceLimit =
-        index.length === 0
-          ? relevanceLimit
-          : Math.min(
-              relevanceLimit,
-              Math.max(1, Math.ceil(relevanceLimit / 2)),
-            );
-      const relevanceFacts = relevantFacts
-        .filter((fact) => !coreFactIds.has(fact.id))
-        .slice(0, factRelevanceLimit);
-      const relevanceIndex = index
-        .filter((row) => !coreThoughtIds.has(row._id))
-        .slice(0, Math.max(0, relevanceLimit - relevanceFacts.length));
+      const {
+        coreFacts: selectedCoreFacts,
+        coreThoughts: selectedCoreThoughts,
+        relevanceFacts,
+        relevanceThoughts: relevanceIndex,
+      } = blendRecallContext({
+        coreFacts,
+        coreThoughts,
+        relevantFacts,
+        relevantThoughts: index,
+        limit,
+        factId: (fact) => fact.id,
+        coreThoughtId: (thought) => thought._id,
+        relevantThoughtId: (row) => row._id,
+      });
 
       type Thought = {
         _id: string;

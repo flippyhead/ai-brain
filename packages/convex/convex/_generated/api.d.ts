@@ -31,6 +31,7 @@ import type * as models_lists_public from "../models/lists/public.js";
 import type * as models_lists_validators from "../models/lists/validators.js";
 import type * as models_oauth_mcpMutations from "../models/oauth/mcpMutations.js";
 import type * as models_oauth_validators from "../models/oauth/validators.js";
+import type * as models_recallBlend from "../models/recallBlend.js";
 import type * as models_reports_mcpActions from "../models/reports/mcpActions.js";
 import type * as models_reports_mcpMutations from "../models/reports/mcpMutations.js";
 import type * as models_reports_mcpQueries from "../models/reports/mcpQueries.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "models/lists/validators": typeof models_lists_validators;
   "models/oauth/mcpMutations": typeof models_oauth_mcpMutations;
   "models/oauth/validators": typeof models_oauth_validators;
+  "models/recallBlend": typeof models_recallBlend;
   "models/reports/mcpActions": typeof models_reports_mcpActions;
   "models/reports/mcpMutations": typeof models_reports_mcpMutations;
   "models/reports/mcpQueries": typeof models_reports_mcpQueries;

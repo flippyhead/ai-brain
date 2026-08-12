@@ -209,6 +209,15 @@ deliberately states the corrected value *and* names the earlier claim as
 inaccurate, so the string legitimately appears. Withholding the retracted fact
 is covered by the status check instead.
 
+The blend policy itself is now a single shared function, `models/recallBlend`,
+used by both the MCP tool and the harness. The first version of this harness
+prepended every fact before every memory, which is not what a client receives:
+core facts are capped at two, remaining core slots go to memories, and the
+relevance budget is split between the stores. Because scoring is top-k, that
+ordering difference meant the harness could score a window nobody sees and miss
+the very disagreements it was added to catch. Ordering is part of the contract,
+so it belongs in one place rather than two.
+
 ### Phase 2 — gaps that need no further evidence
 
 - `forget_thought`. There is currently no delete path for a memory. Retraction

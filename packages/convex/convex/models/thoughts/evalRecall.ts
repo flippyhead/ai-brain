@@ -7,6 +7,7 @@ import {
   type RetrievalEvaluationResult,
 } from "./memoryEval";
 import { liveRecallCorpus, type SeedMemory } from "./memoryEval.corpus";
+import { blendRecallContext, coreLimitFor } from "../recallBlend";
 
 // Matches the pattern in mcpActions.ts: the generated API type collapses under
 // action-to-action recursion.
@@ -149,6 +150,24 @@ export const runBaseline = internalAction({
         }
 
         for (const fact of account.facts ?? []) {
+          if (fact.corrects !== undefined) {
+            const prior = (account.facts ?? []).find(
+              (candidate) => candidate.key === fact.corrects,
+            );
+            // Correction metadata is driven by subject and predicate, so a
+            // dangling or mismatched reference would silently seed an ordinary
+            // fact and quietly weaken the case that depends on it.
+            if (
+              prior === undefined ||
+              !factIdByKey.has(fact.corrects) ||
+              prior.subjectKey !== fact.subjectKey ||
+              prior.predicate !== fact.predicate
+            ) {
+              throw new Error(
+                `Corpus fact "${fact.key}" corrects "${fact.corrects}", which is not an already-seeded fact with the same subject and predicate`,
+              );
+            }
+          }
           const result: { factId: Id<"facts"> } = await ctx.runMutation(
             internal.models.facts.private.seedFact,
             {
@@ -201,28 +220,35 @@ export const runBaseline = internalAction({
             id: string;
             statement: string;
             status: string;
+            source: "core" | "relevant";
           }> = await ctx.runQuery(internal.models.facts.private.recallFacts, {
             userId,
             query: query.query,
             includeHistorical: query.includeHistorical,
           });
 
-          const factResults: RetrievalEvaluationResult[] = factRows.map(
-            (row) => {
-              const owner = ownerByFactId.get(row.id);
-              return {
-                id: owner?.key ?? `unseeded:${row.id}`,
-                userId: owner?.label ?? "unknown",
-                memoryStatus:
-                  row.status === "superseded" || row.status === "retracted"
-                    ? row.status
-                    : "current",
-                content: row.statement,
-              };
-            },
-          );
+          const toFactResult = (row: {
+            id: string;
+            statement: string;
+            status: string;
+          }): RetrievalEvaluationResult => {
+            const owner = ownerByFactId.get(row.id);
+            return {
+              id: owner?.key ?? `unseeded:${row.id}`,
+              userId: owner?.label ?? "unknown",
+              memoryStatus:
+                row.status === "superseded" || row.status === "retracted"
+                  ? row.status
+                  : "current",
+              content: row.statement,
+            };
+          };
 
-          const thoughtResults: RetrievalEvaluationResult[] = hits.map((hit) => {
+          const toThoughtResult = (hit: {
+            _id: Id<"thoughts">;
+            content: string;
+            memoryStatus: "current" | "superseded" | "retracted";
+          }): RetrievalEvaluationResult => {
             const owner = ownerByThoughtId.get(hit._id);
             return {
               // An unseeded id means the deployment held pre-existing data;
@@ -232,7 +258,48 @@ export const runBaseline = internalAction({
               memoryStatus: hit.memoryStatus,
               content: hit.content,
             };
-          });
+          };
+
+          const coreThoughtDocs: Array<{
+            _id: Id<"thoughts">;
+            content: string;
+            memoryStatus?: "current" | "superseded" | "retracted";
+          }> = await ctx.runQuery(
+            internal.models.thoughts.private.listCoreByUser,
+            { userId, limit: coreLimitFor(SEARCH_LIMIT) },
+          );
+
+          // Score the window a client actually receives. `recall_context`
+          // defaults to five results, so the blend is rebuilt per cutoff rather
+          // than sliced from one oversized list — the core allocation itself
+          // depends on the limit.
+          const blendAt = (limit: number): RetrievalEvaluationResult[] => {
+            const blend = blendRecallContext({
+              coreFacts: factRows.filter((row) => row.source === "core"),
+              coreThoughts: coreThoughtDocs,
+              relevantFacts: factRows.filter((row) => row.source === "relevant"),
+              relevantThoughts: hits,
+              limit,
+              factId: (row) => row.id,
+              coreThoughtId: (doc) => doc._id as string,
+              relevantThoughtId: (hit) => hit._id as string,
+            });
+            return [
+              ...blend.coreFacts.map(toFactResult),
+              ...blend.coreThoughts.map((doc) =>
+                toThoughtResult({
+                  _id: doc._id,
+                  content: doc.content,
+                  memoryStatus: doc.memoryStatus ?? "current",
+                }),
+              ),
+              ...blend.relevanceFacts.map(toFactResult),
+              ...blend.relevanceThoughts.map(toThoughtResult),
+            ];
+          };
+
+          const blendedAtFive = blendAt(5);
+          const blendedResults = blendAt(SEARCH_LIMIT);
 
           const shared = {
             name: `${account.label}: ${query.name}`,
@@ -242,9 +309,13 @@ export const runBaseline = internalAction({
             includeHistorical: query.includeHistorical,
             expectedExactStrings: query.expectedExactStrings,
             forbiddenExactStrings: query.forbiddenExactStrings,
-            results: [...factResults, ...thoughtResults],
+            results: blendedResults,
           };
-          const atFive = evaluateRetrievalCase({ ...shared, k: 5 });
+          const atFive = evaluateRetrievalCase({
+            ...shared,
+            results: blendedAtFive,
+            k: 5,
+          });
           const atTen = evaluateRetrievalCase({ ...shared, k: SEARCH_LIMIT });
 
           cases.push({
@@ -255,9 +326,7 @@ export const runBaseline = internalAction({
             retractedOrStaleIds: atTen.unexpectedHistoricalIds,
             missingExactStrings: atTen.missingExactStrings,
             presentForbiddenStrings: atTen.presentForbiddenStrings,
-            returnedKeys: [...factResults, ...thoughtResults].map(
-              (result) => result.id,
-            ),
+            returnedKeys: blendedResults.map((result) => result.id),
           });
         }
       }
