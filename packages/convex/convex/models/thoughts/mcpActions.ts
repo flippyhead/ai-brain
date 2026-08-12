@@ -28,7 +28,7 @@ export const capture = action({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
-    sourceType: memorySourceType,
+    sourceType: v.optional(memorySourceType),
     sourceRef: v.optional(v.string()),
     observedAt: v.optional(v.number()),
     batchId: v.optional(v.string()),
