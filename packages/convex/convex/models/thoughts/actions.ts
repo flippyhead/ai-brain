@@ -31,7 +31,7 @@ export const captureThought = internalAction({
     validFrom: v.optional(v.number()),
     validTo: v.optional(v.number()),
     isCore: v.optional(v.boolean()),
-    sourceType: memorySourceType,
+    sourceType: v.optional(memorySourceType),
     sourceRef: v.optional(v.string()),
     observedAt: v.optional(v.number()),
     batchId: v.optional(v.string()),
@@ -61,6 +61,22 @@ export const captureThought = internalAction({
       throw new Error("Invalid memory provenance");
     }
     const content = normalizeCaptureContent(args.content);
+
+    // A client connected before `sourceType` existed cannot supply it, and its
+    // cached tool schema only refreshes on reconnect. Rejecting the call breaks
+    // capture outright for that client, while defaulting to `user_stated` would
+    // label ungrounded content as something the user said — the exact laundering
+    // this field prevents. Treat absence as ungrounded and ask instead.
+    if (args.sourceType === undefined) {
+      return {
+        metadata: fallbackThoughtMetadata(content),
+        disposition: "needs_confirmation" as const,
+        operationSummary:
+          "Memory was not stored because its grounding is unknown. Resend with sourceType once the user has stated or confirmed it",
+      };
+    }
+    const sourceType = args.sourceType;
+
     const preflight = preflightNarrativeAdmission(content);
     if (preflight) {
       return {
@@ -147,7 +163,7 @@ export const captureThought = internalAction({
         internal.models.thoughts.classify.analyzeThought,
         {
           newContent: content,
-          sourceType: args.sourceType,
+          sourceType,
           newValidFrom: args.validFrom,
           newValidTo: args.validTo,
           candidates: validCandidates,
@@ -272,7 +288,7 @@ export const captureThought = internalAction({
               validFrom: args.validFrom,
               validTo: args.validTo,
               isCore: args.isCore,
-              sourceType: args.sourceType,
+              sourceType,
               sourceRef: args.sourceRef?.trim(),
               observedAt: args.observedAt,
               batchId: args.batchId?.trim(),
@@ -325,7 +341,7 @@ export const captureThought = internalAction({
         validFrom: args.validFrom,
         validTo: args.validTo,
         isCore: args.isCore,
-        sourceType: args.sourceType,
+        sourceType,
         sourceRef: args.sourceRef?.trim(),
         observedAt: args.observedAt,
         batchId: args.batchId?.trim(),

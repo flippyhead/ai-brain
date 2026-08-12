@@ -1133,8 +1133,9 @@ export function createMcpServer(convexAuthToken: string) {
         ),
       sourceType: z
         .enum(["user_stated", "user_confirmed", "assistant_commitment"])
+        .optional()
         .describe(
-          "Grounding for this memory. Never label connector-derived or inferred content as user_stated.",
+          "Grounding for this memory. Never label connector-derived or inferred content as user_stated. Omitting it is treated as unknown grounding and the memory is not stored.",
         ),
       sourceRef: z
         .string()
