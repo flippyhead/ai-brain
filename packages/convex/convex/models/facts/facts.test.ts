@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
+import { listFacts, searchFacts } from "./model";
 
 const issuer = "https://brain.example.test";
 
@@ -320,5 +321,81 @@ describe("structured durable facts", () => {
     expect(visible.map((fact) => fact.statement)).toEqual([
       "Jordan — home city: Seattle.",
     ]);
+  });
+
+  test("fills fact result limits after lifecycle filtering", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+
+    await t.run(async (ctx) => {
+      const subjectEntityId = await ctx.db.insert("entities", {
+        userId,
+        key: "person:pagination-test",
+        kind: "person",
+        canonicalName: "Pagination Test",
+        normalizedName: "pagination test",
+        aliases: [],
+        normalizedAliases: [],
+      });
+      const insertFact = (
+        index: number,
+        status: "current" | "retracted",
+        validFrom?: number,
+      ) =>
+        ctx.db.insert("facts", {
+          userId,
+          subjectEntityId,
+          predicate: "school",
+          value: { type: "text", value: `School ${index}` },
+          statement: `Pagination Test — school: School ${index}.`,
+          searchText: `pagination sentinel school School ${index}`,
+          sourceType: "user_stated",
+          confidence: 1,
+          isCore: true,
+          validFrom,
+          status,
+        });
+
+      // Retrievable rows are deliberately older. The scheduled rows exhaust
+      // the old current-only `take(limit * 5)` window, while the still-newer
+      // retractions exhaust its historical window.
+      for (let index = 0; index < 10; index += 1) {
+        await insertFact(index, "current");
+      }
+      for (let index = 10; index < 70; index += 1) {
+        await insertFact(index, "current", Date.now() + 86_400_000);
+      }
+      for (let index = 70; index < 130; index += 1) {
+        await insertFact(index, "retracted");
+      }
+    });
+
+    const recent = await t.run((ctx) => listFacts(ctx, userId, { limit: 10 }));
+    const core = await t.run((ctx) =>
+      listFacts(ctx, userId, { limit: 10, coreOnly: true }),
+    );
+    const historical = await t.run((ctx) =>
+      listFacts(ctx, userId, { limit: 10, includeHistorical: true }),
+    );
+    const search = await t.run((ctx) =>
+      searchFacts(ctx, userId, "pagination sentinel school", { limit: 10 }),
+    );
+    const historicalSearch = await t.run((ctx) =>
+      searchFacts(ctx, userId, "pagination sentinel school", {
+        limit: 10,
+        includeHistorical: true,
+      }),
+    );
+
+    for (const results of [
+      recent,
+      core,
+      historical,
+      search,
+      historicalSearch,
+    ]) {
+      expect(results).toHaveLength(10);
+      expect(results.every((fact) => fact.status !== "retracted")).toBe(true);
+    }
   });
 });
