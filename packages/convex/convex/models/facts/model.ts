@@ -79,6 +79,12 @@ export function normalizeEntityKey(
       "Entity key must look like person:zevin or organization:openai",
     );
   }
+  // A generated key always carries its kind. A supplied one has to agree, or
+  // the entity is stored under an identity that contradicts its own kind and
+  // every later lookup for that key resolves confusingly.
+  if (!normalized.startsWith(`${kind}:`)) {
+    throw new Error(`Entity key must begin with its kind, like ${kind}:name`);
+  }
   return normalized;
 }
 

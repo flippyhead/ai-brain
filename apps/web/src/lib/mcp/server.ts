@@ -200,10 +200,27 @@ type FactResult = {
   updatedAt?: number;
 };
 
+function isDatetimeFactValue(
+  value: unknown,
+): value is { type: "datetime"; value: number } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "datetime" &&
+    typeof (value as { value?: unknown }).value === "number"
+  );
+}
+
 function formatFactForMcp(fact: FactResult) {
   return {
     ...fact,
     citation: `fact:${fact.id}`,
+    // remember_fact takes datetime values as ISO-8601 but stores milliseconds.
+    // Returning the raw number would hand a client a value its own write schema
+    // rejects, so the boundary stays ISO in both directions.
+    value: isDatetimeFactValue(fact.value)
+      ? { ...fact.value, value: new Date(fact.value.value).toISOString() }
+      : fact.value,
     observedAt:
       fact.observedAt === undefined
         ? undefined

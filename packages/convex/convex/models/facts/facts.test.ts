@@ -222,6 +222,28 @@ describe("structured durable facts", () => {
     expect(returnedIds).not.toContain(wrong.factId);
   });
 
+  test("rejects an entity key whose prefix contradicts its kind", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const owner = t.withIdentity({ issuer, subject: userId });
+
+    await expect(
+      owner.mutation(api.models.facts.mcpActions.remember, {
+        subject: {
+          key: "organization:acme",
+          kind: "person",
+          name: "Acme",
+        },
+        predicate: "home_city",
+        value: { type: "text", value: "Seattle" },
+        sourceType: "user_stated",
+      }),
+    ).rejects.toThrow("Entity key must begin with its kind");
+
+    const entities = await t.run((ctx) => ctx.db.query("entities").collect());
+    expect(entities).toHaveLength(0);
+  });
+
   test("offers only current facts as narrative coverage", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
