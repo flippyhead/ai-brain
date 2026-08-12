@@ -72,7 +72,7 @@ export const captureThought = internalAction({
         metadata: fallbackThoughtMetadata(content),
         disposition: "needs_confirmation" as const,
         operationSummary:
-          "Memory was not stored because its grounding is unknown. Resend with sourceType once the user has stated or confirmed it.",
+          "Memory was not stored because its grounding is unknown. Resend with sourceType once the user has stated or confirmed it",
       };
     }
     const sourceType = args.sourceType;
