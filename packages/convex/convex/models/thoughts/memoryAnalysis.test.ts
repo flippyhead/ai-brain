@@ -190,3 +190,56 @@ describe("memory provider analysis", () => {
     ).toBeNull();
   });
 });
+
+describe("structured fact coverage in the admission gate", () => {
+  test("accepts a NOOP that cites a covering fact instead of a thought", () => {
+    // The fact id reaches parseThoughtAnalysis through the same candidate set
+    // as thought ids. If it were omitted the citation would be dropped, the
+    // NOOP would be rejected as malformed, and the narrative duplicate the
+    // gate just declined would be stored anyway.
+    const analysis = parseThoughtAnalysis(
+      JSON.stringify({
+        action: "NOOP",
+        relatedThoughtIds: ["fact-123"],
+        reason: "Already recorded as a structured date_of_birth fact",
+        replacementContent: null,
+        metadata: {
+          type: "person_note",
+          topics: ["Zevin"],
+          people: ["Zevin"],
+          actionItems: [],
+          summary: "Zevin's date of birth",
+        },
+      }),
+      ["thought-1", "fact-123"],
+      "Zevin was born on May 12, 2009",
+    );
+
+    expect(analysis?.classification).toMatchObject({
+      action: "NOOP",
+      relatedThoughtIds: ["fact-123"],
+    });
+  });
+
+  test("drops a citation naming neither a candidate thought nor a covering fact", () => {
+    expect(
+      parseThoughtAnalysis(
+        JSON.stringify({
+          action: "NOOP",
+          relatedThoughtIds: ["invented-id"],
+          reason: "Already captured",
+          replacementContent: null,
+          metadata: {
+            type: "reference",
+            topics: [],
+            people: [],
+            actionItems: [],
+            summary: "x",
+          },
+        }),
+        ["thought-1", "fact-123"],
+        "Some content",
+      ),
+    ).toBeNull();
+  });
+});

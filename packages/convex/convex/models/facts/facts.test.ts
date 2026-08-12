@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
-import { api } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
 
@@ -220,6 +220,42 @@ describe("structured durable facts", () => {
     const returnedIds = history.map((fact: { id: string }) => fact.id);
     expect(returnedIds).toContain(corrected.factId);
     expect(returnedIds).not.toContain(wrong.factId);
+  });
+
+  test("offers only current facts as narrative coverage", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const owner = t.withIdentity({ issuer, subject: userId });
+    const base = {
+      subject: { kind: "person" as const, name: "Zevin" },
+      predicate: "date_of_birth",
+      sourceType: "user_stated" as const,
+    };
+    const wrong = await owner.mutation(api.models.facts.mcpActions.remember, {
+      ...base,
+      value: { type: "date", value: "2009-05-11" },
+    });
+    const corrected = await owner.mutation(
+      api.models.facts.mcpActions.remember,
+      {
+        ...base,
+        value: { type: "date", value: "2009-05-12" },
+        changeKind: "corrected",
+      },
+    );
+
+    // Coverage decides whether narrative capture is refused. Offering a
+    // retracted fact would refuse a capture on the strength of a value the
+    // user already corrected.
+    const covering = await t.run((ctx) =>
+      ctx.runQuery(internal.models.facts.private.searchCoveringFacts, {
+        userId,
+        query: "Zevin date of birth",
+      }),
+    );
+    const ids = covering.map((fact: { id: string }) => fact.id);
+    expect(ids).toContain(corrected.factId);
+    expect(ids).not.toContain(wrong.factId);
   });
 
   test("keeps MCP and dashboard fact reads isolated by account and issuer", async () => {

@@ -116,7 +116,11 @@ For RETRACT:
 - replacementContent is required.
 - State the corrected information and make clear that the earlier claim was inaccurate. Do not present the incorrect claim as something that was once true.
 
-For NOOP, include the single existing thought id that already captures the information and set replacementContent to null.
+Structured facts own the attributes they record. existingStructuredFacts lists current facts that already cover part of this subject.
+- If the new content only restates what a structured fact already records, return NOOP and cite that fact's id. Do not store a narrative duplicate of a structured fact.
+- If the new content contradicts a structured fact, return ASK so the client can correct the fact through remember_fact rather than storing a competing narrative memory.
+
+For NOOP, include the single existing thought id, or structured fact id, that already captures the information and set replacementContent to null.
 For ADD, ASK, and SKIP, relatedThoughtIds must be empty and replacementContent must be null.
 For SUPERSEDE or RETRACT, include only directly affected existing thought ids.
 Do not invent dates or details. When uncertain whether information changed, choose ADD.
@@ -148,6 +152,9 @@ export const analyzeThought = internalAction({
         validTo: v.optional(v.number()),
       }),
     ),
+    coveringFacts: v.optional(
+      v.array(v.object({ id: v.string(), statement: v.string() })),
+    ),
   },
   returns: v.union(
     v.object({
@@ -165,6 +172,10 @@ export const analyzeThought = internalAction({
           validFrom: formatValidity(args.newValidFrom, "unknown"),
           validTo: formatValidity(args.newValidTo, "open or unknown"),
         },
+        existingStructuredFacts: (args.coveringFacts ?? []).map((fact) => ({
+          id: fact.id,
+          statement: truncateForModel(fact.statement, 240),
+        })),
         existingCurrentMemories: args.candidates.map(
           (candidate: CandidateThought) => ({
             id: candidate._id,
@@ -230,7 +241,10 @@ export const analyzeThought = internalAction({
 
       const analysis = parseThoughtAnalysis(
         text,
-        args.candidates.map((candidate) => candidate._id),
+        [
+          ...args.candidates.map((candidate) => candidate._id),
+          ...(args.coveringFacts ?? []).map((fact) => fact.id),
+        ],
         args.newContent,
       );
       if (!analysis) {

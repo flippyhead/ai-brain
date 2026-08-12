@@ -133,6 +133,14 @@ export const captureThought = internalAction({
         validTo: doc.validTo,
       }));
 
+    // Structured storage owns the predicates it records, so the gate has to see
+    // covering facts before it can decide this content is new.
+    const coveringFacts: Array<{ id: string; statement: string }> =
+      await ctx.runQuery(internal.models.facts.private.searchCoveringFacts, {
+        userId: args.userId,
+        query: content,
+      });
+
     let analysis: ThoughtAnalysis | null = null;
     try {
       analysis = await ctx.runAction(
@@ -143,6 +151,7 @@ export const captureThought = internalAction({
           newValidFrom: args.validFrom,
           newValidTo: args.validTo,
           candidates: validCandidates,
+          coveringFacts,
         },
       );
     } catch (error) {
@@ -179,8 +188,19 @@ export const captureThought = internalAction({
     }
 
     if (classification?.action === "NOOP") {
-      const existingId = classification.relatedThoughtIds[0] as
-        Id<"thoughts"> | undefined;
+      const citedId = classification.relatedThoughtIds[0];
+      // The cited id may name a fact rather than a thought. Check before it
+      // reaches a query validated as `v.id("thoughts")`.
+      const coveringFact = coveringFacts.find((fact) => fact.id === citedId);
+      if (coveringFact) {
+        return {
+          metadata: analysis?.metadata ?? fallbackThoughtMetadata(content),
+          disposition: "duplicate" as const,
+          operationSummary: `Already recorded as a structured fact: ${coveringFact.statement}`,
+        };
+      }
+
+      const existingId = citedId as Id<"thoughts"> | undefined;
       const existing = existingId
         ? await ctx.runQuery(internal.models.thoughts.private.getById, {
             id: existingId,
