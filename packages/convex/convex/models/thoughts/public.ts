@@ -1,7 +1,7 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { requireWebUserId } from "../../lib/webAuth";
-import { isMemoryActive } from "./memoryLifecycle";
+import { isMemoryActive, isMemoryRetrievable } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
   thoughtMetadata,
@@ -40,16 +40,13 @@ export const listRecent = query({
           )
           .order("desc");
 
-      if (args.includeHistorical) {
-        results = await query().take(limit);
-      } else {
-        const activeAt = Date.now();
-        results = await collectFiltered(
-          (cursor, numItems) => query().paginate({ cursor, numItems }),
-          (memory) => isMemoryActive(memory, activeAt),
-          limit,
-        );
-      }
+      const activeAt = Date.now();
+      results = await collectFiltered(
+        (cursor, numItems) => query().paginate({ cursor, numItems }),
+        (memory) =>
+          isMemoryRetrievable(memory, args.includeHistorical, activeAt),
+        limit,
+      );
     } else {
       results = await _listByUser(
         ctx,

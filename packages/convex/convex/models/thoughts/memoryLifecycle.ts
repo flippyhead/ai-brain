@@ -36,6 +36,30 @@ export function isMemoryActive(
 }
 
 /**
+ * Returns whether a memory may be returned by a read.
+ *
+ * A superseded memory was true once, so it is a legitimate answer to an
+ * explicitly historical question. A retracted memory was never true, and
+ * presenting it as prior history misrepresents a correction as a change. It is
+ * therefore withheld in both modes.
+ *
+ * A historical read deliberately ignores the business-time window, so it also
+ * returns memories that are expired or not yet effective. That is not the same
+ * exception retracted memories are denied: a scheduled or lapsed memory states
+ * something accurate about a different point in time, whereas a retracted one
+ * states something that was never accurate at any point. Callers receive
+ * `validFrom` and `validTo` and can present the distinction.
+ */
+export function isMemoryRetrievable(
+  memory: MemoryValidity & { memoryStatus?: MemoryStatus },
+  includeHistorical: boolean | undefined,
+  at: number = Date.now(),
+): boolean {
+  if (memory.memoryStatus === "retracted") return false;
+  return includeHistorical === true || isMemoryActive(memory, at);
+}
+
+/**
  * Validates a business-time interval without conflating it with recording
  * time. Open intervals are allowed; a closed interval must have positive
  * duration.
