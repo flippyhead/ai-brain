@@ -2,7 +2,10 @@ import type { Infer } from "convex/values";
 
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { assertValidMemoryValidity } from "../thoughts/memoryLifecycle";
+import {
+  assertValidMemoryValidity,
+  isMemoryRetrievable,
+} from "../thoughts/memoryLifecycle";
 import {
   entityKind,
   entitySelector,
@@ -274,21 +277,25 @@ export function isFactActive(fact: Doc<"facts">, at = Date.now()): boolean {
 /**
  * Returns whether a fact may be returned by a read.
  *
- * A superseded fact was true once, so it is a legitimate answer to an
- * explicitly historical question. A retracted fact was never true, and
- * returning it as prior history misrepresents a correction as a change. It is
- * therefore withheld in both modes.
- *
- * This mirrors `isMemoryRetrievable` for narrative memories on main. Collapse
- * the two once both are on the same branch.
+ * Structured facts and narrative memories share one retrievability rule, so
+ * this adapts the fact shape onto `isMemoryRetrievable` rather than restating
+ * it. Keeping two copies is what allowed the same retracted-as-history defect
+ * to ship in both paths independently.
  */
 export function isFactRetrievable(
   fact: Doc<"facts">,
   includeHistorical: boolean | undefined,
   at = Date.now(),
 ): boolean {
-  if (fact.status === "retracted") return false;
-  return includeHistorical === true || isFactActive(fact, at);
+  return isMemoryRetrievable(
+    {
+      memoryStatus: fact.status,
+      validFrom: fact.validFrom,
+      validTo: fact.validTo,
+    },
+    includeHistorical,
+    at,
+  );
 }
 
 export type RememberFactArgs = {
