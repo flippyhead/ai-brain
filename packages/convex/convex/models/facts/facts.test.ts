@@ -210,6 +210,16 @@ describe("structured durable facts", () => {
     expect(prior?.status).toBe("retracted");
     expect(prior?.validFrom).toBeUndefined();
     expect(prior?.validTo).toBeUndefined();
+
+    // A historical read may surface what was formerly true. It must never
+    // surface what was never true, or a correction reads as a change.
+    const history = await owner.query(api.models.facts.mcpQueries.search, {
+      query: "Zevin date of birth",
+      includeHistorical: true,
+    });
+    const returnedIds = history.map((fact: { id: string }) => fact.id);
+    expect(returnedIds).toContain(corrected.factId);
+    expect(returnedIds).not.toContain(wrong.factId);
   });
 
   test("keeps MCP and dashboard fact reads isolated by account and issuer", async () => {

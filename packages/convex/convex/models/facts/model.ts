@@ -271,6 +271,26 @@ export function isFactActive(fact: Doc<"facts">, at = Date.now()): boolean {
   );
 }
 
+/**
+ * Returns whether a fact may be returned by a read.
+ *
+ * A superseded fact was true once, so it is a legitimate answer to an
+ * explicitly historical question. A retracted fact was never true, and
+ * returning it as prior history misrepresents a correction as a change. It is
+ * therefore withheld in both modes.
+ *
+ * This mirrors `isMemoryRetrievable` for narrative memories on main. Collapse
+ * the two once both are on the same branch.
+ */
+export function isFactRetrievable(
+  fact: Doc<"facts">,
+  includeHistorical: boolean | undefined,
+  at = Date.now(),
+): boolean {
+  if (fact.status === "retracted") return false;
+  return includeHistorical === true || isFactActive(fact, at);
+}
+
 export type RememberFactArgs = {
   subject: EntitySelector;
   predicate: string;
@@ -513,7 +533,7 @@ export async function listFacts(
         .order("desc")
         .take(limit * 5);
   const selected = facts
-    .filter((fact) => options.includeHistorical || isFactActive(fact))
+    .filter((fact) => isFactRetrievable(fact, options.includeHistorical))
     .slice(0, limit);
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }
@@ -537,7 +557,7 @@ export async function searchFacts(
     )
     .take(limit * 5);
   const selected = hits
-    .filter((fact) => options.includeHistorical || isFactActive(fact))
+    .filter((fact) => isFactRetrievable(fact, options.includeHistorical))
     .slice(0, limit);
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }
