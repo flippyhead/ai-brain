@@ -189,6 +189,30 @@ describe("memory provider analysis", () => {
       ),
     ).toBeNull();
   });
+
+  test("admits one subject stated at length or as a short list", () => {
+    // Length is not breadth. A decision with its rationale, and the correction
+    // that later supersedes it, are both one coherent unit whose parts change
+    // together — the shape the gate is meant to admit. Counting sentences or
+    // bullets declined them, and because the preflight runs before the
+    // classifier it also made the stale memory uncorrectable.
+    expect(
+      preflightNarrativeAdmission(
+        "Discourse moderation now uses an approval queue on the flagged-user group. The earlier plan to hide posts silently and auto-restore them is dead because Discourse has no such primitive. Peter confirmed this on 18 August 2026. The approval queue is visible to the author, which we accepted. The backtest has now run over 90 days of flags. It showed a 4% false-positive rate, low enough to ship.",
+      ),
+    ).toBeNull();
+    expect(
+      preflightNarrativeAdmission(
+        [
+          "Moderation plan for the community site:",
+          "- approval queue on the flagged-user group",
+          "- no silent holds, Discourse cannot do it",
+          "- the author sees the queue, accepted",
+          "- backtest ran, 4% false positives",
+        ].join("\n"),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("structured fact coverage in the admission gate", () => {

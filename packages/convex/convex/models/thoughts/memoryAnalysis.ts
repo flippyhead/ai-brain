@@ -84,23 +84,18 @@ export function preflightNarrativeAdmission(
     };
   }
 
-  const bulletCount = normalized
-    .split("\n")
-    .filter((line) => /^\s*(?:[-*•]|\d+[.)])\s+/.test(line)).length;
-  const sentenceCount = normalized
-    .split(/[.!?](?:\s|$)/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean).length;
+  // Only the shape that is unambiguously a bucket is decided here. Sentence,
+  // bullet, and length counts used to stand in for breadth and got it backwards:
+  // one subject explained at length tripped them while a run-on list of
+  // unrelated subjects did not. They also blocked corrections, which are as long
+  // as the memory they supersede, so a wrong memory could never be replaced.
+  // Breadth is the classifier's judgement; it already declines biographies,
+  // dossiers, mixed people/projects, and catalogs.
   const broadHeading =
     /^(?:about me|my team|active projects|work patterns|personal profile|biography)\s*:/i.test(
       normalized,
     );
-  if (
-    Array.from(normalized).length > 1_200 ||
-    bulletCount > 3 ||
-    sentenceCount > 5 ||
-    broadHeading
-  ) {
+  if (broadHeading) {
     return {
       action: "ASK",
       reason:
