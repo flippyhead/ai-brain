@@ -7,8 +7,28 @@ import {
 } from "./memoryAnalysis";
 import { thoughtMetadata } from "./validators";
 
-/** Minimum similarity score to consider a thought as a classification candidate. */
-export const SIMILARITY_THRESHOLD = 0.7;
+/**
+ * Minimum similarity score to consider a thought as a classification candidate.
+ *
+ * The index holds the embedding of a memory's whole content, so a long memory's
+ * vector is a centroid smeared across its sub-topics. A narrow correction scores
+ * high against the passage it contradicts and lower against the document holding
+ * it. Measured on one such pair: 0.75 against the contradicted passage, 0.74
+ * against that memory's own summary, 0.66 against its full stored text. At 0.7
+ * the contradicted memory fell out of the candidate set, the classifier never
+ * saw it, and ADD was the only action left — so a thoroughly recorded decision
+ * was harder to correct than a terse one.
+ *
+ * 0.6 clears that 0.66 while still excluding memories on the same project that
+ * the correction does not contradict, which measured 0.55 and below against
+ * unrelated content at 0.17. Calibrated on one pair, so treat it as a floor
+ * found by measurement rather than a tuned optimum. It does not cure the
+ * dilution itself; a longer memory sinks further.
+ *
+ * ponytail: threshold on a length-diluted metric, embed summaries alongside
+ * content (or chunk long memories) if corrections keep missing their target.
+ */
+export const SIMILARITY_THRESHOLD = 0.6;
 
 /** Maximum number of similar thoughts sent to the classifier. */
 export const MAX_CANDIDATES = 10;
