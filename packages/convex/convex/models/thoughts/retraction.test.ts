@@ -113,6 +113,48 @@ describe("caller-declared retraction", () => {
     expect(ids).not.toContain(thoughtId);
   });
 
+  test("fills the timeline window past retracted rows instead of losing slots", async () => {
+    const { t, ownerId, owner } = await seed();
+    // Three retractions sit nearer the pivot than the three visible memories.
+    // Taking the window before filtering would spend every slot on them and
+    // return an empty timeline while visible history sat just past the cut.
+    const visible: Array<string> = [];
+    for (let i = 0; i < 6; i += 1) {
+      const id = await t.run((ctx) =>
+        ctx.db.insert("thoughts", {
+          userId: ownerId,
+          content: `memory ${i}`,
+          embedding,
+          metadata,
+          memoryStatus: "current" as const,
+        }),
+      );
+      if (i < 3) visible.push(id);
+    }
+    for (let i = 3; i < 6; i += 1) {
+      await owner.mutation(api.models.thoughts.mcpMutations.retractThought, {
+        thoughtId: (await t.run((ctx) =>
+          ctx.db
+            .query("thoughts")
+            .filter((q) => q.eq(q.field("content"), `memory ${i}`))
+            .first(),
+        ))!._id,
+        reason: "Never true",
+      });
+    }
+
+    const rows = await t.run((ctx) =>
+      ctx.runQuery(internal.models.thoughts.private.listAroundTime, {
+        userId: ownerId,
+        aroundMs: Date.now() + 60_000,
+        before: 3,
+        after: 0,
+      }),
+    );
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row._id).sort()).toEqual([...visible].sort());
+  });
+
   test("restores a retraction and refuses one that has a replacement", async () => {
     const { t, ownerId, thoughtId, owner } = await seed();
 

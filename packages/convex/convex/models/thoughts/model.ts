@@ -44,6 +44,32 @@ export async function _findById(ctx: QueryCtx, id: Id<"thoughts">) {
  * enough superseded memories, with no signal that anything was dropped —
  * paging until the quota is met keeps the result honest either way.
  */
+/**
+ * Streams an ordered query, keeping rows that pass `predicate`, and stops as
+ * soon as `limit` of them are collected.
+ *
+ * `collectFiltered` cannot serve callers that need two windows: Convex permits
+ * a single `.paginate()` per function execution, so paging both sides of a
+ * timeline fails at runtime in a deployed backend. Async iteration has no such
+ * limit. Taking the window first and filtering after is not an option either —
+ * dropped rows would spend slots the caller asked for and silently shorten the
+ * result.
+ */
+export async function takeFiltered<T>(
+  rows: AsyncIterable<T>,
+  predicate: (row: T) => boolean,
+  limit: number,
+): Promise<T[]> {
+  if (limit <= 0) return [];
+  const collected: T[] = [];
+  for await (const row of rows) {
+    if (!predicate(row)) continue;
+    collected.push(row);
+    if (collected.length === limit) break;
+  }
+  return collected;
+}
+
 export async function collectFiltered<T>(
   fetchPage: (
     cursor: string | null,

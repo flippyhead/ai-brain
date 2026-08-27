@@ -8,6 +8,7 @@ import {
   _setCoreStatus,
   _transitionMemory,
   collectFiltered,
+  takeFiltered,
 } from "./model";
 import {
   isMemoryRetrievable,
@@ -256,52 +257,63 @@ export const listAroundTime = internalQuery({
     // withholds it from every other read path regardless of `includeHistorical`.
     // This query returns whole documents, so without the filter a retraction
     // would leave the content readable here after being hidden everywhere else.
-    const retrievable = <T extends { memoryStatus?: MemoryStatus }>(rows: T[]) =>
-      rows.filter((row) => row.memoryStatus !== "retracted");
+    //
+    // Streaming rather than `.take(n)`: taking the window first would spend
+    // slots on rows the filter then drops, returning a short timeline while
+    // visible memories sat just past the cut. `collectFiltered` cannot serve
+    // this — it paginates, and Convex permits one `.paginate()` per function
+    // execution, so the second side would fail in a deployed backend.
+    const isRetrievable = (row: { memoryStatus?: MemoryStatus }) =>
+      row.memoryStatus !== "retracted";
 
-    // Strictly older than aroundMs, most recent first, take `before`.
+    // Strictly older than aroundMs, most recent first, collect `before`.
     // _creationTime is the implicit suffix of every Convex index, so the
     // bound can be pushed into the index builder directly.
-    const earlier = type
-      ? await ctx.db
-          .query("thoughts")
-          .withIndex("by_userId_and_type", (q) =>
-            q
-              .eq("userId", args.userId)
-              .eq("metadata.type", type)
-              .lt("_creationTime", args.aroundMs),
-          )
-          .order("desc")
-          .take(args.before)
-      : await ctx.db
-          .query("thoughts")
-          .withIndex("by_userId", (q) =>
-            q.eq("userId", args.userId).lt("_creationTime", args.aroundMs),
-          )
-          .order("desc")
-          .take(args.before);
+    const earlierQuery = () =>
+      type
+        ? ctx.db
+            .query("thoughts")
+            .withIndex("by_userId_and_type", (q) =>
+              q
+                .eq("userId", args.userId)
+                .eq("metadata.type", type)
+                .lt("_creationTime", args.aroundMs),
+            )
+            .order("desc")
+        : ctx.db
+            .query("thoughts")
+            .withIndex("by_userId", (q) =>
+              q.eq("userId", args.userId).lt("_creationTime", args.aroundMs),
+            )
+            .order("desc");
 
-    // Strictly newer than aroundMs, oldest first, take `after`
-    const later = type
-      ? await ctx.db
-          .query("thoughts")
-          .withIndex("by_userId_and_type", (q) =>
-            q
-              .eq("userId", args.userId)
-              .eq("metadata.type", type)
-              .gt("_creationTime", args.aroundMs),
-          )
-          .order("asc")
-          .take(args.after)
-      : await ctx.db
-          .query("thoughts")
-          .withIndex("by_userId", (q) =>
-            q.eq("userId", args.userId).gt("_creationTime", args.aroundMs),
-          )
-          .order("asc")
-          .take(args.after);
+    // Strictly newer than aroundMs, oldest first, collect `after`.
+    const laterQuery = () =>
+      type
+        ? ctx.db
+            .query("thoughts")
+            .withIndex("by_userId_and_type", (q) =>
+              q
+                .eq("userId", args.userId)
+                .eq("metadata.type", type)
+                .gt("_creationTime", args.aroundMs),
+            )
+            .order("asc")
+        : ctx.db
+            .query("thoughts")
+            .withIndex("by_userId", (q) =>
+              q.eq("userId", args.userId).gt("_creationTime", args.aroundMs),
+            )
+            .order("asc");
 
-    const combined = retrievable([...earlier.reverse(), ...later]);
+    const earlier = await takeFiltered(
+      earlierQuery(),
+      isRetrievable,
+      args.before,
+    );
+    const later = await takeFiltered(laterQuery(), isRetrievable, args.after);
+
+    const combined = [...earlier.reverse(), ...later];
     return combined.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
