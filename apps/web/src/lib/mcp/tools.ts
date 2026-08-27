@@ -8,6 +8,8 @@ export const MCP_TOOL_NAMES = {
   timelineThoughts: "timeline_thoughts",
   getStats: "get_stats",
   captureThought: "capture_thought",
+  retractThought: "retract_thought",
+  restoreThought: "restore_thought",
   createReport: "create_report",
   getInsights: "get_insights",
   deleteInsight: "delete_insight",

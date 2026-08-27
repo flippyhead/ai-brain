@@ -44,6 +44,32 @@ export async function _findById(ctx: QueryCtx, id: Id<"thoughts">) {
  * enough superseded memories, with no signal that anything was dropped —
  * paging until the quota is met keeps the result honest either way.
  */
+/**
+ * Streams an ordered query, keeping rows that pass `predicate`, and stops as
+ * soon as `limit` of them are collected.
+ *
+ * `collectFiltered` cannot serve callers that need two windows: Convex permits
+ * a single `.paginate()` per function execution, so paging both sides of a
+ * timeline fails at runtime in a deployed backend. Async iteration has no such
+ * limit. Taking the window first and filtering after is not an option either —
+ * dropped rows would spend slots the caller asked for and silently shorten the
+ * result.
+ */
+export async function takeFiltered<T>(
+  rows: AsyncIterable<T>,
+  predicate: (row: T) => boolean,
+  limit: number,
+): Promise<T[]> {
+  if (limit <= 0) return [];
+  const collected: T[] = [];
+  for await (const row of rows) {
+    if (!predicate(row)) continue;
+    collected.push(row);
+    if (collected.length === limit) break;
+  }
+  return collected;
+}
+
 export async function collectFiltered<T>(
   fetchPage: (
     cursor: string | null,
@@ -208,6 +234,64 @@ export async function _transitionMemory(
   }
 
   return newId;
+}
+
+/**
+ * Caller-declared retraction: the user asserts this memory should never have
+ * been stored. Unlike the RETRACT branch of `_transitionMemory`, no replacement
+ * is written and no classifier has to agree — this mirrors the `changeKind:
+ * "corrected"` argument the structured fact path already accepts.
+ *
+ * `supersededBy` stays unset, which is what makes the memory restorable: a
+ * memory retracted as part of a supersession has a current successor, and
+ * reviving it would put two contradicting memories back in play.
+ *
+ * Validity is deliberately preserved, where `_transitionMemory` clears it. That
+ * path is one-way; this one is reversible, and discarding the interval would
+ * make the undo lossy. A retracted memory is withheld by `isMemoryRetrievable`
+ * before validity is ever consulted, so keeping it changes no read.
+ */
+export async function _setRetracted(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  id: Id<"thoughts">,
+  retracted: boolean,
+  reason: string | undefined,
+  at: number,
+) {
+  const memory = await ctx.db.get(id);
+  if (!memory || memory.userId !== userId) {
+    throw new Error("Memory not found");
+  }
+
+  if (retracted) {
+    if (!isCurrentMemory(memory.memoryStatus)) {
+      throw new Error("Only a current memory can be retracted");
+    }
+    if (!reason?.trim() || reason.length > 500) {
+      throw new Error("A retraction requires a reason of 1-500 characters");
+    }
+    await ctx.db.patch(id, {
+      memoryStatus: "retracted",
+      supersededAt: at,
+      changeReason: reason,
+    });
+    return;
+  }
+
+  if (memory.memoryStatus !== "retracted") {
+    throw new Error("Only a retracted memory can be restored");
+  }
+  if (memory.supersededBy !== undefined) {
+    throw new Error(
+      "This memory was retracted by a replacement and cannot be restored directly",
+    );
+  }
+  await ctx.db.patch(id, {
+    memoryStatus: "current",
+    supersededAt: undefined,
+    changeReason: undefined,
+  });
 }
 
 export async function _setCoreStatus(

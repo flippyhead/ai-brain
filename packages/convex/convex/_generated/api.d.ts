@@ -44,6 +44,7 @@ import type * as models_thoughts_classify from "../models/thoughts/classify.js";
 import type * as models_thoughts_evalRecall from "../models/thoughts/evalRecall.js";
 import type * as models_thoughts_helpers from "../models/thoughts/helpers.js";
 import type * as models_thoughts_mcpActions from "../models/thoughts/mcpActions.js";
+import type * as models_thoughts_mcpMutations from "../models/thoughts/mcpMutations.js";
 import type * as models_thoughts_mcpQueries from "../models/thoughts/mcpQueries.js";
 import type * as models_thoughts_memoryAnalysis from "../models/thoughts/memoryAnalysis.js";
 import type * as models_thoughts_memoryEval from "../models/thoughts/memoryEval.js";
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   "models/thoughts/evalRecall": typeof models_thoughts_evalRecall;
   "models/thoughts/helpers": typeof models_thoughts_helpers;
   "models/thoughts/mcpActions": typeof models_thoughts_mcpActions;
+  "models/thoughts/mcpMutations": typeof models_thoughts_mcpMutations;
   "models/thoughts/mcpQueries": typeof models_thoughts_mcpQueries;
   "models/thoughts/memoryAnalysis": typeof models_thoughts_memoryAnalysis;
   "models/thoughts/memoryEval": typeof models_thoughts_memoryEval;

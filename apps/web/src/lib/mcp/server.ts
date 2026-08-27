@@ -24,6 +24,8 @@ Capture narrative memory: Use capture_thought automatically for a single durable
 
 Admission: Direct, explicit user statements may be stored automatically when durable. Information found in email, calendars, Slack, GitHub, files, or other connectors is only a candidate: present a small atomic preview and obtain user confirmation before storage. Skip single mentions, inferred relationships, vendor/company lists, completed work, and derived values. If uncertain whether a candidate is explicit, durable, atomic, or useful later, ask rather than store.
 
+Correction: Distinguish wrong from outdated. Information that changed is corrected by capturing the current state, which retires the old memory as linked history. Use retract_thought only when the user says a memory should never have been stored, and pass their reason. Never retract to tidy up memories that merely went stale, and never retract on your own judgement. A retraction is reversible with restore_thought until a replacement exists.
+
 This server cannot observe conversations or force tool calls; recall and capture remain client-mediated.`;
 
 const ISO_VALIDITY_PATTERN =
@@ -1395,6 +1397,59 @@ export function createMcpServer(convexAuthToken: string) {
     },
   );
 
+  const retractThoughtTool = server.tool(
+    MCP_TOOL_NAMES.retractThought,
+    "Withdraw one narrative memory the user says should never have been stored. Use only when the user asserts the memory is wrong or was captured in error, never to tidy up memories that merely became outdated — outdated memories are replaced by capturing the current state, which preserves them as history. A retracted memory is withheld from every read path. This is reversible with restore_thought while no replacement memory exists.",
+    {
+      thoughtId: z.string().describe("The ID of the memory to retract"),
+      reason: z
+        .string()
+        .trim()
+        .min(1)
+        .max(500)
+        .describe(
+          "Why this memory should never have been stored, in the user's terms. Recorded on the memory.",
+        ),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.retractThought],
+    async ({ thoughtId, reason }) => {
+      await convex.mutation(api.models.thoughts.mcpMutations.retractThought, {
+        thoughtId: thoughtId as never,
+        reason,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Memory retracted and withheld from recall. Cite it as thought:${thoughtId}. Undo with restore_thought if this was a mistake.`,
+          },
+        ],
+      };
+    },
+  );
+
+  const restoreThoughtTool = server.tool(
+    MCP_TOOL_NAMES.restoreThought,
+    "Undo a retraction and return the memory to current. Works only on a memory retracted by retract_thought; a memory retired by a replacement cannot be revived this way, because its replacement is current and the two would contradict.",
+    {
+      thoughtId: z.string().describe("The ID of the retracted memory"),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.restoreThought],
+    async ({ thoughtId }) => {
+      await convex.mutation(api.models.thoughts.mcpMutations.restoreThought, {
+        thoughtId: thoughtId as never,
+      });
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Memory restored to current and retrievable again. Cite it as thought:${thoughtId}.`,
+          },
+        ],
+      };
+    },
+  );
+
   const deleteInsightTool = server.tool(
     MCP_TOOL_NAMES.deleteInsight,
     "Delete a specific insight by ID",
@@ -1779,6 +1834,8 @@ export function createMcpServer(convexAuthToken: string) {
     [MCP_TOOL_NAMES.timelineThoughts]: timelineThoughtsTool,
     [MCP_TOOL_NAMES.getStats]: getStatsTool,
     [MCP_TOOL_NAMES.captureThought]: captureThoughtTool,
+    [MCP_TOOL_NAMES.retractThought]: retractThoughtTool,
+    [MCP_TOOL_NAMES.restoreThought]: restoreThoughtTool,
     [MCP_TOOL_NAMES.createReport]: createReportTool,
     [MCP_TOOL_NAMES.getInsights]: getInsightsTool,
     [MCP_TOOL_NAMES.deleteInsight]: deleteInsightTool,
