@@ -9,7 +9,10 @@ import {
   _transitionMemory,
   collectFiltered,
 } from "./model";
-import { isMemoryRetrievable } from "./memoryLifecycle";
+import {
+  isMemoryRetrievable,
+  type MemoryStatus,
+} from "./memoryLifecycle";
 import {
   memorySourceType,
   thoughtLifecycleFields,
@@ -248,6 +251,14 @@ export const listAroundTime = internalQuery({
   handler: async (ctx, args) => {
     const type = args.type;
 
+    // A timeline is a history view, so superseded memories belong in it. A
+    // retracted memory does not: it was never true, and `isMemoryRetrievable`
+    // withholds it from every other read path regardless of `includeHistorical`.
+    // This query returns whole documents, so without the filter a retraction
+    // would leave the content readable here after being hidden everywhere else.
+    const retrievable = <T extends { memoryStatus?: MemoryStatus }>(rows: T[]) =>
+      rows.filter((row) => row.memoryStatus !== "retracted");
+
     // Strictly older than aroundMs, most recent first, take `before`.
     // _creationTime is the implicit suffix of every Convex index, so the
     // bound can be pushed into the index builder directly.
@@ -290,7 +301,7 @@ export const listAroundTime = internalQuery({
           .order("asc")
           .take(args.after);
 
-    const combined = [...earlier.reverse(), ...later];
+    const combined = retrievable([...earlier.reverse(), ...later]);
     return combined.map(({ embedding: _embedding, ...rest }) => rest);
   },
 });
