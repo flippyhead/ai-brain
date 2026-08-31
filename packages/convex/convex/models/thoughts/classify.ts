@@ -111,7 +111,7 @@ const SYSTEM_PROMPT = `You are the admission gate for durable personal narrative
 - NOOP: the same information is already fully captured. Do not create a duplicate.
 - SUPERSEDE: one or more existing memories were true but are no longer current because a preference, relationship, project status, school, job, plan, or other fact changed.
 - RETRACT: one or more existing memories were incorrect, not merely outdated.
-- ASK: the content might be useful but needs user confirmation, source clarification, atomization, or routing to a precise structured fact.
+- ASK: the content might be useful but needs user confirmation, source clarification, atomization, or routing to a precise structured fact. Never ASK for confirmation or source clarification when sourceType is user_stated or user_confirmed: the user has already stated or confirmed that content, and no further confirmation is possible. ASK about grounding only for assistant_commitment content that reads as a user fact.
 - SKIP: the content is transient, incidental, derived, speculative, sensitive, or unlikely to improve a future conversation.
 
 Admission rules:

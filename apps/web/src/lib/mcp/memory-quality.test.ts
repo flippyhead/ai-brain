@@ -413,6 +413,75 @@ describe("MCP memory quality contract", () => {
         observedAt: undefined,
         batchId: undefined,
       });
+      expect(
+        (result as { content?: Array<{ text?: string }> }).content?.[0]?.text,
+      ).toContain("thought:captured");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("rejects a capture without sourceType at the schema instead of soft-failing", async () => {
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "capture_thought",
+        arguments: {
+          content: "Zevin started at Redwood Academy.",
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(convexMocks.action).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("marks an unstored capture as an error so callers cannot report it saved", async () => {
+    convexMocks.action.mockResolvedValue({
+      disposition: "needs_confirmation",
+      operationSummary: "Memory was not stored: needs atomization",
+      metadata: {
+        type: "reference",
+        topics: [],
+        people: [],
+        actionItems: [],
+        summary: "unstored",
+      },
+    });
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "capture_thought",
+        arguments: {
+          content: "Zevin started at Redwood Academy.",
+          sourceType: "user_stated",
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(
+        (result as { content?: Array<{ text?: string }> }).content?.[0]?.text,
+      ).toContain("not stored");
     } finally {
       await client.close();
       await server.close();
