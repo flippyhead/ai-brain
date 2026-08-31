@@ -68,6 +68,9 @@ export const captureThought = internalAction({
     // label ungrounded content as something the user said — the exact laundering
     // this field prevents. Treat absence as ungrounded and ask instead.
     if (args.sourceType === undefined) {
+      console.warn(
+        `[capture] ungrounded capture rejected (${content.length} chars); content is not persisted anywhere`,
+      );
       return {
         metadata: fallbackThoughtMetadata(content),
         disposition: "needs_confirmation" as const,

@@ -1128,9 +1128,8 @@ export function createMcpServer(convexAuthToken: string) {
         ),
       sourceType: z
         .enum(["user_stated", "user_confirmed", "assistant_commitment"])
-        .optional()
         .describe(
-          "Grounding for this memory. Never label connector-derived or inferred content as user_stated. Omitting it is treated as unknown grounding and the memory is not stored.",
+          "Grounding for this memory. Never label connector-derived or inferred content as user_stated.",
         ),
       sourceRef: z
         .string()
@@ -1224,7 +1223,11 @@ export function createMcpServer(convexAuthToken: string) {
           ? "Thought captured successfully"
           : "Thought was not stored";
 
+      // A refusal must be unmistakable. A success-shaped needs_confirmation
+      // let callers report "saved" while the write was dropped, and nothing
+      // downstream could tell the difference.
       return {
+        isError: !stored,
         content: [
           {
             type: "text" as const,
