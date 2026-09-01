@@ -213,11 +213,18 @@ Ranked by value per unit of added complexity.
   trustworthy. This was already the standing decision; nothing found in the
   code changes it.
 
-## Open item found while comparing
+## Note on the capture_thought regression
 
-`capture_thought` currently rejects every write with "grounding is unknown"
-regardless of the `sourceType` passed (diagnosed 2026-08-31; `remember_fact`
-on the same server is unaffected). The grounding gate above is the right
-design — it is the implementation that regressed. Since there is no confirm
-tool in the MCP surface, `needs_confirmation` is also currently a dead end for
-a client. Worth fixing before any of the enhancements listed here.
+A `capture_thought` grounding regression was recorded on 2026-08-31 —
+every write rejected with "grounding is unknown" regardless of the `sourceType`
+passed. **That is no longer reproducing.** A capture with
+`sourceType: assistant_commitment` stored cleanly during this comparison
+(`thought:k174nehdn1btrsfksf6k9p4n9h8dkj3b`, disposition `stored`), so the fault
+is either fixed or narrower than it was logged as. The two `user_stated` and
+`user_confirmed` paths were not re-tested here, since testing them means writing
+junk into a live brain.
+
+One rough edge remains and is real: `needs_confirmation` has no resolution path,
+because there is no confirm tool in the MCP surface. A client that trips the
+grounding gate can only give up or re-send. Whatever the state of the
+regression, that gap is worth closing.
