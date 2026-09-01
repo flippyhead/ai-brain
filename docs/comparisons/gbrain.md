@@ -125,10 +125,20 @@ This is where AI Brain is ahead, and it should not be undersold.
 - **Refused derivations.** Storing a derived age is rejected in favor of an
   exact `date_of_birth`.
 
-GBrain has adjacent machinery — `facts/supersede-resolve.ts`, `decay.ts`,
-`forget.ts`, `backstop.ts`, `phantom-audit.ts`, plus overnight consolidation
-and `dream_verdicts` — but its default posture is ingest-heavy, and the
-cleanup runs after the fact rather than at the door.
+**Correction (2026-09-01):** an earlier version of this document said GBrain
+has no gate and cleans up after the fact. That was too strong. GBrain does gate
+writes — `skills/brain-ingest-gate` runs named-entity resolution and a dedup
+decision tree before any page lands, under an explicit "a raw `cp` into the
+brain repo is a bug" rule — plus `supersede-resolve`, `decay`, `forget`,
+`backstop`, `phantom-audit` and overnight consolidation behind it.
+
+The real difference is narrower and worth stating precisely. GBrain's gate asks
+**"is this already here, and where does it file?"** and is implemented as a
+skill, which the file itself describes as "routing convention, not an
+operation-boundary enforcement" — an agent that doesn't load it writes anyway.
+AI Brain's gate asks **"is this admissible, and do we know where it came
+from?"** and lives in the server and the schema, where no client can route
+around it. Dedup-by-convention versus admissibility-by-enforcement.
 
 ## Ingestion and autonomy
 
