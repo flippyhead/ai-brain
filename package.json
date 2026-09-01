@@ -14,6 +14,7 @@
     "check:self-hosting:convex": "node scripts/check-self-hosting.mjs --convex --prod",
     "test:self-hosting": "node --test scripts/check-self-hosting.test.mjs",
     "generate:mcp-jwks": "node scripts/generate-mcp-jwks.mjs",
+    "export:brain": "node scripts/export-brain.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {

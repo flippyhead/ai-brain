@@ -1,0 +1,256 @@
+import { test, describe } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  escapeFenceCell,
+  isoDate,
+  parseConvexRunOutput,
+  renderEntityPage,
+  renderFactsFence,
+  renderFrontmatter,
+  renderThoughtPage,
+  slugify,
+  thoughtFileName,
+  uniqueSlug,
+} from "./export-brain.mjs";
+
+describe("slugs", () => {
+  test("normalizes accents, punctuation, and case", () => {
+    assert.equal(slugify("Sara Smucker Barnwell"), "sara-smucker-barnwell");
+    assert.equal(slugify("Zoë's Café"), "zoes-cafe");
+    assert.equal(slugify("  --weird-- "), "weird");
+  });
+
+  test("never returns an empty slug", () => {
+    assert.equal(slugify(""), "untitled");
+    assert.equal(slugify("!!!"), "untitled");
+    assert.equal(slugify(undefined), "untitled");
+  });
+
+  test("disambiguates collisions instead of overwriting a page", () => {
+    const taken = new Set();
+    assert.equal(uniqueSlug("acme", taken), "acme");
+    assert.equal(uniqueSlug("acme", taken), "acme-2");
+    assert.equal(uniqueSlug("acme", taken), "acme-3");
+  });
+});
+
+describe("fence cells", () => {
+  test("escapes pipes so one claim cannot corrupt every later column", () => {
+    assert.equal(escapeFenceCell("a | b"), "a \\| b");
+  });
+
+  test("flattens newlines so a claim cannot end the row early", () => {
+    assert.equal(escapeFenceCell("line one\nline two"), "line one line two");
+  });
+});
+
+describe("dates", () => {
+  test("renders a timestamp as a plain date", () => {
+    assert.equal(isoDate(Date.UTC(2026, 6, 20)), "2026-07-20");
+  });
+
+  test("renders missing or invalid values as empty", () => {
+    assert.equal(isoDate(undefined), "");
+    assert.equal(isoDate(Number.NaN), "");
+  });
+});
+
+describe("frontmatter", () => {
+  test("omits empty values rather than emitting null keys", () => {
+    const yaml = renderFrontmatter({
+      type: "note",
+      title: "A memory",
+      people: [],
+      status: undefined,
+    });
+    assert.equal(yaml, "---\ntype: note\ntitle: A memory\n---");
+  });
+
+  test("quotes values YAML would otherwise read as structure", () => {
+    const yaml = renderFrontmatter({ title: "Decision: pick Convex" });
+    assert.ok(yaml.includes('title: "Decision: pick Convex"'));
+  });
+});
+
+describe("facts fence", () => {
+  const base = {
+    _id: "f1",
+    statement: "Peter — therapist: Sara.",
+    confidence: 1,
+    status: "current",
+    validFrom: Date.UTC(2026, 6, 20),
+    sourceType: "user_confirmed",
+  };
+
+  test("renders a current fact as an active row", () => {
+    const fence = renderFactsFence([base]);
+    assert.ok(fence.includes("<!--- gbrain:facts:begin -->"));
+    assert.ok(fence.includes("| 1 | Peter — therapist: Sara. | fact | 1 |"));
+    assert.ok(!fence.includes("~~"));
+  });
+
+  test("marks a superseded fact struck and points at its replacement row", () => {
+    // The lifecycle mapping is the whole point: flattening it would hand the
+    // importer two competing current claims instead of one retired one.
+    const fence = renderFactsFence(
+      [
+        { ...base, _id: "old", status: "superseded", supersededBy: "new" },
+        { ...base, _id: "new", statement: "Peter — therapist: Alex." },
+      ],
+      { rowNumbersById: new Map([["new", 2]]) },
+    );
+    assert.ok(fence.includes("~~Peter — therapist: Sara.~~"));
+    assert.ok(fence.includes("superseded by #2"));
+  });
+
+  test("marks a retracted fact forgotten, carrying its reason", () => {
+    const fence = renderFactsFence([
+      {
+        ...base,
+        status: "retracted",
+        changeReason: "misheard the name",
+      },
+    ]);
+    assert.ok(fence.includes("~~Peter — therapist: Sara.~~"));
+    assert.ok(fence.includes("forgotten: misheard the name"));
+  });
+
+  test("defaults visibility to private for personal memory", () => {
+    // GBrain's default is brain-wide: every connected agent could recall it.
+    assert.ok(renderFactsFence([base]).includes("| private |"));
+  });
+
+  test("marks core facts as high notability", () => {
+    assert.ok(renderFactsFence([{ ...base, isCore: true }]).includes("| high |"));
+    assert.ok(renderFactsFence([base]).includes("| medium |"));
+  });
+
+  test("renders nothing for an entity with no facts", () => {
+    assert.equal(renderFactsFence([]), "");
+  });
+});
+
+describe("entity pages", () => {
+  test("carries type, title, aliases, and the fence", () => {
+    const page = renderEntityPage(
+      {
+        _id: "e1",
+        kind: "person",
+        canonicalName: "Sara Smucker Barnwell",
+        aliases: ["Sara Smucker"],
+        key: "person:sara",
+      },
+      [
+        {
+          _id: "f1",
+          statement: "Sara — role: therapist.",
+          status: "current",
+          confidence: 1,
+        },
+      ],
+    );
+    assert.ok(page.startsWith("---\ntype: person\n"));
+    assert.ok(page.includes("title: Sara Smucker Barnwell"));
+    assert.ok(page.includes("aliases: [Sara Smucker]"));
+    assert.ok(page.includes("# Sara Smucker Barnwell"));
+    assert.ok(page.includes("## Facts"));
+  });
+
+  test("maps organizations to companies and other to concepts", () => {
+    const org = renderEntityPage(
+      { _id: "e2", kind: "organization", canonicalName: "Acme", aliases: [] },
+      [],
+    );
+    assert.ok(org.includes("type: company"));
+    const other = renderEntityPage(
+      { _id: "e3", kind: "other", canonicalName: "Thing", aliases: [] },
+      [],
+    );
+    assert.ok(other.includes("type: concept"));
+  });
+});
+
+describe("memory pages", () => {
+  const thought = {
+    _id: "t1",
+    _creationTime: Date.UTC(2026, 8, 1),
+    content: "Decided to keep AI Brain as the single memory layer.",
+    metadata: {
+      type: "decision",
+      topics: ["memory"],
+      people: ["Peter Brown"],
+      actionItems: ["Run the bake-off"],
+      summary: "Single memory layer",
+    },
+  };
+
+  test("renders frontmatter, body, and open items", () => {
+    const page = renderThoughtPage(thought);
+    assert.ok(page.includes("type: note"));
+    assert.ok(page.includes("brain_type: decision"));
+    assert.ok(page.includes("date: 2026-09-01"));
+    assert.ok(page.includes("people: [Peter Brown]"));
+    assert.ok(page.includes("## Open items"));
+    assert.ok(page.includes("- [ ] Run the bake-off"));
+  });
+
+  test("stamps status only when the memory is not current", () => {
+    assert.ok(!renderThoughtPage(thought).includes("status:"));
+    assert.ok(
+      renderThoughtPage({ ...thought, memoryStatus: "retracted" }).includes(
+        "status: retracted",
+      ),
+    );
+  });
+
+  test("maps a meeting note to a meeting page", () => {
+    const page = renderThoughtPage({
+      ...thought,
+      metadata: { ...thought.metadata, type: "meeting_note" },
+    });
+    assert.ok(page.includes("type: meeting"));
+  });
+
+  test("names files by date and summary, disambiguating collisions", () => {
+    const taken = new Set();
+    assert.equal(
+      thoughtFileName(thought, taken),
+      "2026-09-01-single-memory-layer",
+    );
+    assert.equal(
+      thoughtFileName(thought, taken),
+      "2026-09-01-single-memory-layer-2",
+    );
+  });
+});
+
+describe("convex run output", () => {
+  test("reads the result when the backend logged first", () => {
+    const parsed = parseConvexRunOutput(
+      'log line one\nlog line two\n{"rows":[],"isDone":true}',
+    );
+    assert.deepEqual(parsed, { rows: [], isDone: true });
+  });
+
+  test("reads a bare result with no logs", () => {
+    assert.deepEqual(parseConvexRunOutput('{"a":1}'), { a: 1 });
+  });
+
+  test("fails loudly rather than returning nothing", () => {
+    assert.throws(() => parseConvexRunOutput(""), /no output/);
+    assert.throws(() => parseConvexRunOutput("just a log line"), /did not return JSON/);
+  });
+});
+
+describe("yaml scalars", () => {
+  test("leaves a date unquoted so it stays a date after import", async () => {
+    const { yamlScalar } = await import("./export-brain.mjs");
+    assert.equal(yamlScalar("2026-09-01"), "2026-09-01");
+  });
+
+  test("quotes a value that starts with structure", async () => {
+    const { yamlScalar } = await import("./export-brain.mjs");
+    assert.equal(yamlScalar("- not a list"), '"- not a list"');
+  });
+});
