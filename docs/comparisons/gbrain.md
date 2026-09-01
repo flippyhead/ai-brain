@@ -182,10 +182,10 @@ in-tree.
 
 Ranked by value per unit of added complexity.
 
-1. **An export path.** Markdown-per-memory into a private git repo, one
-   direction, no sync. It closes the ownership gap, it is a weekend of work,
-   and it makes "AI Brain is my source of truth" survivable if Convex ever
-   isn't. Highest priority on this list.
+1. ~~**An export path.**~~ **Dropped by decision (2026-09-01).** The Convex
+   account is owned and controlled end to end, so an export path solves a
+   problem this deployment does not have. Left here so the reasoning is
+   recorded rather than re-litigated.
 2. **A gap-analysis / synthesis response.** Not full `think`, but
    `recall_context` returning *what the brain doesn't know* — the newest
    relevant memory is six weeks old, two current facts disagree, a predicate
@@ -194,8 +194,12 @@ Ranked by value per unit of added complexity.
 3. **An exact-lookup tier ahead of RRF.** When the query contains an entity
    name or alias that resolves, serve that first. AI Brain already has
    `by_userId_kind_normalizedName`; it just isn't used as a retrieval short-circuit.
-4. **A recall token budget.** GBrain enforces one; AI Brain caps at 8 results
-   with no size bound, so one long thought can dominate a context window.
+4. **A recall token budget.** GBrain enforces one. AI Brain does have two
+   bounds — `truncateContext` caps each thought at 4,000 characters and the
+   response declares a 50,000-character host ceiling — but no *allocation*:
+   eight results at 4,000 characters each are spent blind, truncation cuts at
+   a character offset mid-word, and nothing tells the caller that trimming
+   happened.
 5. **MEMORY_VERBS v1 conformance** (`recall`, `remember`, `entity`,
    `synthesize`, `forget`, `context_pack`, `delta`). It is a frozen, public,
    additive-forever protocol with a conformance runner. Speaking it would make
@@ -212,6 +216,19 @@ Ranked by value per unit of added complexity.
 - **Running both as memory.** Two memory layers drift, and then neither is
   trustworthy. This was already the standing decision; nothing found in the
   code changes it.
+
+## Found while planning the follow-up work
+
+`facts` has a `by_searchText` search index and **no embedding and no vector
+index** (`schema.ts:33-43`), so `searchFacts` is pure keyword matching while
+thoughts get full vector + keyword RRF. The fact "therapist: Sara Smucker
+Barnwell" is reachable by the word *therapist* and not by "who do I see for
+mental health". The precise half of the memory model — the half the README
+calls authoritative — is the half that cannot be reached semantically.
+
+This is a larger recall defect than anything on the GBrain-inspired list, and
+it is now the first workstream in
+`docs/plans/2026-09-01-recall-quality-design.md`.
 
 ## Note on the capture_thought regression
 
