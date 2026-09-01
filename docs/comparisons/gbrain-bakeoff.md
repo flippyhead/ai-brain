@@ -54,29 +54,57 @@ comparison would be measuring a truncated brain.
 
 ### 2. Load GBrain
 
+**This sequence is verified.** It was run end to end against GBrain v0.47.9.0
+with a synthetic corpus produced by this exporter. The obvious shorter version —
+`gbrain import <dir>` — imports the pages but leaves **`active facts: 0`**,
+because fence reconciliation runs in the cycle phase and only for a
+git-backed source. An import-only load would hand the bake-off a GBrain with no
+facts at all and make it lose for a reason that is not its fault.
+
 ```bash
-bun install -g github:garrytan/gbrain
+cd ./brain-export/markdown
+git init && git add -A && git commit -m "brain export"   # sync requires a git repo
+cd -
+
 gbrain init --pglite
-gbrain import ./brain-export/markdown/
+gbrain sync --repo ./brain-export/markdown --full        # NOT `gbrain import`
+gbrain dream                                             # reconciles the ## Facts fences
+gbrain extract --stale                                   # builds the graph edges
 gbrain doctor
 ```
 
-Set `OPENAI_API_KEY` first. Without it GBrain runs keyword-only, which would
-make the comparison a test of one system's embeddings against the other's
-keyword index rather than a test of the two brains.
+Set `OPENAI_API_KEY` before `sync`. Without it GBrain refuses to embed and
+requires `--no-embed`, which leaves semantic search and `gbrain think` dark —
+`think` returns "no LLM available" and retrieval warns `QUESTION_EMBED_FAILED`.
+Running the bake-off in that state measures AI Brain's hybrid search against
+GBrain's keyword index, which is not the comparison anyone wants. `gbrain think`
+additionally needs `ANTHROPIC_API_KEY`.
+
+`gbrain doctor` reporting `brain score 10/100 (embed 0/35)` means the embeddings
+never ran. Fix that before asking a single question.
 
 ### 3. Verify the import was faithful
 
 Before asking a single question, confirm GBrain received what was sent. An
-unfair import produces a confident, wrong conclusion.
+unfair import produces a confident, wrong conclusion. Each of these was
+confirmed working against the exporter:
 
-- Page count matches `_manifest.json`.
-- `gbrain entity <a-person-you-exported>` returns the entity with its facts.
-- A superseded fact shows struck through, not as a second live claim.
-- A retracted fact shows forgotten, with its reason.
+- **Facts reconciled.** `gbrain dream` reports `extract_facts N fact(s)
+reconciled across N page(s)`. If it says 0, the source is not git-backed and
+  step 2 was skipped or reordered.
+- **Lifecycle survived.** `gbrain entity people/<someone>` shows `active facts`
+  equal to their _current_ fact count, not their total. A person with two
+  current facts, one superseded and one retracted must read `active facts: 2`.
+- **The graph wired.** After `gbrain extract --stale`, an entity referenced by
+  another entity's fact shows non-zero `backlinks`, and `gbrain doctor` reports
+  `graph_coverage` well above 0%.
+- **Pages are retrievable.** `gbrain search "<a person's name>"` returns their
+  facts as the snippet, not `| # | claim | kind | ...`. A fence-only page
+  chunks to table syntax and matches nothing.
 
-If lifecycle did not survive, stop and fix the export. A brain where retired
-claims read as current will lose on contradictions for the wrong reason.
+If any of these fail, stop and fix the export. A brain where retired claims read
+as current, or where the graph never wired, loses on contradictions and on
+traversal for the wrong reason.
 
 ## The question set
 

@@ -221,7 +221,75 @@ export function renderFactsFence(facts, { rowNumbersById = new Map() } = {}) {
   ].join("\n");
 }
 
-export function renderEntityPage(entity, facts) {
+/**
+ * Prose restatement of an entity's current facts, in the entity page body.
+ *
+ * Without this the page body is a heading followed by a fence, and a fence is a
+ * markdown table — so the only chunk a retriever gets is table syntax, and the
+ * page matches nothing and previews as `| # | claim | kind | ...`. Verified
+ * against GBrain: entity pages exported without a prose body returned the fence
+ * header as their search snippet.
+ *
+ * The statements are reproduced verbatim, never summarised. Retired claims are
+ * deliberately excluded — they belong in the fence, struck through, where the
+ * importer reads their lifecycle. Restating them as prose would put retracted
+ * text back into the retrievable body, which is the exact failure the
+ * strikethrough exists to prevent.
+ */
+export function renderEntityProse(entity, facts) {
+  const lines = [];
+  if (entity.aliases?.length) {
+    lines.push(`Also known as ${entity.aliases.join(", ")}.`);
+  }
+  const current = facts.filter((fact) => fact.status === "current");
+  for (const fact of current) {
+    lines.push(String(fact.statement ?? "").trim());
+  }
+  return lines.filter(Boolean).join("\n\n");
+}
+
+/**
+ * Obsidian-style wikilink, the form GBrain's link extractor reads.
+ *
+ * Entity references have to be emitted as links, not as plain text. AI Brain
+ * stores `primary_care_provider → person:sara` as a typed reference between two
+ * entities; written out as prose it becomes an ordinary sentence, and the graph
+ * that reference belongs to never gets built. Verified against GBrain: an export
+ * without wikilinks reports `graph_coverage: entity connected coverage 0%`,
+ * which silently disables the traversal that is GBrain's whole differentiator.
+ */
+export function wikilink(path, label) {
+  return label && label !== path ? `[[${path}|${label}]]` : `[[${path}]]`;
+}
+
+export function entityPagePath(entity) {
+  const directory = ENTITY_DIRECTORIES[entity.kind] ?? "concepts";
+  return `${directory}/${slugify(entity.canonicalName)}`;
+}
+
+/**
+ * Wikilinks for every entity this entity's current facts point at, so the
+ * relationships AI Brain stores as typed references survive as graph edges.
+ */
+export function renderEntityLinks(facts, pathById) {
+  if (!pathById) return "";
+  const seen = new Set();
+  for (const fact of facts) {
+    if (fact.status !== "current") continue;
+    const value = fact.value;
+    if (value?.type !== "entity" || !value.entityId) continue;
+    const target = pathById.get(value.entityId);
+    if (target) seen.add(target);
+  }
+  if (seen.size === 0) return "";
+  return [
+    "## Related",
+    "",
+    ...[...seen].map((path) => `- ${wikilink(path)}`),
+  ].join("\n");
+}
+
+export function renderEntityPage(entity, facts, { pathById } = {}) {
   const rowNumbersById = new Map(
     facts.map((fact, index) => [fact._id, index + 1]),
   );
@@ -231,11 +299,16 @@ export function renderEntityPage(entity, facts) {
     aliases: entity.aliases,
     brain_entity_key: entity.key,
   });
+  const prose = renderEntityProse(entity, facts);
+  const links = renderEntityLinks(facts, pathById);
   const fence = renderFactsFence(facts, { rowNumbersById });
-  return `${frontmatter}\n\n# ${entity.canonicalName}\n\n${fence}`.trimEnd() + "\n";
+  const body = [`# ${entity.canonicalName}`, prose, links, fence]
+    .filter(Boolean)
+    .join("\n\n");
+  return `${frontmatter}\n\n${body}`.trimEnd() + "\n";
 }
 
-export function renderThoughtPage(thought) {
+export function renderThoughtPage(thought, { pathByName } = {}) {
   const metadata = thought.metadata ?? {};
   const status = thought.memoryStatus ?? "current";
   const frontmatter = renderFrontmatter({
@@ -255,6 +328,20 @@ export function renderThoughtPage(thought) {
   });
 
   const sections = [frontmatter, "", thought.content.trim()];
+
+  // The people on a memory are the edges between it and their entity pages.
+  // Left as bare names in frontmatter they are strings; as wikilinks they let
+  // "what is open with this person" become a graph walk rather than a search.
+  const people = (metadata.people ?? [])
+    .map((name) => {
+      const path = pathByName?.get(normalizeName(name));
+      return path ? `- ${wikilink(path, name)}` : null;
+    })
+    .filter(Boolean);
+  if (people.length > 0) {
+    sections.push("", "## People", "", ...people);
+  }
+
   if (Array.isArray(metadata.actionItems) && metadata.actionItems.length > 0) {
     sections.push(
       "",
@@ -264,6 +351,37 @@ export function renderThoughtPage(thought) {
     );
   }
   return sections.join("\n").trimEnd() + "\n";
+}
+
+/** Match a memory's free-text person name against an entity name or alias. */
+export function normalizeName(value) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** name and alias → page path, for resolving people named on a memory. */
+export function buildPathIndex(entities) {
+  const pathById = new Map();
+  const pathByName = new Map();
+  for (const entity of entities) {
+    const path = entityPagePath(entity);
+    pathById.set(entity._id, path);
+    pathByName.set(normalizeName(entity.canonicalName), path);
+    for (const alias of entity.aliases ?? []) {
+      const key = normalizeName(alias);
+      // Canonical names win: an alias must never steal a name another entity
+      // owns outright, or a memory wires to the wrong person.
+      if (!pathByName.has(key)) pathByName.set(key, path);
+    }
+  }
+  for (const entity of entities) {
+    pathByName.set(normalizeName(entity.canonicalName), entityPagePath(entity));
+  }
+  return { pathById, pathByName };
 }
 
 export function thoughtFileName(thought, taken) {
@@ -436,6 +554,10 @@ function main() {
       factsByEntity.set(fact.subjectEntityId, bucket);
     }
 
+    // Built before any page is written: an entity page links to other entity
+    // pages, so every path has to be known before the first one is rendered.
+    const { pathById, pathByName } = buildPathIndex(data.entities);
+
     const takenByDirectory = new Map();
     for (const entity of data.entities) {
       const directory = ENTITY_DIRECTORIES[entity.kind] ?? "concepts";
@@ -445,7 +567,9 @@ function main() {
       write(
         root,
         join(directory, `${slug}.md`),
-        renderEntityPage(entity, factsByEntity.get(entity._id) ?? []),
+        renderEntityPage(entity, factsByEntity.get(entity._id) ?? [], {
+          pathById,
+        }),
       );
     }
 
@@ -454,7 +578,7 @@ function main() {
       write(
         root,
         join("memories", `${thoughtFileName(thought, memorySlugs)}.md`),
-        renderThoughtPage(thought),
+        renderThoughtPage(thought, { pathByName }),
       );
     }
     write(root, "_manifest.json", JSON.stringify(manifest, null, 2));

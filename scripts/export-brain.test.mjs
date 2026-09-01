@@ -122,7 +122,9 @@ describe("facts fence", () => {
   });
 
   test("marks core facts as high notability", () => {
-    assert.ok(renderFactsFence([{ ...base, isCore: true }]).includes("| high |"));
+    assert.ok(
+      renderFactsFence([{ ...base, isCore: true }]).includes("| high |"),
+    );
     assert.ok(renderFactsFence([base]).includes("| medium |"));
   });
 
@@ -239,7 +241,10 @@ describe("convex run output", () => {
 
   test("fails loudly rather than returning nothing", () => {
     assert.throws(() => parseConvexRunOutput(""), /no output/);
-    assert.throws(() => parseConvexRunOutput("just a log line"), /did not return JSON/);
+    assert.throws(
+      () => parseConvexRunOutput("just a log line"),
+      /did not return JSON/,
+    );
   });
 });
 
@@ -252,5 +257,167 @@ describe("yaml scalars", () => {
   test("quotes a value that starts with structure", async () => {
     const { yamlScalar } = await import("./export-brain.mjs");
     assert.equal(yamlScalar("- not a list"), '"- not a list"');
+  });
+});
+
+describe("entity prose body", () => {
+  const entity = {
+    _id: "e1",
+    kind: "person",
+    canonicalName: "Dana Whitfield",
+    aliases: ["Dana"],
+  };
+  const facts = [
+    {
+      _id: "f1",
+      statement: "Dana Whitfield — employer: Halberd.",
+      status: "current",
+      confidence: 1,
+    },
+    {
+      _id: "f2",
+      statement: "Dana Whitfield — city: Fairhaven.",
+      status: "retracted",
+      changeReason: "wrong person",
+      confidence: 1,
+    },
+  ];
+
+  test("restates current facts as prose so the page is retrievable", async () => {
+    // Without a prose body the only chunk is table syntax: verified against
+    // GBrain, which returned the fence header row as the page's search snippet.
+    const { renderEntityProse } = await import("./export-brain.mjs");
+    const prose = renderEntityProse(entity, facts);
+    assert.ok(prose.includes("Also known as Dana."));
+    assert.ok(prose.includes("Dana Whitfield — employer: Halberd."));
+  });
+
+  test("keeps retired claims out of the retrievable body", async () => {
+    const { renderEntityProse } = await import("./export-brain.mjs");
+    const prose = renderEntityProse(entity, facts);
+    assert.ok(!prose.includes("Fairhaven"));
+  });
+
+  test("puts the prose ahead of the fence in the page", async () => {
+    const page = renderEntityPage(entity, facts);
+    assert.ok(page.indexOf("employer: Halberd") < page.indexOf("## Facts"));
+    // and the retracted claim still reaches the fence, struck through
+    assert.ok(page.includes("~~Dana Whitfield — city: Fairhaven.~~"));
+  });
+});
+
+describe("graph links", () => {
+  const entities = [
+    {
+      _id: "e1",
+      kind: "person",
+      canonicalName: "Dana Whitfield",
+      aliases: ["Dana"],
+    },
+    { _id: "e2", kind: "person", canonicalName: "Priya Raman", aliases: [] },
+  ];
+
+  test("emits an entity-valued fact as a wikilink so the graph can wire", async () => {
+    // Verified against GBrain: without links it reports entity connected
+    // coverage 0%, which disables the traversal that is its differentiator.
+    const { buildPathIndex, renderEntityPage } =
+      await import("./export-brain.mjs");
+    const { pathById } = buildPathIndex(entities);
+    const page = renderEntityPage(
+      entities[1],
+      [
+        {
+          _id: "f1",
+          statement: "Priya Raman — reporting_manager: Dana Whitfield.",
+          status: "current",
+          confidence: 1,
+          value: { type: "entity", entityId: "e1" },
+        },
+      ],
+      { pathById },
+    );
+    assert.ok(page.includes("[[people/dana-whitfield]]"));
+  });
+
+  test("does not wire a link from a retired fact", async () => {
+    const { buildPathIndex, renderEntityPage } =
+      await import("./export-brain.mjs");
+    const { pathById } = buildPathIndex(entities);
+    const page = renderEntityPage(
+      entities[1],
+      [
+        {
+          _id: "f1",
+          statement: "Priya Raman — reporting_manager: Dana Whitfield.",
+          status: "retracted",
+          confidence: 1,
+          value: { type: "entity", entityId: "e1" },
+        },
+      ],
+      { pathById },
+    );
+    assert.ok(!page.includes("[[people/dana-whitfield]]"));
+  });
+
+  test("links people named on a memory to their entity pages", async () => {
+    const { buildPathIndex } = await import("./export-brain.mjs");
+    const { pathByName } = buildPathIndex(entities);
+    const page = renderThoughtPage(
+      {
+        _id: "t1",
+        _creationTime: Date.UTC(2026, 5, 18),
+        content: "Quarterly review.",
+        metadata: {
+          type: "meeting_note",
+          topics: [],
+          people: ["Dana Whitfield"],
+          actionItems: [],
+          summary: "Review",
+        },
+      },
+      { pathByName },
+    );
+    assert.ok(page.includes("[[people/dana-whitfield|Dana Whitfield]]"));
+  });
+
+  test("resolves a person named by alias", async () => {
+    const { buildPathIndex } = await import("./export-brain.mjs");
+    const { pathByName } = buildPathIndex(entities);
+    assert.equal(pathByName.get("dana"), "people/dana-whitfield");
+  });
+
+  test("a canonical name is never stolen by another entity's alias", async () => {
+    const { buildPathIndex } = await import("./export-brain.mjs");
+    const { pathByName } = buildPathIndex([
+      { _id: "a", kind: "person", canonicalName: "Alex Chen", aliases: [] },
+      {
+        _id: "b",
+        kind: "person",
+        canonicalName: "Alexandra Poole",
+        aliases: ["Alex Chen"],
+      },
+    ]);
+    assert.equal(pathByName.get("alex chen"), "people/alex-chen");
+  });
+
+  test("leaves an unknown person as plain text rather than a dead link", async () => {
+    const { buildPathIndex } = await import("./export-brain.mjs");
+    const { pathByName } = buildPathIndex(entities);
+    const page = renderThoughtPage(
+      {
+        _id: "t2",
+        _creationTime: Date.UTC(2026, 5, 18),
+        content: "Call.",
+        metadata: {
+          type: "meeting_note",
+          topics: [],
+          people: ["Someone Unknown"],
+          actionItems: [],
+          summary: "Call",
+        },
+      },
+      { pathByName },
+    );
+    assert.ok(!page.includes("[["));
   });
 });
