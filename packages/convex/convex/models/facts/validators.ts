@@ -108,6 +108,12 @@ export const factFields = {
   isCore: v.optional(v.boolean()),
   validFrom: v.optional(v.number()),
   validTo: v.optional(v.number()),
+  /**
+   * How the write path treated this fact's subject and predicate: `single`
+   * supersedes any prior current value, `multiple` lets values coexist.
+   * Absent on facts stored before it was recorded.
+   */
+  cardinality: v.optional(v.union(v.literal("single"), v.literal("multiple"))),
   status: factStatus,
   supersededAt: v.optional(v.number()),
   supersededBy: v.optional(v.id("facts")),

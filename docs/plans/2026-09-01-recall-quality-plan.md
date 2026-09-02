@@ -368,6 +368,12 @@ an item shorter than its allocation passing through untouched.
 
 ## Workstream 4 — Gap analysis
 
+**Implemented** in PR #44. Tasks 9 and 10 landed as `models/recallGaps.ts`
+(pure, unit-tested) and an additive change to `recall_context`: the memories
+array is unchanged and a `{ gaps }` JSON block plus a short text section
+follow it when non-empty, rather than the breaking `{ memories, gaps }` wrap
+described below. The harness cannot score gaps, so W4 is unit-tested only.
+
 > Answer the W5 positioning question in the design doc before starting this
 > workstream. It changes the envelope shape here and nothing earlier.
 

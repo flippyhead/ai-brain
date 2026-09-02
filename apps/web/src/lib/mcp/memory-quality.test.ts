@@ -171,6 +171,9 @@ describe("MCP memory quality contract", () => {
   });
 
   test("gives core one slot, facts one, and the rest to ranked memories", async () => {
+    // Pinned so the window below stays fresh: a clean window carries no gaps
+    // block, and this test asserts that.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 8, 2, 12) });
     const query = "What changed in Atlas Memory v2.7.1 for ticket ATLAS-184?";
     const factRow = (id: string, predicate: string, value: string) => ({
       id,
@@ -319,6 +322,9 @@ describe("MCP memory quality contract", () => {
         name: "recall_context",
         arguments: { query, limit: 5, includeHistorical: false },
       });
+      // Nothing is stale, conflicting, or asked-for-and-absent, so the
+      // memories are the whole result: no gaps block.
+      expect((result as { content?: unknown[] }).content).toHaveLength(1);
       const firstContent = (result as { content?: unknown[] }).content?.[0];
       expect(firstContent).toMatchObject({ type: "text" });
       const context = JSON.parse(
@@ -495,6 +501,7 @@ describe("MCP memory quality contract", () => {
       ]);
       expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ query, limit: 2 });
     } finally {
+      vi.useRealTimers();
       await client.close();
       await server.close();
     }
@@ -778,6 +785,9 @@ describe("MCP memory quality contract", () => {
   });
 
   test("fits long memories within maxContextChars by trimming instead of dropping", async () => {
+    // Pinned: the memories below are dated August 2026, and a window older
+    // than six weeks would gain a gaps block after the memory array.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 8, 2, 12) });
     const paragraph = (n: number) =>
       `Paragraph ${n} of the Atlas Memory migration notes records another decision with its rationale. `;
     const longContent = (seed: string) =>
@@ -869,6 +879,7 @@ describe("MCP memory quality contract", () => {
       expect(content[1]?.text).not.toContain("dropped");
       expect(content[1]?.text.length).toBeLessThanOrEqual(240);
     } finally {
+      vi.useRealTimers();
       await client.close();
       await server.close();
     }
@@ -932,6 +943,138 @@ describe("MCP memory quality contract", () => {
       expect(row?.content.length).toBeGreaterThan(4_000);
       expect(row?.truncated).toBeUndefined();
     } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("reports what the brain does not know after the memories, and only then", async () => {
+    // A fixed clock keeps the staleness verdicts below from drifting as the
+    // calendar moves on; the fake covers Date only, so the MCP transport's
+    // timers and promises are untouched.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 8, 2, 12) });
+    const factRow = (
+      id: string,
+      predicate: string,
+      value: string,
+      createdAt: number,
+    ) => ({
+      id,
+      statement: `Jordan — ${predicate.replaceAll("_", " ")}: ${value}.`,
+      subject: {
+        id: "entity-jordan",
+        key: "person:jordan",
+        kind: "person",
+        name: "Jordan",
+        aliases: [],
+      },
+      predicate,
+      value: { type: "text", value },
+      sourceType: "user_stated" as const,
+      confidence: 1,
+      isCore: false,
+      status: "current" as const,
+      createdAt,
+    });
+    // Two current facts disagree, the newest relevant memory is months old,
+    // and the question asks for a phone number no fact records. Core and the
+    // exact lookup are queries; fact search, thought search, and hydration
+    // are actions.
+    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    convexMocks.action
+      .mockResolvedValueOnce([
+        factRow("fact-city-a", "home_city", "Fernwood", Date.UTC(2026, 2, 1)),
+        factRow(
+          "fact-city-b",
+          "home_city",
+          "Brightwater",
+          Date.UTC(2026, 3, 1),
+        ),
+      ])
+      .mockResolvedValueOnce([
+        {
+          _id: "moving-note",
+          summary: "Jordan's move",
+          snippet: "Jordan is moving house this spring.",
+          type: "person_note",
+          topics: ["Jordan"],
+          score: 0.02,
+          createdAt: Date.UTC(2026, 3, 10),
+          memoryStatus: "current",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          _id: "moving-note",
+          content: "Jordan is moving house this spring.",
+          metadata: {
+            type: "person_note",
+            topics: ["Jordan"],
+            people: ["Jordan"],
+            actionItems: [],
+            summary: "Jordan's move",
+          },
+          createdAt: Date.UTC(2026, 3, 10),
+          memoryStatus: "current",
+        },
+      ]);
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: {
+          query:
+            "Where does Jordan live now, and what is Jordan's phone number?",
+          limit: 5,
+        },
+      });
+      const content = (result as { content: Array<{ text: string }> }).content;
+      expect(content).toHaveLength(3);
+      // The memories block is unchanged: still a bare array a parser can read.
+      const memories = JSON.parse(content[0]!.text) as Array<{ id: string }>;
+      expect(memories.map((row) => row.id)).toEqual([
+        "fact-city-a",
+        "fact-city-b",
+        "moving-note",
+      ]);
+      const { gaps } = JSON.parse(content[1]!.text) as {
+        gaps: Array<{ kind: string; message: string; refs?: string[] }>;
+      };
+      expect(gaps.map((gap) => gap.kind)).toEqual([
+        "conflict",
+        "absent",
+        "stale",
+      ]);
+      expect(gaps[0]).toMatchObject({
+        refs: ["fact:fact-city-a", "fact:fact-city-b"],
+      });
+      expect(gaps[0]!.message).toContain("Two current facts disagree");
+      expect(gaps[1]).toEqual({
+        kind: "absent",
+        message:
+          "This recall found no fact recording a phone number for Jordan; it may not be stored.",
+      });
+      expect(gaps[2]).toMatchObject({ refs: ["thought:moving-note"] });
+      expect(gaps[2]!.message).toContain("since 2026-04-10");
+      expect(content[2]!.text).toBe(
+        [
+          "What the brain doesn't know:",
+          `- [conflict] ${gaps[0]!.message}`,
+          `- [absent] ${gaps[1]!.message}`,
+          `- [stale] ${gaps[2]!.message}`,
+        ].join("\n"),
+      );
+    } finally {
+      vi.useRealTimers();
       await client.close();
       await server.close();
     }

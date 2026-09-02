@@ -1,0 +1,583 @@
+/**
+ * Gap analysis for `recall_context`: what the assembled window does not say.
+ *
+ * `recall_context` returns memories, not answers. The one thing a memory list
+ * cannot carry is its own silence — that nothing recent exists on the topic,
+ * that two current records disagree, or that the attribute the question named
+ * has no fact behind it. This module computes those gaps from the window
+ * already in hand: no model call, no extra query, deterministic, bounded.
+ *
+ * Every gap message that states something read from stored data cites it
+ * inline as `fact:<id>` or `thought:<id>` and lists the same ids in `refs`.
+ * An `absent` gap makes no claim about storage — only that this recall did
+ * not find the attribute — so it has nothing to cite and carries no refs.
+ */
+
+import { isMemoryActive } from "./thoughts/memoryLifecycle";
+
+export type GapMemoryStatus = "current" | "superseded" | "retracted";
+
+export type GapSubject = {
+  key: string;
+  name: string;
+  aliases?: readonly string[];
+};
+
+/** A fact as `recall_context` holds it after hydration, before formatting. */
+export type GapFact = {
+  id: string;
+  subject: GapSubject | null;
+  predicate: string;
+  value: unknown;
+  statement: string;
+  status: GapMemoryStatus;
+  validFrom?: number;
+  validTo?: number;
+  /**
+   * How the write path treated the subject and predicate. `multiple` means
+   * values coexist by design; absent on facts stored before it was recorded.
+   */
+  cardinality?: "single" | "multiple";
+  createdAt: number;
+  updatedAt?: number;
+};
+
+export type GapThought = {
+  id: string;
+  content: string;
+  memoryStatus: GapMemoryStatus;
+  validFrom?: number;
+  validTo?: number;
+  createdAt: number;
+  updatedAt?: number;
+};
+
+export type RecallGapKind = "empty" | "stale" | "conflict" | "absent";
+
+export type RecallGap = {
+  kind: RecallGapKind;
+  message: string;
+  /** Citations for every memory the message draws on. Omitted for absence. */
+  refs?: string[];
+};
+
+export type RecallGapInput = {
+  query: string;
+  /** Core facts fill slots the question did not ask for; they never count as relevant. */
+  coreFacts: readonly GapFact[];
+  relevanceFacts: readonly GapFact[];
+  thoughts: readonly GapThought[];
+  now: number;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * A window whose newest relevant memory is older than this is reported stale.
+ * Six weeks: long enough that ordinary project and household topics have
+ * usually moved on, short enough that the note is rare on a brain in daily
+ * use. Fixed on purpose — make it wrong in an obvious place first.
+ */
+export const STALE_AFTER_MS = 42 * DAY_MS;
+
+/**
+ * Gaps are a footnote, not a second result list. Four covers the case where
+ * every detector fires once; anything beyond that is repetition the client
+ * would skim past anyway.
+ */
+export const MAX_RECALL_GAPS = 4;
+
+/**
+ * Longest run of a stored statement or value a gap message quotes. A fact
+ * statement can be a thousand characters; the message needs enough to
+ * recognise the fact, and the citation beside it points at the rest.
+ */
+export const STATEMENT_EXCERPT_CHARS = 160;
+
+/**
+ * Most characters the two gap blocks together may add to a recall result.
+ * The memories block is budgeted separately (W3 keeps it at or under 48,000
+ * of the 50,000 the tool declares); this is the fixed slice the gaps reserve
+ * beside it, and `fitRecallGapBlocks` also fits under whatever the memories
+ * block actually left.
+ */
+export const RECALL_GAP_BLOCKS_MAX_CHARS = 4_000;
+
+/** Reporting order when the cap bites: the most actionable gaps survive. */
+const KIND_ORDER: Record<RecallGapKind, number> = {
+  empty: 0,
+  conflict: 1,
+  absent: 2,
+  stale: 3,
+};
+
+/**
+ * Attributes a question can ask for by name, and the fact predicates that
+ * would answer them. The predicate list matches by substring so
+ * `mobile_phone` and `work_email` count. Small and explicit by design: an
+ * entry here turns a missing fact into a reported gap, so each one should be
+ * an attribute people actually ask a brain for.
+ */
+type AskedAttribute = {
+  label: string;
+  predicates: readonly string[];
+  pattern: RegExp;
+  /** When this also matches, the question is about something else. */
+  unless?: RegExp;
+};
+
+const ASKED_ATTRIBUTES: readonly AskedAttribute[] = [
+  {
+    label: "a phone number",
+    predicates: ["phone", "mobile"],
+    pattern: /\b(?:phone|mobile|cell)(?:\s+number)?\b/i,
+  },
+  {
+    label: "an email address",
+    predicates: ["email"],
+    pattern: /\be-?mail\b/i,
+  },
+  {
+    label: "an address",
+    predicates: ["address"],
+    pattern: /\baddress\b/i,
+    unless: /\be-?mail\s+address\b/i,
+  },
+  {
+    label: "a date of birth",
+    predicates: ["date_of_birth", "birthday", "birth_date", "birthdate"],
+    pattern: /\b(?:birthday|birth\s?date|date\s+of\s+birth|born)\b/i,
+  },
+  {
+    label: "a school",
+    predicates: ["school"],
+    pattern: /\bschool\b/i,
+  },
+  {
+    label: "an employer",
+    predicates: ["employer", "employment", "works_at", "workplace"],
+    pattern: /\b(?:employer|employed|works?\s+(?:at|for))\b/i,
+  },
+  {
+    label: "a blood type",
+    predicates: ["blood_type", "blood_group"],
+    pattern: /\bblood\s?(?:type|group)\b/i,
+  },
+  {
+    label: "allergies",
+    predicates: ["allerg"],
+    pattern: /\ballerg(?:y|ies|ic)\b/i,
+  },
+  {
+    label: "a doctor",
+    predicates: ["doctor", "physician", "care_provider", "pediatrician"],
+    pattern: /\b(?:doctor|physician|pediatrician|primary\s+care)\b/i,
+  },
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Comparable identity of a fact value. Mirrors `factValueKey` in
+ * `facts/model.ts`, which decides duplicates on write; two facts this function
+ * tells apart are two facts the write path was willing to store side by side.
+ */
+function valueKey(value: unknown): string {
+  if (!isRecord(value)) return `raw:${JSON.stringify(value) ?? ""}`;
+  switch (value.type) {
+    case "entity": {
+      const entity = value.entity;
+      const id = isRecord(entity) ? (entity.id ?? entity.key) : value.entityId;
+      return `entity:${String(id ?? "")}`;
+    }
+    case "number":
+      return `number:${String(value.value)}:${String(value.unit ?? "")}`;
+    default:
+      return `${String(value.type)}:${String(value.value)
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US")
+        .trim()}`;
+  }
+}
+
+/**
+ * The value as `facts/model.ts` renders it into a statement, so a value
+ * echoed in a thought is found by the same text a client would have seen.
+ * Undefined when the value has no text form.
+ */
+function displayValue(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined;
+  switch (value.type) {
+    case "text":
+    case "date":
+      return typeof value.value === "string" ? value.value : undefined;
+    case "datetime":
+      // Stored as milliseconds and rendered as ISO-8601 in the statement;
+      // the MCP boundary already hands the ISO form through.
+      return typeof value.value === "number" && Number.isFinite(value.value)
+        ? new Date(value.value).toISOString()
+        : typeof value.value === "string"
+          ? value.value
+          : undefined;
+    case "number":
+      return typeof value.value === "number"
+        ? `${value.value}${value.unit ? ` ${String(value.unit)}` : ""}`
+        : undefined;
+    case "entity": {
+      const entity = value.entity;
+      return isRecord(entity) && typeof entity.name === "string"
+        ? entity.name
+        : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+function predicateLabel(predicate: string): string {
+  return predicate.replaceAll("_", " ");
+}
+
+function isoDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+function ago(ms: number): string {
+  const days = Math.floor(ms / DAY_MS);
+  if (days < 14) return `${days} days ago`;
+  if (days < 70) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 730) return `${Math.floor(days / 30)} months ago`;
+  return `${Math.floor(days / 365)} years ago`;
+}
+
+/** A quoted run of stored text, cut to the excerpt length with a mark. */
+function excerpt(text: string): string {
+  const chars = Array.from(text);
+  return chars.length > STATEMENT_EXCERPT_CHARS
+    ? `${chars.slice(0, STATEMENT_EXCERPT_CHARS).join("")}…`
+    : text;
+}
+
+function touchedAt(memory: { createdAt: number; updatedAt?: number }): number {
+  return Math.max(memory.createdAt, memory.updatedAt ?? 0);
+}
+
+/** Lifecycle-current and inside its validity window at `now`, as reads decide it. */
+function isActiveFact(fact: GapFact, now: number): boolean {
+  return isMemoryActive(
+    {
+      memoryStatus: fact.status,
+      validFrom: fact.validFrom,
+      validTo: fact.validTo,
+    },
+    now,
+  );
+}
+
+function isActiveThought(thought: GapThought, now: number): boolean {
+  return isMemoryActive(thought, now);
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function subjectNames(subject: GapSubject): string[] {
+  return [subject.name, ...(subject.aliases ?? [])].filter(
+    (name) => name.trim().length > 0,
+  );
+}
+
+function queryNames(query: string, subject: GapSubject): boolean {
+  return subjectNames(subject).some((name) =>
+    new RegExp(
+      `(?:^|[^\\p{L}\\p{N}])${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}])`,
+      "iu",
+    ).test(query),
+  );
+}
+
+/**
+ * Whether the question names someone the window does not know: a capitalised
+ * word past the first, or a possessive, that is no part of any known
+ * subject's name or alias. A heuristic, and deliberately conservative in the
+ * direction that matters — when it fires, no other subject's fact may answer
+ * for the person asked about.
+ */
+function namesUnknownSubject(
+  query: string,
+  subjects: readonly GapSubject[],
+): boolean {
+  const known = new Set<string>();
+  for (const subject of subjects) {
+    for (const name of subjectNames(subject)) {
+      for (const word of name
+        .toLocaleLowerCase("en-US")
+        .split(/[^\p{L}\p{N}]+/u)) {
+        if (word) known.add(word);
+      }
+    }
+  }
+  const tokens = query.match(/[\p{L}\p{N}'’-]+/gu) ?? [];
+  return tokens.some((token, index) => {
+    const possessive = /['’]s?$/u.test(token);
+    const word = token.replace(/['’]s?$/u, "");
+    if (word.length < 2) return false;
+    if (index === 0 && !possessive) return false;
+    if (!/^\p{Lu}/u.test(word)) return false;
+    return !known.has(word.toLocaleLowerCase("en-US"));
+  });
+}
+
+function pairKey(fact: GapFact): string | undefined {
+  return fact.subject === null
+    ? undefined
+    : `${fact.subject.key} ${fact.predicate}`;
+}
+
+function emptyGap(input: RecallGapInput): RecallGap | undefined {
+  if (input.relevanceFacts.length > 0 || input.thoughts.length > 0) {
+    return undefined;
+  }
+  const core = input.coreFacts[0];
+  if (core === undefined) {
+    return {
+      kind: "empty",
+      message: "Nothing in memory matched this question.",
+    };
+  }
+  return {
+    kind: "empty",
+    message: `Nothing in memory matched this question; the only memory returned is core context (fact:${core.id}), not an answer to it.`,
+    refs: [`fact:${core.id}`],
+  };
+}
+
+function staleGap(input: RecallGapInput): RecallGap | undefined {
+  const candidates = [
+    ...input.relevanceFacts.map((fact) => ({
+      ref: `fact:${fact.id}`,
+      at: touchedAt(fact),
+    })),
+    ...input.thoughts.map((thought) => ({
+      ref: `thought:${thought.id}`,
+      at: touchedAt(thought),
+    })),
+  ];
+  if (candidates.length === 0) return undefined;
+  const newest = candidates.reduce((best, candidate) =>
+    candidate.at > best.at ? candidate : best,
+  );
+  const age = input.now - newest.at;
+  if (age <= STALE_AFTER_MS) return undefined;
+  return {
+    kind: "stale",
+    message: `Nothing relevant has been recorded since ${isoDate(newest.at)} (${ago(age)}); the newest memory here is ${newest.ref}.`,
+    refs: [newest.ref],
+  };
+}
+
+function conflictGaps(input: RecallGapInput): RecallGap[] {
+  const gaps: RecallGap[] = [];
+  const facts = [...input.coreFacts, ...input.relevanceFacts];
+  const byPair = new Map<string, GapFact[]>();
+  for (const fact of facts) {
+    const key = pairKey(fact);
+    if (key === undefined) continue;
+    byPair.set(key, [...(byPair.get(key) ?? []), fact]);
+  }
+
+  for (const group of byPair.values()) {
+    const active = group.filter((fact) => isActiveFact(fact, input.now));
+    const subject = group[0]!.subject!;
+    const label = `${subject.name} ${predicateLabel(group[0]!.predicate)}`;
+
+    // Two current facts with different values for one subject and predicate.
+    // The write path supersedes the prior value unless the caller stored the
+    // predicate as multi-valued, so a pair any member of which is marked
+    // `multiple` coexists by design and is not a disagreement. A pair with no
+    // recorded cardinality predates the field; the write path's default is
+    // single-valued, so it is reported.
+    const distinct = new Map<string, GapFact>();
+    for (const fact of active) {
+      const key = valueKey(fact.value);
+      if (!distinct.has(key)) distinct.set(key, fact);
+    }
+    const multiValued = group.some((fact) => fact.cardinality === "multiple");
+    if (distinct.size >= 2 && !multiValued) {
+      const [first, second] = [...distinct.values()];
+      gaps.push({
+        kind: "conflict",
+        message: `Two current facts disagree on ${label}: "${excerpt(first!.statement)}" (fact:${first!.id}) and "${excerpt(second!.statement)}" (fact:${second!.id}).`,
+        refs: [`fact:${first!.id}`, `fact:${second!.id}`],
+      });
+    }
+
+    // A current fact whose validity has lapsed, with nothing active in the
+    // window to replace it. Current reads filter these out, so this fires on
+    // historical reads, where the client is the most likely to quote it.
+    if (active.length === 0) {
+      const expired = group.find(
+        (fact) =>
+          fact.status === "current" &&
+          fact.validTo !== undefined &&
+          fact.validTo <= input.now,
+      );
+      if (expired !== undefined) {
+        gaps.push({
+          kind: "conflict",
+          message: `"${excerpt(expired.statement)}" (fact:${expired.id}) stopped being valid on ${isoDate(expired.validTo!)} and nothing here replaces it.`,
+          refs: [`fact:${expired.id}`],
+        });
+      }
+    }
+
+    // An active thought still carrying the value a superseded fact held. This
+    // is the disagreement `forbiddenExactStrings` catches in the eval harness
+    // — the old value appearing verbatim in the window — applied live. It
+    // needs the superseded fact in the window, so it fires on historical
+    // reads, and only when the thought does not also state the current value.
+    const currentFact = active[0];
+    if (currentFact === undefined) continue;
+    const currentValue = displayValue(currentFact.value);
+    for (const stale of group) {
+      if (stale.status !== "superseded") continue;
+      const oldValue = displayValue(stale.value);
+      if (
+        oldValue === undefined ||
+        valueKey(stale.value) === valueKey(currentFact.value)
+      ) {
+        continue;
+      }
+      const echo = input.thoughts.find(
+        (thought) =>
+          isActiveThought(thought, input.now) &&
+          thought.content.includes(oldValue) &&
+          (currentValue === undefined ||
+            !thought.content.includes(currentValue)),
+      );
+      if (echo === undefined) continue;
+      gaps.push({
+        kind: "conflict",
+        message: `thought:${echo.id} still carries "${excerpt(oldValue)}" for ${label}, which fact:${stale.id} no longer holds; the current fact is "${excerpt(currentFact.statement)}" (fact:${currentFact.id}).`,
+        refs: [
+          `thought:${echo.id}`,
+          `fact:${stale.id}`,
+          `fact:${currentFact.id}`,
+        ],
+      });
+      break;
+    }
+  }
+  return gaps;
+}
+
+function absentGap(attribute: AskedAttribute, subjectName?: string): RecallGap {
+  const scope = subjectName === undefined ? "this question" : subjectName;
+  return {
+    kind: "absent",
+    message: `This recall found no fact recording ${attribute.label} for ${scope}; it may not be stored.`,
+  };
+}
+
+function absentGaps(input: RecallGapInput): RecallGap[] {
+  const facts = [...input.coreFacts, ...input.relevanceFacts];
+  const asked = ASKED_ATTRIBUTES.filter(
+    (attribute) =>
+      attribute.pattern.test(input.query) &&
+      !(attribute.unless?.test(input.query) ?? false),
+  );
+  if (asked.length === 0) return [];
+
+  // Only a fact that is current and inside its validity window answers; an
+  // expired or not-yet-effective one is exactly what the client must not
+  // quote as the answer.
+  const answers = (scope: readonly GapFact[], attribute: AskedAttribute) =>
+    scope.some(
+      (fact) =>
+        isActiveFact(fact, input.now) &&
+        attribute.predicates.some((predicate) =>
+          fact.predicate.includes(predicate),
+        ),
+    );
+
+  const subjects = new Map<string, GapSubject>();
+  for (const fact of facts) {
+    if (fact.subject !== null && !subjects.has(fact.subject.key)) {
+      subjects.set(fact.subject.key, fact.subject);
+    }
+  }
+  const known = [...subjects.values()];
+  const named = known.filter((subject) => queryNames(input.query, subject));
+
+  // Each subject the question names is checked on its own facts: Avery's
+  // phone number does not answer for Zevin's.
+  if (named.length > 0) {
+    return named.flatMap((subject) => {
+      const own = facts.filter((fact) => fact.subject?.key === subject.key);
+      return asked.flatMap((attribute) =>
+        answers(own, attribute) ? [] : [absentGap(attribute, subject.name)],
+      );
+    });
+  }
+
+  // Nobody the window knows is named. If the question names someone anyway,
+  // no other subject's fact may answer for them and the report stays
+  // subjectless rather than guessing at a person; if it names nobody, any
+  // subject's fact in the window answers.
+  const scope = namesUnknownSubject(input.query, known) ? [] : facts;
+  return asked.flatMap((attribute) =>
+    answers(scope, attribute) ? [] : [absentGap(attribute)],
+  );
+}
+
+/**
+ * Compute the gaps in an assembled recall window. Deterministic, no provider
+ * calls, at most `MAX_RECALL_GAPS` entries, ordered so the most actionable
+ * survive the cap.
+ */
+export function computeRecallGaps(input: RecallGapInput): RecallGap[] {
+  const empty = emptyGap(input);
+  const gaps: RecallGap[] = empty
+    ? [empty]
+    : [...conflictGaps(input), ...absentGaps(input)];
+  const stale = staleGap(input);
+  if (stale) gaps.push(stale);
+  return gaps
+    .sort((left, right) => KIND_ORDER[left.kind] - KIND_ORDER[right.kind])
+    .slice(0, MAX_RECALL_GAPS);
+}
+
+/** The compact text section appended to the recall result. */
+export function formatRecallGaps(gaps: readonly RecallGap[]): string {
+  return [
+    "What the brain doesn't know:",
+    ...gaps.map((gap) => `- [${gap.kind}] ${gap.message}`),
+  ].join("\n");
+}
+
+/**
+ * The content blocks the gaps add to a recall result, fitted into
+ * `availableChars` and never more than `RECALL_GAP_BLOCKS_MAX_CHARS`: the
+ * structured `{ gaps }` JSON block first, then the text section. When both
+ * do not fit, the text section goes first; when the JSON alone does not fit,
+ * trailing gaps are dropped until it does, so whatever is returned is
+ * complete, valid JSON. Returns nothing when there are no gaps or not even
+ * one fits.
+ */
+export function fitRecallGapBlocks(
+  gaps: readonly RecallGap[],
+  availableChars: number,
+): string[] {
+  const available = Math.min(availableChars, RECALL_GAP_BLOCKS_MAX_CHARS);
+  for (let count = gaps.length; count > 0; count -= 1) {
+    const kept = gaps.slice(0, count);
+    const json = JSON.stringify({ gaps: kept }, null, 2);
+    if (json.length > available) continue;
+    const text = formatRecallGaps(kept);
+    return json.length + text.length <= available ? [json, text] : [json];
+  }
+  return [];
+}

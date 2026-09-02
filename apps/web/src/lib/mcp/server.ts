@@ -6,6 +6,10 @@ import {
   exactLimitFor,
 } from "@repo/db/convex/models/recallBlend";
 import {
+  computeRecallGaps,
+  fitRecallGapBlocks,
+} from "@repo/db/convex/models/recallGaps";
+import {
   DEFAULT_CORE_MEMORY_LIMIT,
   MAX_CORE_MEMORY_LIMIT,
 } from "@repo/db/convex/models/thoughts/model";
@@ -224,6 +228,7 @@ type FactResult = {
   isCore: boolean;
   validFrom?: number;
   validTo?: number;
+  cardinality?: "single" | "multiple";
   status: "current" | "superseded" | "retracted";
   supersededAt?: number;
   supersededBy?: string;
@@ -684,7 +689,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend, each entry labelled by source: exact (current facts about a person or thing the message names by its stored name or alias), then at most one core fact at the default limit, then relevance (the most relevant current facts and memories); a core memory appears only when it is relevant. The whole response fits within maxContextChars: exact and core keep their full text, long relevance memories are trimmed at a sentence boundary before short ones are dropped, a trimmed memory carries truncated: true, and a note reports any loss. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend, each entry labelled by source: exact (current facts about a person or thing the message names by its stored name or alias), then at most one core fact at the default limit, then relevance (the most relevant current facts and memories); a core memory appears only when it is relevant. The memories fit within maxContextChars: exact and core keep their full text, long relevance memories are trimmed at a sentence boundary before short ones are dropped, a trimmed memory carries truncated: true, and a note reports any loss. Also reports what the brain does not know: a short gaps block follows the memories when the window is stale, holds conflicting facts, or lacks an attribute the question asked for; surface those gaps when answering. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -887,6 +892,31 @@ export function createMcpServer(convexAuthToken: string) {
         ...relevanceContext,
       ];
 
+      // What the window does not say, computed from the window the blend
+      // selected — before any trimming, so a memory cut to fit is still
+      // checked on its full content. The memories block stays a bare,
+      // machine-parseable array; gaps follow it (after the budget note, when
+      // there is one) as sibling blocks, only when there is something to
+      // report, and only in the room the returned envelope leaves under the
+      // declared result size.
+      const gaps = computeRecallGaps({
+        query,
+        now: Date.now(),
+        coreFacts: selectedCoreFacts,
+        // Exact facts answer the question as directly as relevance facts do,
+        // so they count as relevant for staleness, disagreement, and absence.
+        relevanceFacts: [...selectedExactFacts, ...relevanceFacts],
+        thoughts: thoughts.map((thought) => ({
+          id: thought._id,
+          content: thought.content,
+          memoryStatus: thought.memoryStatus,
+          validFrom: thought.validFrom,
+          validTo: thought.validTo,
+          createdAt: thought.createdAt,
+          updatedAt: thought.updatedAt,
+        })),
+      });
+
       // One budget for the whole envelope instead of a cap per memory: core
       // keeps its text, relevance memories are trimmed longest-first, and
       // nothing is cut silently (see recall-budget.ts for the rule).
@@ -924,6 +954,16 @@ export function createMcpServer(convexAuthToken: string) {
             maxContextChars,
           }),
         });
+      }
+      const envelopeChars = content.reduce(
+        (sum, block) => sum + block.text.length,
+        0,
+      );
+      for (const text of fitRecallGapBlocks(
+        gaps,
+        RECALL_RESULT_SIZE_CHARS - envelopeChars,
+      )) {
+        content.push({ type: "text" as const, text });
       }
 
       return {
