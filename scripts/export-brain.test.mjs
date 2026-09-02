@@ -1,7 +1,17 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
+  clearGeneratedOutput,
   escapeFenceCell,
   isoDate,
   parseConvexRunOutput,
@@ -12,6 +22,7 @@ import {
   slugify,
   thoughtFileName,
   uniqueSlug,
+  yamlScalar,
 } from "./export-brain.mjs";
 
 describe("slugs", () => {
@@ -249,14 +260,85 @@ describe("convex run output", () => {
 });
 
 describe("yaml scalars", () => {
-  test("leaves a date unquoted so it stays a date after import", async () => {
-    const { yamlScalar } = await import("./export-brain.mjs");
+  test("leaves a date unquoted so it stays a date after import", () => {
     assert.equal(yamlScalar("2026-09-01"), "2026-09-01");
   });
 
-  test("quotes a value that starts with structure", async () => {
-    const { yamlScalar } = await import("./export-brain.mjs");
+  test("leaves a plain word-led value unquoted", () => {
+    assert.equal(yamlScalar("note"), "note");
+    assert.equal(yamlScalar("A memory about Sara"), "A memory about Sara");
+    assert.equal(yamlScalar("people/sara-smucker"), "people/sara-smucker");
+  });
+
+  test("quotes a value that starts with structure", () => {
     assert.equal(yamlScalar("- not a list"), '"- not a list"');
+  });
+
+  test("quotes commas and brackets so a flow array keeps one element", () => {
+    // The regression this guards: `people: [Doe, John]` is two people.
+    assert.equal(yamlScalar("Doe, John"), '"Doe, John"');
+    assert.equal(yamlScalar("draft [v2]"), '"draft [v2]"');
+    assert.equal(yamlScalar("a}b"), '"a}b"');
+    assert.equal(
+      renderFrontmatter({ people: ["Doe, John", "Ann"] }),
+      '---\npeople: ["Doe, John", Ann]\n---',
+    );
+  });
+
+  test("quotes values YAML would otherwise retype", () => {
+    for (const literal of ["true", "False", "yes", "no", "null", "~", "on"]) {
+      assert.equal(yamlScalar(literal), `"${literal}"`, literal);
+    }
+    assert.equal(yamlScalar("42"), '"42"');
+    assert.equal(yamlScalar("3.14"), '"3.14"');
+    assert.equal(yamlScalar("1e3"), '"1e3"');
+    assert.equal(yamlScalar("0x1F"), '"0x1F"');
+  });
+
+  test("escapes newlines, tabs, quotes, and backslashes", () => {
+    assert.equal(yamlScalar("one\ntwo"), '"one\\ntwo"');
+    assert.equal(yamlScalar("a\tb"), '"a\\tb"');
+    assert.equal(yamlScalar('say "hi"'), '"say \\"hi\\""');
+    assert.equal(yamlScalar("C:\\path"), '"C:\\\\path"');
+  });
+
+  test("quotes non-ASCII and other punctuation rather than guessing", () => {
+    assert.equal(yamlScalar("Zoë"), '"Zoë"');
+    assert.equal(yamlScalar("what?"), '"what?"');
+    assert.equal(yamlScalar(" padded"), '" padded"');
+    assert.equal(yamlScalar(""), '""');
+  });
+});
+
+describe("output directory", () => {
+  test("clears only the generated directories, keeping everything else", () => {
+    const out = mkdtempSync(join(tmpdir(), "export-brain-"));
+    try {
+      mkdirSync(join(out, "markdown", "memories"), { recursive: true });
+      writeFileSync(join(out, "markdown", "memories", "stale.md"), "old");
+      mkdirSync(join(out, "json"), { recursive: true });
+      writeFileSync(join(out, "json", "thoughts.json"), "[]");
+      writeFileSync(join(out, "notes.txt"), "mine");
+
+      clearGeneratedOutput(out, "markdown");
+      // A page that is no longer exported must not survive into the next
+      // import as though it were current.
+      assert.equal(existsSync(join(out, "markdown")), false);
+      assert.equal(existsSync(join(out, "json", "thoughts.json")), true);
+      assert.equal(existsSync(join(out, "notes.txt")), true);
+
+      clearGeneratedOutput(out, "both");
+      assert.equal(existsSync(join(out, "json")), false);
+      assert.equal(existsSync(join(out, "notes.txt")), true);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  });
+
+  test("tolerates a destination that does not exist yet", () => {
+    assert.doesNotThrow(() =>
+      clearGeneratedOutput(join(tmpdir(), "export-brain-never-made"), "both"),
+    );
   });
 });
 

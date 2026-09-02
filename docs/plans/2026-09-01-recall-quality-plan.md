@@ -424,6 +424,6 @@ must return a `stale` gap naming the date.
 
 ## Out of scope
 
-Export to markdown (dropped — the account is owned), ingestion of any kind,
-the typed link graph, and synthesis. See the design doc for the reasoning on
-each.
+Export (already shipped as `pnpm export:brain`; nothing here touches it),
+ingestion of any kind, the typed link graph, and synthesis. See the design doc
+for the reasoning on each.

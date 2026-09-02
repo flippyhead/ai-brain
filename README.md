@@ -81,9 +81,16 @@ are retracted and have no historical validity interval.
     pnpm export:brain --prod --user <userId> --out ./brain-export
 
 Two formats are written. `json/` is a faithful archive — every stored field
-except the embedding, unaltered, one file per collection. `markdown/` is a
-brain directory another memory system can read: entity pages carrying a
-`## Facts` fence and memory pages carrying frontmatter.
+except the embedding, unaltered, one file per collection, covering every
+account-owned table (memories, facts, entities, lists and their items, reports
+and their insights). `markdown/` is a brain directory another memory system can
+read: entity pages carrying a `## Facts` fence and memory pages carrying
+frontmatter.
+
+Re-running into the same `--out` replaces the generated `json/` and
+`markdown/` directories outright rather than writing over them, so a memory
+retracted since the last run does not survive as a stale page. Anything else
+under `--out` is left alone.
 
 The markdown form preserves lifecycle rather than flattening it. A superseded
 fact is written struck through and pointed at the row that replaced it; a

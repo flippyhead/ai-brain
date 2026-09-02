@@ -9,6 +9,10 @@
  *                      embedding, unaltered, one file per collection. This is
  *                      the backup and the thing to re-import from.
  *
+ *                      Reports and insights are archived here too; they are not
+ *                      memories the markdown brain can use, but they are the
+ *                      account's data and a backup that drops them is partial.
+ *
  *   --format markdown  A GBrain-shaped brain directory: entity pages carrying a
  *                      `## Facts` fence, memory pages carrying frontmatter.
  *                      Lossy by construction — it is a translation, not an
@@ -30,20 +34,31 @@
  *   --page-size <n>        Rows per read (default 100, max 500)
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+/**
+ * Every account-owned table. Must match `EXPORT_COLLECTIONS` in
+ * `packages/convex/convex/models/export/model.ts`; the deployment rejects a
+ * name it does not know, so drift fails loudly rather than silently omitting
+ * a table from the archive.
+ */
 export const COLLECTIONS = [
   "entities",
   "facts",
   "thoughts",
   "lists",
   "listItems",
+  "reports",
+  "insights",
 ];
+
+/** The subdirectories this script generates under `--out`, one per format. */
+export const FORMAT_DIRECTORIES = { json: "json", markdown: "markdown" };
 
 /**
  * GBrain files entity pages by directory, and the directory is what its filing
@@ -125,23 +140,49 @@ export function escapeFenceCell(value) {
     .trim();
 }
 
+/**
+ * Plain YAML scalars this script is willing to emit unquoted. Everything else
+ * is double-quoted and escaped, so the rule is an allow-list rather than a
+ * list of characters YAML happens to treat specially — a list that would have
+ * to be complete to be safe, in both block and flow context, and was not.
+ *
+ * Two shapes are allowed through:
+ *
+ *   - An ISO date. Left bare on purpose so it stays a date after import; quoting
+ *     it turns a `date` field into a string the importer cannot sort on.
+ *   - A word-led string of letters, digits, spaces, and `_ . / -`, with no
+ *     leading or trailing space. That is a plain scalar in every YAML context
+ *     and cannot be read as a number, a boolean, or null.
+ *
+ * `Doe, John`, `[draft]`, `true`, `42`, `null`, and anything with a newline
+ * all fall through to quoting, which is the point.
+ */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const PLAIN_WORD = /^[A-Za-z_][A-Za-z0-9_./-]*(?: [A-Za-z0-9_./-]+)*$/;
+const YAML_KEYWORDS = new Set([
+  "true",
+  "false",
+  "yes",
+  "no",
+  "on",
+  "off",
+  "null",
+  "y",
+  "n",
+]);
+
 export function yamlScalar(value) {
   const text = String(value ?? "");
-  // Quote only what YAML would actually misread. An embedded hyphen is not
-  // structure — quoting on it turns `2026-09-01` into a string, and the
-  // importer then has a date field it cannot sort or filter on.
-  const startsWithStructure = /^[-?:,[\]{}#&*!|>'"%@`]/.test(text);
-  const containsSeparator = /:\s|\s#/.test(text);
-  const paddedWithSpace = /^\s|\s$/.test(text);
-  if (
-    text === "" ||
-    startsWithStructure ||
-    containsSeparator ||
-    paddedWithSpace
-  ) {
-    return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (ISO_DATE.test(text)) return text;
+  if (PLAIN_WORD.test(text) && !YAML_KEYWORDS.has(text.toLowerCase())) {
+    return text;
   }
-  return text;
+  const escaped = text
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\t/g, "\\t")
+    .replace(/\r?\n/g, "\\n");
+  return `"${escaped}"`;
 }
 
 export function renderFrontmatter(fields) {
@@ -433,29 +474,76 @@ function convexRun(fn, args, { prod }) {
   return parseConvexRunOutput(result.stdout);
 }
 
-function readCollection(collection, options) {
-  const rows = [];
+/**
+ * Walk a paged internal query to the end, handing each page to `onPage`.
+ * Loops on `isDone`, never on the page's contents: a page of entirely
+ * superseded memories filters to nothing and is not the end of the collection.
+ */
+function eachPage(fn, args, options, onPage) {
   let after;
   for (;;) {
     const page = convexRun(
-      "models/export/private:collectionPage",
-      {
-        userId: options.userId,
-        collection,
-        pageSize: options.pageSize,
-        includeHistorical: options.includeHistorical,
-        ...(after === undefined ? {} : { after }),
-      },
+      fn,
+      { ...args, ...(after === undefined ? {} : { after }) },
       options,
     );
-    rows.push(...page.rows);
-    // Loop on isDone, never on rows.length: a page of entirely superseded
-    // memories filters to nothing and is not the end of the collection.
+    onPage(page);
     if (page.isDone) break;
     after = page.cursor;
     if (after === null || after === undefined) break;
   }
+}
+
+function readCollection(collection, options) {
+  const rows = [];
+  eachPage(
+    "models/export/private:collectionPage",
+    {
+      userId: options.userId,
+      collection,
+      pageSize: options.pageSize,
+      includeHistorical: options.includeHistorical,
+    },
+    options,
+    (page) => rows.push(...page.rows),
+  );
   return rows;
+}
+
+/**
+ * Row counts per collection, summed over bounded pages. This is a second,
+ * independent pass over the same rows: the export pass filters by lifecycle
+ * and the count pass does not, so `exported === counts.current` is a real
+ * check that no page was dropped rather than one number copied into another.
+ */
+function readCounts(options) {
+  const counts = {};
+  for (const collection of COLLECTIONS) {
+    const sum = { total: 0, current: 0 };
+    eachPage(
+      "models/export/private:countPage",
+      { userId: options.userId, collection, pageSize: options.pageSize },
+      options,
+      (page) => {
+        sum.total += page.total;
+        sum.current += page.current;
+      },
+    );
+    counts[collection] = sum;
+  }
+  return counts;
+}
+
+function readAccounts(options) {
+  const accounts = [];
+  eachPage("models/export/private:listAccounts", {}, options, (page) =>
+    accounts.push(...page.accounts),
+  );
+  return accounts;
+}
+
+function formatBoundedCount({ count, capped }) {
+  return capped ? `${count}+` : String(count);
 }
 
 function parseArguments(argv) {
@@ -488,20 +576,35 @@ function write(directory, relativePath, contents) {
   writeFileSync(target, contents);
 }
 
+/**
+ * Remove the generated directories for the formats about to be written, so a
+ * re-export into the same `--out` cannot leave behind pages from an earlier
+ * run. Without this, a memory retracted since the last export keeps its file,
+ * and the next import reads it as current — the one thing an export must not
+ * get wrong. Only this script's own `json/` and `markdown/` subdirectories are
+ * touched; anything else under `--out` is left alone.
+ */
+export function clearGeneratedOutput(out, format) {
+  const formats = format === "both" ? ["json", "markdown"] : [format];
+  for (const name of formats) {
+    rmSync(join(out, FORMAT_DIRECTORIES[name]), {
+      recursive: true,
+      force: true,
+    });
+  }
+}
+
 function main() {
   const options = parseArguments(process.argv.slice(2));
 
   if (!options.userId) {
-    const accounts = convexRun(
-      "models/export/private:listAccounts",
-      {},
-      options,
-    );
+    const accounts = readAccounts(options);
     console.log("Accounts on this deployment:\n");
     for (const account of accounts) {
       console.log(
         `  ${account.userId}  ${account.name ?? account.email ?? "(unnamed)"}` +
-          `  — ${account.thoughts} memories, ${account.facts} facts`,
+          `  — ${formatBoundedCount(account.thoughts)} memories, ` +
+          `${formatBoundedCount(account.facts)} facts`,
       );
     }
     console.log("\nRe-run with --user <userId> --out <dir>.");
@@ -509,11 +612,7 @@ function main() {
   }
   if (!options.out) throw new Error("--out <dir> is required");
 
-  const counts = convexRun(
-    "models/export/private:counts",
-    { userId: options.userId },
-    options,
-  );
+  const counts = readCounts(options);
 
   const data = {};
   for (const collection of COLLECTIONS) {
@@ -530,23 +629,25 @@ function main() {
     ),
   };
 
+  clearGeneratedOutput(options.out, options.format);
+
   if (options.format === "json" || options.format === "both") {
     for (const collection of COLLECTIONS) {
       write(
-        join(options.out, "json"),
+        join(options.out, FORMAT_DIRECTORIES.json),
         `${collection}.json`,
         JSON.stringify(data[collection], null, 2),
       );
     }
     write(
-      join(options.out, "json"),
+      join(options.out, FORMAT_DIRECTORIES.json),
       "manifest.json",
       JSON.stringify(manifest, null, 2),
     );
   }
 
   if (options.format === "markdown" || options.format === "both") {
-    const root = join(options.out, "markdown");
+    const root = join(options.out, FORMAT_DIRECTORIES.markdown);
     const factsByEntity = new Map();
     for (const fact of data.facts) {
       const bucket = factsByEntity.get(fact.subjectEntityId) ?? [];

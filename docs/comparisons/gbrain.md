@@ -42,10 +42,13 @@ brain lives in a private GitHub repo you can clone, grep, and delete.
 
 **AI Brain: the database is the system of record, and there are no files.**
 Memory lives in Convex tables (`packages/convex/convex/schema.ts`): `thoughts`,
-`entities`, `facts`, `lists`, `reports`, `insights`. There is **no export path
-in the codebase** — no markdown dump, no backup command, no cron. That is the
-single biggest strategic gap relative to GBrain, and it is a gap in the
-property Peter most cares about elsewhere (authoritative, durable, owned).
+`entities`, `facts`, `lists`, `reports`, `insights`. When this comparison was
+first written there was no export path at all. There is one now
+(`pnpm export:brain`, `scripts/export-brain.mjs`): a paged, read-only dump of
+every account-owned table to JSON, plus a lossy GBrain-shaped markdown
+rendering that preserves lifecycle. It is an operator command run with a
+deployment key, not a cron and not a sync; the database remains the only
+system of record.
 
 ## Data model
 
@@ -192,10 +195,12 @@ in-tree.
 
 Ranked by value per unit of added complexity.
 
-1. ~~**An export path.**~~ **Dropped by decision (2026-09-01).** The Convex
-   account is owned and controlled end to end, so an export path solves a
-   problem this deployment does not have. Left here so the reasoning is
-   recorded rather than re-litigated.
+1. **An export path.** First dropped by decision (2026-09-01) — the Convex
+   account is owned and controlled end to end, so a backup-shaped export
+   solved a problem this deployment did not have. Then built the same day for
+   a different reason: it is the only way to put the same corpus in front of
+   GBrain and run the bake-off in `gbrain-bakeoff.md`. Shipped as
+   `pnpm export:brain`. Not a sync and not a second system of record.
 2. **A gap-analysis / synthesis response.** Not full `think`, but
    `recall_context` returning *what the brain doesn't know* — the newest
    relevant memory is six weeks old, two current facts disagree, a predicate

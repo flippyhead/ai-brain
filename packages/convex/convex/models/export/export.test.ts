@@ -5,6 +5,7 @@ import { internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
+import { ACCOUNT_COUNT_CAP } from "./private";
 
 const embedding = Array.from({ length: 1536 }, () => 0.1);
 
@@ -172,7 +173,93 @@ describe("account export", () => {
     expect(page.rows.map((row) => row.content)).toEqual(["mine"]);
   });
 
-  test("counts distinguish total from current", async () => {
+  test("pages list items by creation time like every other collection", async () => {
+    // The regression this guards: list items used to be collected in one read
+    // and returned as a single page, which ignored `after` and `pageSize` and
+    // would exceed a query read limit on a large enough account.
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    await t.run(async (ctx) => {
+      const listId = await ctx.db.insert("lists", {
+        userId,
+        name: "groceries",
+        pinned: false,
+      });
+      for (let index = 0; index < 7; index += 1) {
+        await ctx.db.insert("listItems", {
+          userId,
+          listId,
+          title: `item ${index}`,
+          status: "open",
+          position: index,
+        });
+      }
+    });
+
+    const first = await t.query(internal.models.export.private.collectionPage, {
+      userId,
+      collection: "listItems",
+      pageSize: 5,
+    });
+    expect(first.rows).toHaveLength(5);
+    expect(first.isDone).toBe(false);
+
+    const second = await t.query(
+      internal.models.export.private.collectionPage,
+      {
+        userId,
+        collection: "listItems",
+        pageSize: 5,
+        after: first.cursor ?? undefined,
+      },
+    );
+    expect(second.rows.map((row) => row.title)).toEqual(["item 5", "item 6"]);
+    expect(second.isDone).toBe(true);
+  });
+
+  test("exports reports and insights, keeping the link between them", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const reportId = await t.run(async (ctx) => {
+      const reportId = await ctx.db.insert("reports", {
+        userId,
+        startDate: "2026-08-01",
+        endDate: "2026-08-07",
+        sessionsAnalyzed: 3,
+        totalPrompts: 10,
+        totalToolCalls: 40,
+        projectsActive: [],
+        modelUsage: {},
+      });
+      await ctx.db.insert("insights", {
+        userId,
+        reportId,
+        category: "productivity",
+        observation: "observed",
+        recommendation: "recommended",
+        evidence: "seen",
+        status: "new",
+      });
+      return reportId;
+    });
+
+    const reports = await t.query(
+      internal.models.export.private.collectionPage,
+      { userId, collection: "reports" },
+    );
+    expect(reports.rows.map((row) => row._id)).toEqual([reportId]);
+
+    const insights = await t.query(
+      internal.models.export.private.collectionPage,
+      { userId, collection: "insights" },
+    );
+    expect(insights.rows).toHaveLength(1);
+    // An importer remaps ids; it can only do that if the relationship survives.
+    expect(insights.rows[0]?.reportId).toBe(reportId);
+    expect(insights.rows[0]).not.toHaveProperty("userId");
+  });
+
+  test("counts distinguish total from current, one bounded page at a time", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
     await t.run(async (ctx) => {
@@ -181,12 +268,23 @@ describe("account export", () => {
         "thoughts",
         thought(userId, "old", { memoryStatus: "superseded" }),
       );
+      await ctx.db.insert("thoughts", thought(userId, "also current"));
     });
 
-    const counts = await t.query(internal.models.export.private.counts, {
+    const first = await t.query(internal.models.export.private.countPage, {
       userId,
+      collection: "thoughts",
+      pageSize: 2,
     });
-    expect(counts.thoughts).toEqual({ total: 2, current: 1 });
+    expect(first).toMatchObject({ total: 2, current: 1, isDone: false });
+
+    const second = await t.query(internal.models.export.private.countPage, {
+      userId,
+      collection: "thoughts",
+      pageSize: 2,
+      after: first.cursor ?? undefined,
+    });
+    expect(second).toMatchObject({ total: 1, current: 1, isDone: true });
   });
 
   test("listing accounts discloses identifiers, not memory content", async () => {
@@ -198,12 +296,33 @@ describe("account export", () => {
       await ctx.db.insert("thoughts", thought(userId, "a private memory"));
     });
 
-    const accounts = await t.query(
-      internal.models.export.private.listAccounts,
-      {},
-    );
-    expect(accounts).toHaveLength(1);
-    expect(accounts[0]).toMatchObject({ userId, name: "Owner", thoughts: 1 });
-    expect(JSON.stringify(accounts)).not.toContain("a private memory");
+    const page = await t.query(internal.models.export.private.listAccounts, {});
+    expect(page.isDone).toBe(true);
+    expect(page.accounts).toHaveLength(1);
+    expect(page.accounts[0]).toMatchObject({
+      userId,
+      name: "Owner",
+      thoughts: { count: 1, capped: false },
+    });
+    expect(JSON.stringify(page)).not.toContain("a private memory");
+  });
+
+  test("listing accounts never reads more than the cap per table", async () => {
+    // The regression this guards: the listing used to collect every memory of
+    // every user to count them, which fails outright once the deployment holds
+    // more rows than one query may read.
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    await t.run(async (ctx) => {
+      for (let index = 0; index < ACCOUNT_COUNT_CAP + 5; index += 1) {
+        await ctx.db.insert("thoughts", thought(userId, `memory ${index}`));
+      }
+    });
+
+    const page = await t.query(internal.models.export.private.listAccounts, {});
+    expect(page.accounts[0]?.thoughts).toEqual({
+      count: ACCOUNT_COUNT_CAP,
+      capped: true,
+    });
   });
 });

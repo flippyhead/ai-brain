@@ -52,11 +52,13 @@ export default defineSchema({
   reports: defineTable(reportFields).index("by_userId", ["userId"]),
   insights: defineTable(insightFields)
     .index("by_reportId", ["reportId"])
+    .index("by_userId", ["userId"])
     .index("by_userId_and_status", ["userId", "status"]),
   lists: defineTable(listFields)
     .index("by_userId", ["userId"])
     .index("by_userId_and_pinned", ["userId", "pinned"]),
   listItems: defineTable(listItemFields)
     .index("by_listId", ["listId"])
+    .index("by_userId", ["userId"])
     .index("by_userId_and_status", ["userId", "status"]),
 });

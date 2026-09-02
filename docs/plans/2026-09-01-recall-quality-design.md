@@ -3,11 +3,10 @@
 **Goal:** Make `recall_context` return the right memories, in a budget the caller
 can afford, annotated with what the brain does not know.
 
-**Origin:** the GBrain comparison (`docs/comparisons/gbrain.md`). Export to
-markdown was on that list and is explicitly dropped — the Convex account is
-owned and controlled, so an export path solves a problem this deployment does
-not have. The remaining four ideas are kept, and one larger defect was found
-while planning them and is now first.
+**Origin:** the GBrain comparison (`docs/comparisons/gbrain.md`). Export was
+on that list and was built separately (`pnpm export:brain`) as the precondition
+for the bake-off, so it is not a workstream here. The remaining four ideas are
+kept, and one larger defect was found while planning them and is now first.
 
 **Architecture:** four independent workstreams against the existing retrieval
 path (`packages/convex/convex/models/facts/`,
@@ -279,7 +278,8 @@ W4 depends on W3 only in that both touch the same response assembly.
 
 ## What this does not do
 
-- **No export path.** Dropped by decision — the account is owned.
+- **No export work.** Export exists (`pnpm export:brain`) and is an operator
+  command, not a retrieval concern; nothing here changes it.
 - **No ingestion.** The client-mediated constraint stays. Nothing here adds a
   cron, a connector, or a background job.
 - **No link graph.** Typed edges and traversal are the other genuinely strong

@@ -1,4 +1,4 @@
-import type { Doc, Id } from "../../_generated/dataModel";
+import type { Doc, Id, TableNames } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 
 /**
@@ -14,14 +14,33 @@ import type { QueryCtx } from "../../_generated/server";
  * derived from content the export already carries in full, and every consumer
  * that needs them can regenerate them. Including them would multiply the
  * archive size by roughly an order of magnitude to carry nothing new.
+ *
+ * Every read here is bounded by a page size. Convex caps what one query may
+ * read, so an unbounded `.collect()` on any account-sized table is a latent
+ * failure that only shows up once the account is large enough to matter — which
+ * is exactly when an export matters most.
  */
 
 /** Rows read per page. Bounded so one call cannot exceed a Convex read limit. */
 export const EXPORT_PAGE_SIZE = 100;
 export const MAX_EXPORT_PAGE_SIZE = 500;
 
-export type ExportCollection =
-  "thoughts" | "facts" | "entities" | "lists" | "listItems";
+/**
+ * Every account-owned table, keyed by the name the export uses for it. Each
+ * one has a `by_userId` index, which is what makes a single paging contract
+ * possible: `(userId, _creationTime)` is a total order per account.
+ */
+export const EXPORT_COLLECTIONS = [
+  "thoughts",
+  "facts",
+  "entities",
+  "lists",
+  "listItems",
+  "reports",
+  "insights",
+] as const;
+
+export type ExportCollection = (typeof EXPORT_COLLECTIONS)[number] & TableNames;
 
 export type ExportPage = {
   collection: ExportCollection;
@@ -44,6 +63,16 @@ export type ExportPage = {
   isDone: boolean;
   /** Rows read before filtering, so a caller can see filtering happening. */
   scanned: number;
+};
+
+export type ExportCountPage = {
+  collection: ExportCollection;
+  /** Rows read on this page, before lifecycle filtering. */
+  total: number;
+  /** Rows on this page that are current (equal to `total` for tables without lifecycle). */
+  current: number;
+  cursor: number | null;
+  isDone: boolean;
 };
 
 function clampPageSize(requested: number | undefined): number {
@@ -70,6 +99,57 @@ function scrubRow<T extends { userId: Id<"users"> }>(doc: T) {
   return rest;
 }
 
+/** Whether a row is current, for the two tables that carry a lifecycle. */
+function isCurrent(collection: ExportCollection, doc: Doc<ExportCollection>) {
+  switch (collection) {
+    case "thoughts":
+      return ((doc as Doc<"thoughts">).memoryStatus ?? "current") === "current";
+    case "facts":
+      return (doc as Doc<"facts">).status === "current";
+    default:
+      return true;
+  }
+}
+
+/**
+ * One page of an account's rows from one table, oldest first, read through its
+ * `by_userId` index so the read is bounded by `pageSize` regardless of how
+ * large the account is.
+ */
+async function readPage<T extends ExportCollection>(
+  ctx: QueryCtx,
+  table: T,
+  userId: Id<"users">,
+  after: number | undefined,
+  pageSize: number,
+): Promise<Doc<T>[]> {
+  // Every table in EXPORT_COLLECTIONS declares `by_userId` on `["userId"]`
+  // (schema.ts), so the range builder is identical for all of them. Convex's
+  // types cannot express "an index that exists on every member of this union",
+  // so the query is typed against one member and the rows cast back to `T`.
+  const docs = await ctx.db
+    .query(table as "thoughts")
+    .withIndex("by_userId", (q) =>
+      after === undefined
+        ? q.eq("userId", userId)
+        : q.eq("userId", userId).gt("_creationTime", after),
+    )
+    .order("asc")
+    .take(pageSize);
+  return docs as unknown as Doc<T>[];
+}
+
+function pageEnd(
+  scannedDocs: { _creationTime: number }[],
+  pageSize: number,
+): Pick<ExportPage, "cursor" | "isDone"> {
+  const exhausted = scannedDocs.length < pageSize;
+  return {
+    cursor: exhausted ? null : (scannedDocs.at(-1)?._creationTime ?? null),
+    isDone: exhausted,
+  };
+}
+
 /**
  * One page of an account's rows from a single collection, oldest first.
  *
@@ -88,145 +168,63 @@ export async function exportCollectionPage(
   },
 ): Promise<ExportPage> {
   const pageSize = clampPageSize(args.pageSize);
-  const after = args.after;
   const includeHistorical = args.includeHistorical ?? false;
+  const { collection } = args;
 
-  switch (args.collection) {
-    case "thoughts": {
-      const docs = await ctx.db
-        .query("thoughts")
-        .withIndex("by_userId", (q) =>
-          after === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", after),
-        )
-        .order("asc")
-        .take(pageSize);
-      const rows = docs
-        .filter(
-          (doc) =>
-            includeHistorical || (doc.memoryStatus ?? "current") === "current",
-        )
-        .map(scrubThought);
-      return page(args.collection, rows, docs, pageSize);
-    }
-    case "facts": {
-      const docs = await ctx.db
-        .query("facts")
-        .withIndex("by_userId", (q) =>
-          after === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", after),
-        )
-        .order("asc")
-        .take(pageSize);
-      const rows = docs
-        .filter((doc) => includeHistorical || doc.status === "current")
-        .map(scrubRow);
-      return page(args.collection, rows, docs, pageSize);
-    }
-    case "entities": {
-      const docs = await ctx.db
-        .query("entities")
-        .withIndex("by_userId", (q) =>
-          after === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", after),
-        )
-        .order("asc")
-        .take(pageSize);
-      return page(args.collection, docs.map(scrubRow), docs, pageSize);
-    }
-    case "lists": {
-      const docs = await ctx.db
-        .query("lists")
-        .withIndex("by_userId", (q) =>
-          after === undefined
-            ? q.eq("userId", userId)
-            : q.eq("userId", userId).gt("_creationTime", after),
-        )
-        .order("asc")
-        .take(pageSize);
-      return page(args.collection, docs.map(scrubRow), docs, pageSize);
-    }
-    case "listItems": {
-      // `by_userId_and_status` puts status ahead of the implicit creation-time
-      // field, so a creation-time range would have to pin one status and run
-      // once per status value. List items are bounded by the number of items
-      // across an account's lists, so this collection returns in a single page
-      // instead. Add a `by_userId` index here if that assumption ever breaks.
-      const docs = await ctx.db
-        .query("listItems")
-        .withIndex("by_userId_and_status", (q) => q.eq("userId", userId))
-        .collect();
-      const sorted = [...docs].sort(
-        (a, b) => a._creationTime - b._creationTime,
-      );
-      return {
-        collection: args.collection,
-        rows: sorted.map(scrubRow),
-        cursor: null,
-        isDone: true,
-        scanned: sorted.length,
-      };
-    }
-  }
-}
+  const docs = await readPage(ctx, collection, userId, args.after, pageSize);
+  const kept = docs.filter(
+    (doc) => includeHistorical || isCurrent(collection, doc),
+  );
+  const rows =
+    collection === "thoughts"
+      ? (kept as Doc<"thoughts">[]).map(scrubThought)
+      : kept.map(scrubRow);
 
-function page(
-  collection: ExportCollection,
-  rows: Record<string, unknown>[],
-  scannedDocs: { _creationTime: number }[],
-  pageSize: number,
-): ExportPage {
-  const exhausted = scannedDocs.length < pageSize;
   return {
     collection,
     rows,
-    cursor: exhausted ? null : (scannedDocs.at(-1)?._creationTime ?? null),
-    isDone: exhausted,
-    scanned: scannedDocs.length,
+    ...pageEnd(docs, pageSize),
+    scanned: docs.length,
   };
 }
 
-/** Row counts per collection, for verifying an export is complete. */
-export async function exportCounts(ctx: QueryCtx, userId: Id<"users">) {
-  const [thoughts, facts, entities, lists, listItems] = await Promise.all([
-    ctx.db
-      .query("thoughts")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect(),
-    ctx.db
-      .query("facts")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect(),
-    ctx.db
-      .query("entities")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect(),
-    ctx.db
-      .query("lists")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect(),
-    ctx.db
-      .query("listItems")
-      .withIndex("by_userId_and_status", (q) => q.eq("userId", userId))
-      .collect(),
-  ]);
-
+/**
+ * One page of row counts, for verifying an export is complete. Counting reads
+ * the same rows the export does, so it is paged the same way; a caller sums the
+ * pages. There is no cheaper way to count in Convex without maintaining an
+ * aggregate, and an aggregate that can drift is worse than a slow exact count
+ * for a verification step.
+ */
+export async function exportCountPage(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  args: { collection: ExportCollection; after?: number; pageSize?: number },
+): Promise<ExportCountPage> {
+  const pageSize = clampPageSize(args.pageSize);
+  const { collection } = args;
+  const docs = await readPage(ctx, collection, userId, args.after, pageSize);
   return {
-    thoughts: {
-      total: thoughts.length,
-      current: thoughts.filter(
-        (doc) => (doc.memoryStatus ?? "current") === "current",
-      ).length,
-    },
-    facts: {
-      total: facts.length,
-      current: facts.filter((doc) => doc.status === "current").length,
-    },
-    entities: { total: entities.length },
-    lists: { total: lists.length },
-    listItems: { total: listItems.length },
+    collection,
+    total: docs.length,
+    current: docs.filter((doc) => isCurrent(collection, doc)).length,
+    ...pageEnd(docs, pageSize),
   };
+}
+
+/**
+ * Bounded presence check for the account listing: how many rows a table holds
+ * for this account, up to `cap`, and whether the cap was hit. Enough to tell an
+ * empty account from a populated one, which is all picking an account needs,
+ * without reading the account to do it.
+ */
+export async function boundedCount(
+  ctx: QueryCtx,
+  table: ExportCollection,
+  userId: Id<"users">,
+  cap: number,
+): Promise<{ count: number; capped: boolean }> {
+  const docs = await readPage(ctx, table, userId, undefined, cap + 1);
+  return docs.length > cap
+    ? { count: cap, capped: true }
+    : { count: docs.length, capped: false };
 }
