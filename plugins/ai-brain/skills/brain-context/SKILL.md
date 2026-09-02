@@ -60,7 +60,7 @@ If the result array is empty, tell the user: "No thoughts captured around [date]
 
 From the compact index, select 5-8 thoughts to hydrate, optimizing for diversity:
 
-- Distinct `type` values when possible (decision, meeting_note, person_note, idea, task, reference)
+- Distinct `type` values when possible (decision, meeting_note, person_note, idea, task, reference, procedural)
 - Distinct `topics` — avoid two thoughts with overlapping topic lists if similar summaries
 - Distinct `people` mentioned — try to cover multiple collaborators if relevant
 
