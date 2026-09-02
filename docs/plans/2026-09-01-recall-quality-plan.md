@@ -16,6 +16,10 @@ data already in hand.
 
 **Design doc:** `docs/plans/2026-09-01-recall-quality-design.md`
 
+**W0 (blend policy) is implemented** in PR #40: one core slot at the
+default limit, facts only, and no guaranteed fact share of the relevance
+slots. It precedes everything below and is not repeated here.
+
 **Decision gate:** W5 (MEMORY_VERBS conformance) is deliberately absent from
 this plan. Answer the positioning question in the design doc before W4 lands —
 it changes W4's envelope shape and nothing else.
@@ -27,6 +31,7 @@ it changes W4's envelope shape and nothing else.
 ### Task 1: Add an embedding field and vector index to `facts`
 
 **Files:**
+
 - Modify: `packages/convex/convex/models/facts/validators.ts:66-80`
 - Modify: `packages/convex/convex/schema.ts:33-43`
 
@@ -70,6 +75,7 @@ Expected: schema pushes with no validator errors.
 ### Task 2: Embed `searchText` on fact write
 
 **Files:**
+
 - Modify: `packages/convex/convex/models/facts/mcpActions.ts`
 - Modify: `packages/convex/convex/models/facts/model.ts`
 
@@ -111,6 +117,7 @@ asserting a fact stores with `embedding` undefined when the helper throws.
 ### Task 3: Backfill embeddings for existing facts
 
 **Files:**
+
 - Create: `packages/convex/convex/models/facts/migrations.ts`
 
 **Step 1: Write the migration**
@@ -131,6 +138,7 @@ Run it against dev, then confirm every fact has an embedding of length 1536.
 ### Task 4: Fuse vector and keyword hits in fact search
 
 **Files:**
+
 - Modify: `packages/convex/convex/models/facts/model.ts:554-576`
 - Modify: `packages/convex/convex/models/facts/mcpActions.ts`
 - Modify: `apps/web/src/lib/mcp/server.ts:614-620`
@@ -171,7 +179,7 @@ the same `Promise.all` — fact and thought search must stay parallel.
 Run: `pnpm test:once` and `pnpm check-types`.
 
 Then verify the actual defect is fixed. With a fact whose predicate is
-`therapist`, `search_facts` for *"who do I see for mental health"* must return
+`therapist`, `search_facts` for _"who do I see for mental health"_ must return
 it. Before this task it returns nothing.
 
 **Step 5: Commit**
@@ -183,6 +191,7 @@ it. Before this task it returns nothing.
 ### Task 5: Add a read-only entity resolver
 
 **Files:**
+
 - Modify: `packages/convex/convex/models/facts/model.ts`
 
 **Step 1: Write `findEntity`**
@@ -192,7 +201,7 @@ export async function findEntity(
   ctx: QueryCtx,
   userId: Id<"users">,
   name: string,
-): Promise<Doc<"entities"> | null>
+): Promise<Doc<"entities"> | null>;
 ```
 
 **Do not reuse `resolveEntity` (`model.ts:145`).** It takes a `MutationCtx`, it
@@ -231,6 +240,7 @@ one — **a miss creates no entity row**.
 ### Task 6: Extract entity candidates from the query
 
 **Files:**
+
 - Create: `packages/convex/convex/models/facts/entityMatch.ts`
 - Create: `packages/convex/convex/models/facts/entityMatch.test.ts`
 
@@ -255,6 +265,7 @@ candidate cap.
 ### Task 7: Serve exact hits as a blend tier
 
 **Files:**
+
 - Modify: `packages/convex/convex/models/recallBlend.ts`
 - Modify: `packages/convex/convex/models/recallBlend.test.ts`
 - Modify: `apps/web/src/lib/mcp/server.ts`
@@ -295,6 +306,7 @@ tenant-leak assertions.
 ### Task 8: Replace per-item truncation with envelope allocation
 
 **Files:**
+
 - Modify: `apps/web/src/lib/mcp/server.ts:254-259`
 - Create: `apps/web/src/lib/mcp/recall-budget.ts`
 - Create: `apps/web/src/lib/mcp/recall-budget.test.ts`
@@ -349,6 +361,7 @@ an item shorter than its allocation passing through untouched.
 ### Task 9: Compute gaps from the assembled window
 
 **Files:**
+
 - Create: `packages/convex/convex/models/recallGaps.ts`
 - Create: `packages/convex/convex/models/recallGaps.test.ts`
 
@@ -386,6 +399,7 @@ provider calls — same discipline as `memoryEval.ts`.
 ### Task 10: Return gaps in the recall envelope
 
 **Files:**
+
 - Modify: `apps/web/src/lib/mcp/server.ts`
 
 **Step 1: Change the response shape**
