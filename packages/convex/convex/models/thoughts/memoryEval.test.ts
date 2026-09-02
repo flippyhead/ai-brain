@@ -1,7 +1,17 @@
 import { describe, expect, test } from "vitest";
 
-import { evaluateRetrievalCase, reciprocalRankFusion } from "./memoryEval";
-import { deterministicRetrievalFixtures } from "./memoryEval.fixtures";
+import { blendRecallContext } from "../recallBlend";
+import {
+  evaluateRetrievalCase,
+  reciprocalRankFusion,
+  type RetrievalEvaluationResult,
+} from "./memoryEval";
+import { liveRecallCorpus } from "./memoryEval.corpus";
+import {
+  deterministicRetrievalFixtures,
+  recordedBakeoffRankings,
+  type RecordedRecallRanking,
+} from "./memoryEval.fixtures";
 
 describe("deterministic memory retrieval evaluations", () => {
   test.each(deterministicRetrievalFixtures)("$name", (fixture) => {
@@ -162,4 +172,92 @@ describe("cross-store disagreement", () => {
     expect(evaluation.presentForbiddenStrings).toEqual(["Brightwater"]);
     expect(evaluation.passed).toBe(false);
   });
+});
+
+describe("blend policy on the bake-off shapes", () => {
+  const account = (label: string) => {
+    const found = liveRecallCorpus.find((entry) => entry.label === label);
+    if (!found) throw new Error(`No corpus account "${label}"`);
+    return found;
+  };
+
+  const rowsFor = (
+    label: string,
+    keys: string[],
+  ): RetrievalEvaluationResult[] => {
+    const { memories, facts = [] } = account(label);
+    return keys.map((key) => {
+      const memory = memories.find((entry) => entry.key === key);
+      if (memory) {
+        const superseded = memories.some((entry) => entry.supersedes === key);
+        const retracted = memories.some((entry) => entry.retracts === key);
+        return {
+          id: key,
+          userId: label,
+          memoryStatus: retracted
+            ? "retracted"
+            : superseded
+              ? "superseded"
+              : "current",
+          content: memory.content,
+        };
+      }
+      const fact = facts.find((entry) => entry.key === key);
+      if (!fact) throw new Error(`No corpus memory or fact "${key}"`);
+      const corrected = facts.some((entry) => entry.corrects === key);
+      return {
+        id: key,
+        userId: label,
+        memoryStatus: corrected ? "retracted" : "current",
+        content: `${fact.subjectName} — ${fact.predicate}: ${fact.value}.`,
+      };
+    });
+  };
+
+  /** Assemble the window a client receives, in the order it receives it. */
+  const windowAt = (ranking: RecordedRecallRanking, limit: number) => {
+    const blend = blendRecallContext({
+      coreFacts: rowsFor(ranking.account, ranking.coreFactKeys),
+      relevantFacts: rowsFor(ranking.account, ranking.relevantFactKeys),
+      relevantThoughts: rowsFor(ranking.account, ranking.relevantThoughtKeys),
+      limit,
+      factId: (row) => row.id,
+    });
+    return [
+      ...blend.coreFacts,
+      ...blend.relevanceFacts,
+      ...blend.relevanceThoughts,
+    ];
+  };
+
+  test.each(recordedBakeoffRankings)(
+    "$queryName is answered at the default limit",
+    (ranking) => {
+      const query = account(ranking.account).queries.find(
+        (entry) => entry.name === ranking.queryName,
+      );
+      if (!query) throw new Error(`No corpus query "${ranking.queryName}"`);
+
+      const evaluation = evaluateRetrievalCase({
+        name: ranking.queryName,
+        query: query.query,
+        expectedUserId: ranking.account,
+        expectedIds: query.expectedKeys,
+        includeHistorical: query.includeHistorical,
+        expectedExactStrings: query.expectedExactStrings,
+        forbiddenExactStrings: query.forbiddenExactStrings,
+        results: windowAt(ranking, 5),
+        k: 5,
+      });
+
+      expect(evaluation).toMatchObject({
+        recallAtK: 1,
+        tenantLeakIds: [],
+        unexpectedHistoricalIds: [],
+        missingExactStrings: [],
+        presentForbiddenStrings: [],
+        passed: true,
+      });
+    },
+  );
 });

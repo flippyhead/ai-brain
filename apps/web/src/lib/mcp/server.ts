@@ -631,7 +631,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend of current core facts/memories and relevant results. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend: at most one core fact at the default limit, then the most relevant current facts and memories; a core memory appears only when it is relevant. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -669,19 +669,20 @@ export function createMcpServer(convexAuthToken: string) {
         changeReason?: string;
       };
       type ContextFact = FactResult;
+      // Core slots go to facts only; a core memory reaches the window through
+      // the relevance ranking or not at all. At limit one or two there is no
+      // core slot, and listCore rejects a zero limit, so the query is skipped.
       const coreLimit = coreLimitFor(limit);
-      const [coreFacts, coreThoughts, relevantFacts, index]: [
+      const [coreFacts, relevantFacts, index]: [
         ContextFact[],
-        CoreThought[],
         ContextFact[],
         IndexRow[],
       ] = await Promise.all([
-        convex.query(api.models.facts.mcpQueries.listCore, {
-          limit: coreLimit,
-        }),
-        convex.query(api.models.thoughts.mcpQueries.listCore, {
-          limit: coreLimit,
-        }),
+        coreLimit === 0
+          ? Promise.resolve([])
+          : convex.query(api.models.facts.mcpQueries.listCore, {
+              limit: coreLimit,
+            }),
         convex.query(api.models.facts.mcpQueries.search, {
           query,
           limit,
@@ -696,7 +697,6 @@ export function createMcpServer(convexAuthToken: string) {
 
       if (
         coreFacts.length === 0 &&
-        coreThoughts.length === 0 &&
         relevantFacts.length === 0 &&
         index.length === 0
       ) {
@@ -712,18 +712,14 @@ export function createMcpServer(convexAuthToken: string) {
 
       const {
         coreFacts: selectedCoreFacts,
-        coreThoughts: selectedCoreThoughts,
         relevanceFacts,
         relevanceThoughts: relevanceIndex,
       } = blendRecallContext({
         coreFacts,
-        coreThoughts,
         relevantFacts,
         relevantThoughts: index,
         limit,
         factId: (fact) => fact.id,
-        coreThoughtId: (thought) => thought._id,
-        relevantThoughtId: (row) => row._id,
       });
 
       type Thought = {
@@ -761,7 +757,6 @@ export function createMcpServer(convexAuthToken: string) {
         memoryKind: "fact" as const,
         source: "core" as const,
       }));
-      const coreContext = selectedCoreThoughts.map(formatCoreThoughtForMcp);
       const relevanceFactContext = relevanceFacts.map((fact) => ({
         ...formatFactForMcp(fact),
         memoryKind: "fact" as const,
@@ -802,7 +797,6 @@ export function createMcpServer(convexAuthToken: string) {
       });
       const context = [
         ...coreFactContext,
-        ...coreContext,
         ...relevanceFactContext,
         ...relevanceContext,
       ];

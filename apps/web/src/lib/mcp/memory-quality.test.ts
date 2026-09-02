@@ -88,7 +88,7 @@ describe("MCP memory quality contract", () => {
       expect(recall?.description).toContain(
         "complete current message verbatim",
       );
-      expect(recall?.description).toContain("core facts/memories");
+      expect(recall?.description).toContain("at most one core fact");
       expect(recall?.inputSchema.properties).toHaveProperty("query");
       expect(capture?.description).toContain("one atomic durable narrative");
       expect(capture?.description).toContain("biographies");
@@ -144,61 +144,43 @@ describe("MCP memory quality contract", () => {
     }
   });
 
-  test("returns current core context before deduplicated relevance hits", async () => {
+  test("gives core one slot, facts one, and the rest to ranked memories", async () => {
     const query = "What changed in Atlas Memory v2.7.1 for ticket ATLAS-184?";
-    const coreThoughts = [
-      {
-        _id: "core-preference",
-        _creationTime: Date.UTC(2026, 7, 1),
-        content: "Jordan prefers concise, direct answers.",
-        metadata: {
-          type: "person_note",
-          topics: ["communication"],
-          people: ["Jordan"],
-          actionItems: [],
-          summary: "Communication preference",
-        },
-        userId: "jordan",
-        memoryStatus: "current",
-        isCore: true,
+    const factRow = (id: string, predicate: string, value: string) => ({
+      id,
+      statement: `Jordan — ${predicate}: ${value}.`,
+      subject: {
+        id: "entity-jordan",
+        key: "person:jordan",
+        kind: "person",
+        name: "Jordan",
+        aliases: [],
       },
-      {
-        _id: "core-home",
-        _creationTime: Date.UTC(2026, 6, 31),
-        content: "Jordan lives in Los Angeles.",
-        metadata: {
-          type: "person_note",
-          topics: ["location"],
-          people: ["Jordan"],
-          actionItems: [],
-          summary: "Home location",
-        },
-        userId: "jordan",
-        memoryStatus: "current",
-        isCore: true,
-      },
-      {
-        _id: "core-constraint",
-        _creationTime: Date.UTC(2026, 6, 30),
-        content: "Jordan avoids meetings before 9 AM.",
-        metadata: {
-          type: "person_note",
-          topics: ["scheduling"],
-          people: ["Jordan"],
-          actionItems: [],
-          summary: "Scheduling constraint",
-        },
-        userId: "jordan",
-        memoryStatus: "current",
-        isCore: true,
-      },
+      predicate,
+      value: { type: "text", value },
+      sourceType: "user_stated" as const,
+      confidence: 1,
+      isCore: predicate === "home_city",
+      status: "current" as const,
+      createdAt: Date.UTC(2026, 7, 1),
+    });
+    // The account holds two core facts; only one fits the default window.
+    const coreFacts = [
+      factRow("fact-home", "home_city", "Fernwood"),
+      factRow("fact-timezone", "timezone", "UTC-8"),
+    ];
+    // Keyword-only fact search matched on "Atlas Memory" without answering.
+    const keywordFacts = [
+      factRow("fact-role", "role", "Atlas Memory maintainer"),
+      factRow("fact-editor", "editor", "Atlas Memory Studio"),
     ];
     convexMocks.query
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(coreThoughts)
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce(coreFacts)
+      .mockResolvedValueOnce(keywordFacts);
     convexMocks.action
       .mockResolvedValueOnce([
+        // A core memory that matched the question arrives through the ranking
+        // like any other; nothing reserves it a slot.
         {
           _id: "core-preference",
           summary: "Communication preference",
@@ -253,6 +235,20 @@ describe("MCP memory quality contract", () => {
       ])
       .mockResolvedValueOnce([
         {
+          _id: "core-preference",
+          content: "Jordan prefers concise, direct answers.",
+          metadata: {
+            type: "person_note",
+            topics: ["communication"],
+            people: ["Jordan"],
+            actionItems: [],
+            summary: "Communication preference",
+          },
+          createdAt: Date.UTC(2026, 7, 1),
+          memoryStatus: "current",
+          isCore: true,
+        },
+        {
           _id: "atlas-version",
           content: "Atlas Memory v2.7.1 addresses ATLAS-184.",
           metadata: {
@@ -301,12 +297,13 @@ describe("MCP memory quality contract", () => {
       ) as Array<{ id: string; source: string; content: string }>;
 
       expect(context).toEqual([
+        expect.objectContaining({ id: "fact-home", source: "core" }),
+        expect.objectContaining({ id: "fact-role", source: "relevance" }),
         expect.objectContaining({
           id: "core-preference",
-          source: "core",
+          source: "relevance",
+          isCore: true,
         }),
-        expect.objectContaining({ id: "core-home", source: "core" }),
-        expect.objectContaining({ id: "core-constraint", source: "core" }),
         expect.objectContaining({
           id: "atlas-version",
           source: "relevance",
@@ -317,20 +314,112 @@ describe("MCP memory quality contract", () => {
           source: "relevance",
         }),
       ]);
+      // Core is asked for exactly the slots it can use, and core memories are
+      // not fetched at all.
+      expect(convexMocks.query).toHaveBeenCalledTimes(2);
+      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 1 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({
+        query,
+        limit: 5,
+        includeHistorical: false,
+      });
       expect(convexMocks.action.mock.calls[0]?.[1]).toMatchObject({
         query,
         limit: 5,
         includeHistorical: false,
       });
-      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 3 });
-      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 3 });
-      expect(convexMocks.query.mock.calls[2]?.[1]).toEqual({
-        query,
-        limit: 5,
-        includeHistorical: false,
-      });
       expect(convexMocks.action.mock.calls[1]?.[1]).toEqual({
-        ids: ["atlas-version", "atlas-migration"],
+        ids: ["core-preference", "atlas-version", "atlas-migration"],
+      });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("spends a window of two entirely on the answer", async () => {
+    convexMocks.query.mockResolvedValueOnce([]);
+    convexMocks.action
+      .mockResolvedValueOnce([
+        {
+          _id: "atlas-version",
+          summary: "Atlas Memory release",
+          snippet: "Atlas Memory v2.7.1 addresses ATLAS-184.",
+          type: "reference",
+          topics: ["Atlas Memory"],
+          score: 0.02,
+          createdAt: Date.UTC(2026, 7, 2),
+          memoryStatus: "current",
+        },
+        {
+          _id: "atlas-migration",
+          summary: "Atlas migration",
+          snippet: "ATLAS-184 tracks the active migration.",
+          type: "task",
+          topics: ["Atlas Memory"],
+          score: 0.019,
+          createdAt: Date.UTC(2026, 7, 3),
+          memoryStatus: "current",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          _id: "atlas-version",
+          content: "Atlas Memory v2.7.1 addresses ATLAS-184.",
+          metadata: {
+            type: "reference",
+            topics: [],
+            people: [],
+            actionItems: [],
+            summary: "Atlas Memory release",
+          },
+          createdAt: Date.UTC(2026, 7, 2),
+          memoryStatus: "current",
+        },
+        {
+          _id: "atlas-migration",
+          content: "ATLAS-184 tracks the active migration.",
+          metadata: {
+            type: "task",
+            topics: [],
+            people: [],
+            actionItems: [],
+            summary: "Atlas migration",
+          },
+          createdAt: Date.UTC(2026, 7, 3),
+          memoryStatus: "current",
+        },
+      ]);
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: { query: "Atlas Memory status?", limit: 2 },
+      });
+      const firstContent = (result as { content?: unknown[] }).content?.[0];
+      const context = JSON.parse(
+        (firstContent as { type: "text"; text: string }).text,
+      ) as Array<{ id: string; source: string }>;
+
+      expect(context.map((row) => row.id)).toEqual([
+        "atlas-version",
+        "atlas-migration",
+      ]);
+      // No core slot exists at this limit, so core is never queried: the one
+      // query call is the fact search.
+      expect(convexMocks.query).toHaveBeenCalledTimes(1);
+      expect(convexMocks.query.mock.calls[0]?.[1]).toMatchObject({
+        query: "Atlas Memory status?",
+        limit: 2,
       });
     } finally {
       await client.close();
