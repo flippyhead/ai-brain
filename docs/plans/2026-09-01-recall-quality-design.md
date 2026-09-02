@@ -118,6 +118,11 @@ meaningful at this volume. Recommend keeping it.
 
 ## W2 — Exact-entity lookup tier ahead of fusion
 
+**Status: implemented** in PR #43 — read-only `findEntity`, a capped
+model-free candidate extractor, and an `exact` tier ahead of core that takes
+at most half of the slots left after core (`exactLimitFor(5)` is 2); alias
+matching uses option (a) below.
+
 GBrain runs an exact-lookup tier before fusion so that a query naming a thing
 that resolves gets that thing first, rather than whatever ranked highest.
 AI Brain has the index for this and does not use it on the read path.
