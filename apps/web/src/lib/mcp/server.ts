@@ -13,6 +13,12 @@ import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
 import {
+  allocateRecallBudget,
+  DEFAULT_RECALL_BUDGET_CHARS,
+  type RecallTier,
+  serializeRecallEnvelope,
+} from "@/lib/mcp/recall-budget";
+import {
   MCP_TOOL_ANNOTATIONS,
   type McpToolName,
   resolveEnabledMcpToolNames,
@@ -272,11 +278,55 @@ function formatFactForMcp(fact: FactResult) {
   };
 }
 
+/**
+ * Per-item cap for tools that list memories without a budget, such as
+ * `list_core_memories`. `recall_context` no longer uses it: its window is
+ * shaped by `allocateRecallBudget` against one budget for the whole envelope.
+ */
 function truncateContext(content: string, maxChars = 4_000): string {
   const chars = Array.from(content);
   return chars.length > maxChars
     ? `${chars.slice(0, maxChars).join("")}…`
     : content;
+}
+
+/**
+ * The host's hard limit on a `recall_context` result. `maxContextChars` is the
+ * soft limit inside it: the allocator fits the memory envelope plus any budget
+ * note under `maxContextChars`, and the schema keeps `maxContextChars` under
+ * this ceiling, so a result can never reach the size the host would reject.
+ */
+const RECALL_RESULT_SIZE_CHARS = 50_000;
+const MAX_RECALL_BUDGET_CHARS = 48_000;
+/**
+ * Room kept for the note that says what was trimmed or dropped. The note is
+ * a second content block, outside the machine-parseable memory array, and is
+ * only present when there is a loss to report.
+ */
+const RECALL_BUDGET_NOTE_CHARS = 240;
+
+/** Envelope `source` values that keep their full text; the rest share. */
+const RECALL_TIER_BY_SOURCE: Readonly<Record<string, RecallTier>> = {
+  exact: "exact",
+  core: "core",
+};
+
+function recallBudgetNote({
+  trimmed,
+  dropped,
+  maxContextChars,
+}: {
+  trimmed: number;
+  dropped: number;
+  maxContextChars: number;
+}): string {
+  const loss = [
+    trimmed > 0 ? `${trimmed} trimmed (marked truncated: true)` : undefined,
+    dropped > 0 ? `${dropped} dropped` : undefined,
+  ]
+    .filter((part) => part !== undefined)
+    .join(" and ");
+  return `Recall budget: ${loss} to fit maxContextChars=${maxContextChars}. Raise maxContextChars or lower limit to see more, or read a trimmed thought in full with get_thoughts.`;
 }
 
 /** A hydrated core memory row as `thoughts.mcpQueries.listCore` returns it. */
@@ -634,7 +684,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend, each entry labelled by source: exact (current facts about a person or thing the message names by its stored name or alias), then at most one core fact at the default limit, then relevance (the most relevant current facts and memories); a core memory appears only when it is relevant. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend, each entry labelled by source: exact (current facts about a person or thing the message names by its stored name or alias), then at most one core fact at the default limit, then relevance (the most relevant current facts and memories); a core memory appears only when it is relevant. The whole response fits within maxContextChars: exact and core keep their full text, long relevance memories are trimmed at a sentence boundary before short ones are dropped, a trimmed memory carries truncated: true, and a note reports any loss. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -653,9 +703,18 @@ export function createMcpServer(convexAuthToken: string) {
         .describe(
           "Include superseded and retracted memories only for explicitly historical questions",
         ),
+      maxContextChars: z
+        .number()
+        .int()
+        .min(2_000)
+        .max(MAX_RECALL_BUDGET_CHARS)
+        .default(DEFAULT_RECALL_BUDGET_CHARS)
+        .describe(
+          "Total characters the response may occupy; long memories are trimmed to fit and marked truncated",
+        ),
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.recallContext],
-    async ({ query, limit, includeHistorical }) => {
+    async ({ query, limit, includeHistorical, maxContextChars }) => {
       type IndexRow = {
         _id: string;
         summary: string;
@@ -795,7 +854,7 @@ export function createMcpServer(convexAuthToken: string) {
           {
             id: thought._id,
             citation: `thought:${thought._id}`,
-            content: truncateContext(thought.content),
+            content: thought.content,
             metadata: thought.metadata,
             memoryKind: "thought" as const,
             source: "relevance" as const,
@@ -828,14 +887,48 @@ export function createMcpServer(convexAuthToken: string) {
         ...relevanceContext,
       ];
 
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(context, null, 2),
+      // One budget for the whole envelope instead of a cap per memory: core
+      // keeps its text, relevance memories are trimmed longest-first, and
+      // nothing is cut silently (see recall-budget.ts for the rule).
+      type RecallContextItem = (typeof context)[number] & { truncated?: true };
+      const allocate = (budget: number) =>
+        allocateRecallBudget<RecallContextItem>(context, {
+          budget,
+          tierOf: (item) => RECALL_TIER_BY_SOURCE[item.source] ?? "relevance",
+          textOf: (item) =>
+            item.memoryKind === "thought" ? item.content : item.statement,
+          withText: (item, text, truncated) => {
+            const mark = truncated ? { truncated: true as const } : {};
+            return item.memoryKind === "thought"
+              ? { ...item, content: text, ...mark }
+              : { ...item, statement: text, ...mark };
           },
-        ],
-        _meta: { "anthropic/maxResultSizeChars": 50000 },
+        });
+      let budgeted = allocate(maxContextChars);
+      if (budgeted.trimmed > 0 || budgeted.dropped > 0) {
+        // The note about the loss counts against the same budget.
+        budgeted = allocate(maxContextChars - RECALL_BUDGET_NOTE_CHARS);
+      }
+      const content = [
+        {
+          type: "text" as const,
+          text: serializeRecallEnvelope(budgeted.items),
+        },
+      ];
+      if (budgeted.trimmed > 0 || budgeted.dropped > 0) {
+        content.push({
+          type: "text" as const,
+          text: recallBudgetNote({
+            trimmed: budgeted.trimmed,
+            dropped: budgeted.dropped,
+            maxContextChars,
+          }),
+        });
+      }
+
+      return {
+        content,
+        _meta: { "anthropic/maxResultSizeChars": RECALL_RESULT_SIZE_CHARS },
       };
     },
   );
