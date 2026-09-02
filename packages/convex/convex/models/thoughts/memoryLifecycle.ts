@@ -66,6 +66,25 @@ export function isMemoryRetrievable(
   return includeHistorical === true || isMemoryActive(memory, at);
 }
 
+const FORGET_REASON_MAX_CHARS = 500;
+
+/**
+ * A forget call must say why, even though the reason is never stored: the row
+ * it would be recorded on is the row being deleted. Requiring it keeps the
+ * decision explicit at the call site, and echoing it back lets the caller
+ * relay it. Shared by the thought, fact, and entity paths so all three enforce
+ * the same bound.
+ */
+export function normalizeForgetReason(reason: string): string {
+  const normalized = reason.trim();
+  if (!normalized || normalized.length > FORGET_REASON_MAX_CHARS) {
+    throw new Error(
+      `Forgetting requires a reason of 1-${FORGET_REASON_MAX_CHARS} characters`,
+    );
+  }
+  return normalized;
+}
+
 /**
  * Validates a business-time interval without conflating it with recording
  * time. Open intervals are allowed; a closed interval must have positive

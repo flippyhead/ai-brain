@@ -45,6 +45,7 @@ export const MCP_TOOL_ANNOTATIONS = {
   [MCP_TOOL_NAMES.rememberFact]: idempotentAdditive,
   [MCP_TOOL_NAMES.searchThoughts]: readOnly,
   [MCP_TOOL_NAMES.recallContext]: readOnly,
+  [MCP_TOOL_NAMES.listCoreMemories]: readOnly,
   [MCP_TOOL_NAMES.browseRecent]: readOnly,
   [MCP_TOOL_NAMES.getThoughts]: readOnly,
   [MCP_TOOL_NAMES.timelineThoughts]: readOnly,
@@ -52,6 +53,9 @@ export const MCP_TOOL_ANNOTATIONS = {
   [MCP_TOOL_NAMES.captureThought]: idempotentAdditive,
   [MCP_TOOL_NAMES.retractThought]: destructive,
   [MCP_TOOL_NAMES.restoreThought]: additive,
+  [MCP_TOOL_NAMES.forgetThought]: destructive,
+  [MCP_TOOL_NAMES.forgetFact]: destructive,
+  [MCP_TOOL_NAMES.forgetEntity]: destructive,
   [MCP_TOOL_NAMES.createReport]: additive,
   [MCP_TOOL_NAMES.getInsights]: readOnly,
   [MCP_TOOL_NAMES.deleteInsight]: destructive,
@@ -70,6 +74,7 @@ export const MCP_MEMORY_TOOL_NAMES = [
   MCP_TOOL_NAMES.rememberFact,
   MCP_TOOL_NAMES.searchThoughts,
   MCP_TOOL_NAMES.recallContext,
+  MCP_TOOL_NAMES.listCoreMemories,
   MCP_TOOL_NAMES.browseRecent,
   MCP_TOOL_NAMES.getThoughts,
   MCP_TOOL_NAMES.timelineThoughts,
@@ -77,6 +82,9 @@ export const MCP_MEMORY_TOOL_NAMES = [
   MCP_TOOL_NAMES.captureThought,
   MCP_TOOL_NAMES.retractThought,
   MCP_TOOL_NAMES.restoreThought,
+  MCP_TOOL_NAMES.forgetThought,
+  MCP_TOOL_NAMES.forgetFact,
+  MCP_TOOL_NAMES.forgetEntity,
 ] as const;
 
 export type McpToolProfile = "memory" | "full";
