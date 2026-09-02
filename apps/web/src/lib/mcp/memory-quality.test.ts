@@ -372,7 +372,6 @@ describe("MCP memory quality contract", () => {
         ids: ["core-preference", "atlas-version", "atlas-migration"],
       });
     } finally {
-      vi.useRealTimers();
       await client.close();
       await server.close();
     }
@@ -502,6 +501,7 @@ describe("MCP memory quality contract", () => {
       ]);
       expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ query, limit: 2 });
     } finally {
+      vi.useRealTimers();
       await client.close();
       await server.close();
     }
@@ -778,6 +778,170 @@ describe("MCP memory quality contract", () => {
       }
       expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 25 });
       expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 25 });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("fits long memories within maxContextChars by trimming instead of dropping", async () => {
+    // Pinned: the memories below are dated August 2026, and a window older
+    // than six weeks would gain a gaps block after the memory array.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 8, 2, 12) });
+    const paragraph = (n: number) =>
+      `Paragraph ${n} of the Atlas Memory migration notes records another decision with its rationale. `;
+    const longContent = (seed: string) =>
+      Array.from({ length: 80 }, (_, n) => `${seed} ${paragraph(n)}`).join("");
+    const ids = ["atlas-a", "atlas-b", "atlas-c", "atlas-d", "atlas-e"];
+    // Core and exact (queries) and fact search (action) find nothing; thought
+    // search and hydration carry the five long memories.
+    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    convexMocks.action
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(
+        ids.map((id, n) => ({
+          _id: id,
+          summary: `Atlas note ${n}`,
+          snippet: paragraph(0),
+          type: "reference",
+          topics: ["Atlas Memory"],
+          score: 0.02 - n * 0.001,
+          createdAt: Date.UTC(2026, 7, n + 1),
+          memoryStatus: "current",
+        })),
+      )
+      .mockResolvedValueOnce(
+        ids.map((id, n) => ({
+          _id: id,
+          content: longContent(id),
+          metadata: {
+            type: "reference",
+            topics: ["Atlas Memory"],
+            people: [],
+            actionItems: [],
+            summary: `Atlas note ${n}`,
+          },
+          createdAt: Date.UTC(2026, 7, n + 1),
+          memoryStatus: "current",
+        })),
+      );
+    // Five memories of ~8,000 characters each against a 12,000-character
+    // budget: every one of them fits only if every one of them is trimmed.
+    expect(longContent("atlas-a").length).toBeGreaterThan(8_000);
+    const maxContextChars = 12_000;
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: {
+          query: "Atlas Memory migration?",
+          limit: 5,
+          maxContextChars,
+        },
+      });
+      const content = (
+        result as { content: Array<{ type: string; text: string }> }
+      ).content;
+      const totalChars = content.reduce(
+        (sum, block) => sum + block.text.length,
+        0,
+      );
+      expect(totalChars).toBeLessThanOrEqual(maxContextChars);
+      expect(totalChars).toBeGreaterThan(maxContextChars * 0.9);
+
+      const context = JSON.parse(content[0]!.text) as Array<{
+        id: string;
+        content: string;
+        truncated?: true;
+      }>;
+      // Nothing was dropped: trimming every memory made all five fit.
+      expect(context.map((row) => row.id)).toEqual(ids);
+      for (const row of context) {
+        expect(row.truncated).toBe(true);
+        expect(row.content.endsWith("…")).toBe(true);
+        // Cut on a sentence, not mid-word.
+        expect(row.content.replace(/…$/, "")).toMatch(/\.$/);
+        expect(row.content.length).toBeGreaterThan(1_000);
+      }
+      // The loss is reported outside the memory array.
+      expect(content).toHaveLength(2);
+      expect(content[1]?.text).toContain("5 trimmed");
+      expect(content[1]?.text).toContain(`maxContextChars=${maxContextChars}`);
+      expect(content[1]?.text).not.toContain("dropped");
+      expect(content[1]?.text.length).toBeLessThanOrEqual(240);
+    } finally {
+      vi.useRealTimers();
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("returns short memories whole with no budget note by default", async () => {
+    // Core and exact queries find nothing at limit 5.
+    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    convexMocks.action
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          _id: "atlas-version",
+          summary: "Atlas Memory release",
+          snippet: "Atlas Memory v2.7.1 addresses ATLAS-184.",
+          type: "reference",
+          topics: ["Atlas Memory"],
+          score: 0.02,
+          createdAt: Date.UTC(2026, 7, 2),
+          memoryStatus: "current",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          _id: "atlas-version",
+          content: "Atlas Memory v2.7.1 addresses ATLAS-184. ".repeat(120),
+          metadata: {
+            type: "reference",
+            topics: ["Atlas Memory"],
+            people: [],
+            actionItems: [],
+            summary: "Atlas Memory release",
+          },
+          createdAt: Date.UTC(2026, 7, 2),
+          memoryStatus: "current",
+        },
+      ]);
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: { query: "Atlas Memory status?", limit: 5 },
+      });
+      const content = (result as { content: Array<{ text: string }> }).content;
+      expect(content).toHaveLength(1);
+      const [row] = JSON.parse(content[0]!.text) as Array<{
+        content: string;
+        truncated?: true;
+      }>;
+      // A ~5,000-character memory used to lose its tail to a 4,000-character
+      // cap; the default budget carries it whole.
+      expect(row?.content.length).toBeGreaterThan(4_000);
+      expect(row?.truncated).toBeUndefined();
     } finally {
       await client.close();
       await server.close();

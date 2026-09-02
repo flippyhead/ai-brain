@@ -173,6 +173,12 @@ is almost certainly sufficient; the blend already does this for core.
 
 ## W3 — Budget-aware recall shaping
 
+**Status: implemented** in PR #45 — `apps/web/src/lib/mcp/recall-budget.ts`
+fits the whole envelope under `maxContextChars` (default 24,000): core and
+exact keep their text, relevance is trimmed longest-first at a sentence
+boundary before anything is dropped, trimmed memories carry
+`truncated: true`, and a note reports the loss.
+
 **A correction to the comparison document:** the claim that recall has "no size
 bound" was imprecise. There are two bounds today — `truncateContext` caps each
 thought at 4,000 characters (`server.ts:254-259`), and the response declares
@@ -209,9 +215,10 @@ Small, self-contained, and entirely inside the MCP layer — no schema change.
 ## W4 — Gap analysis in the recall envelope
 
 **Status: implemented** in PR #44 — `models/recallGaps.ts` computes `empty`,
-`stale` (six weeks), `conflict`, and `absent` gaps from the assembled window,
-and `recall_context` appends them as sibling blocks after the unchanged
-memories array, only when there are any.
+`stale` (six weeks), `conflict`, and `absent` gaps from the window the blend
+selected, and `recall_context` appends them as sibling blocks after the
+memories array and any budget note, only when there are any and only in the
+room the returned envelope leaves under the declared result size.
 
 The single most-cited reason GBrain reads as a brain rather than a search box is
 that `gbrain think` says what it does not know. That behavior does not require

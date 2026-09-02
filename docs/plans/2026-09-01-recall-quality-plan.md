@@ -315,6 +315,9 @@ tenant-leak assertions.
 
 ### Task 8: Replace per-item truncation with envelope allocation
 
+**Status: implemented** in PR #45 (`apps/web/src/lib/mcp/recall-budget.ts`,
+wired into `recall_context` with a `maxContextChars` parameter).
+
 **Files:**
 
 - Modify: `apps/web/src/lib/mcp/server.ts:254-259`
