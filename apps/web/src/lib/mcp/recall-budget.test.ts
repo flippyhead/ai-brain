@@ -253,6 +253,45 @@ describe("allocateRecallBudget", () => {
     expect(squeezed.usedChars).toBeLessThanOrEqual(500);
   });
 
+  test("keeps protected items whole when they fit exactly once relevance is gone", () => {
+    const protectedItems = [
+      item("exact", "exact", prose(1_500)),
+      item("core", "core", prose(1_500)),
+    ];
+    const items = [
+      ...protectedItems,
+      item("r1", "relevance", prose(2_000)),
+      item("r2", "relevance", prose(2_000)),
+      item("r3", "relevance", prose(2_000)),
+    ];
+    // Exactly the envelope of the two protected items: framing for two, not
+    // for the three relevance items that have to go.
+    const budget = serializeRecallEnvelope(protectedItems).length;
+    const result = allocate(items, budget);
+    expect(result.items).toEqual(protectedItems);
+    expect(result).toMatchObject({
+      trimmed: 0,
+      dropped: 3,
+      usedChars: budget,
+      maxChars: budget,
+    });
+  });
+
+  test("keeps relevance items whole when they fit exactly after a drop", () => {
+    // Two short items: levelling them down for a third could not reach the
+    // minimum excerpt, so the third is dropped and the framing must shrink
+    // with it.
+    const fitting = [
+      item("r1", "relevance", prose(100)),
+      item("r2", "relevance", prose(100)),
+    ];
+    const items = [...fitting, item("r3", "relevance", prose(2_000))];
+    const budget = serializeRecallEnvelope(fitting).length;
+    const result = allocate(items, budget);
+    expect(result.items).toEqual(fitting);
+    expect(result).toMatchObject({ trimmed: 0, dropped: 1, usedChars: budget });
+  });
+
   test("returns nothing when the budget is below every minimum", () => {
     const items = [
       item("core", "core", prose(3_000)),

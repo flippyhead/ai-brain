@@ -107,10 +107,15 @@ function itemCost(item: unknown): number {
   );
 }
 
-/** Envelope size for items whose costs are known: brackets plus separators. */
-function envelopeCost(costs: readonly number[]): number {
-  if (costs.length === 0) return 2; // "[]"
-  return 4 + costs.reduce((sum, c) => sum + c, 0) + 2 * (costs.length - 1);
+/**
+ * What the envelope costs around `count` items: brackets, the newline after
+ * the opening one and before the closing one, and a separator between each
+ * pair. Charged for the items actually kept in a pass, never for dropped
+ * ones, or a phantom separator could trim an item that fits.
+ */
+function framingCost(count: number): number {
+  if (count === 0) return 2; // "[]"
+  return 4 + 2 * (count - 1);
 }
 
 /** Characters the text adds once quoted and escaped inside the JSON. */
@@ -137,19 +142,32 @@ type Allocation = {
   dropped: number;
 };
 
+type Reserved = {
+  /** Items kept outside the pool, whole; they take framing too. */
+  count: number;
+  /** Their serialized cost, text included. */
+  cost: number;
+};
+
 /**
- * Share `available` characters among `pool`. Members whose text fits under
- * the water level pass untouched; the rest are cut to it. Drops from the
- * bottom of the pool until every kept member can have at least the minimum.
+ * Share what `budget` leaves after `reserved` among `pool`. Members whose
+ * text fits under the water level pass untouched; the rest are cut to it.
+ * Drops from the bottom of the pool until every kept member can have at
+ * least the minimum, re-framing for the items that remain each time.
  */
-function allocatePool<T>(pool: Measured<T>[], available: number): Allocation {
+function allocatePool<T>(
+  pool: Measured<T>[],
+  budget: number,
+  reserved: Reserved,
+): Allocation {
   for (let keep = pool.length; keep >= 0; keep -= 1) {
     const kept = pool.slice(0, keep);
     let trimmedSet = new Set<number>();
     // The `truncated` mark costs a few characters itself. Charging it lowers
     // the level, which can only enlarge the trimmed set, so this settles.
     for (;;) {
-      let remaining = available;
+      let remaining =
+        budget - framingCost(reserved.count + keep) - reserved.cost;
       for (const [i, member] of kept.entries()) {
         remaining -= trimmedSet.has(i) ? member.fixedTrimmed : member.fixed;
       }
@@ -274,7 +292,6 @@ export function allocateRecallBudget<T>(
   const protectedItems = measured.filter((m) => PROTECTED_TIERS.has(m.tier));
   const relevance = measured.filter((m) => !PROTECTED_TIERS.has(m.tier));
 
-  const framing = envelopeCost(measured.map(() => 0));
   const protectedFull = protectedItems.reduce(
     (sum, m) => sum + m.fixed + m.fullText,
     0,
@@ -283,29 +300,32 @@ export function allocateRecallBudget<T>(
   const kept = new Map<number, { text: string; truncated: boolean }>();
   let dropped = 0;
 
-  const protectedFits = framing + protectedFull <= budget;
+  const protectedFits =
+    framingCost(protectedItems.length) + protectedFull <= budget;
   if (protectedFits) {
     for (const m of protectedItems) {
       kept.set(m.index, { text: m.text, truncated: false });
     }
-    const allocation = allocatePool(
-      relevance,
-      budget - framing - protectedFull,
-    );
+    const allocation = allocatePool(relevance, budget, {
+      count: protectedItems.length,
+      cost: protectedFull,
+    });
     dropped += allocation.dropped;
     applyAllocation(relevance, allocation, kept);
   } else {
     // Nothing from relevance can fit; the protected tiers themselves are
     // trimmed, then dropped from the bottom of their ordering.
     dropped += relevance.length;
-    const allocation = allocatePool(protectedItems, budget - framing);
+    const allocation = allocatePool(protectedItems, budget, {
+      count: 0,
+      cost: 0,
+    });
     dropped += allocation.dropped;
     applyAllocation(protectedItems, allocation, kept);
   }
 
-  // Framing was charged for every item, including dropped ones — a few
-  // characters of slack in exchange for one pass. Rebuild and measure, and
-  // let the measurement, not the model, have the last word.
+  // The model above is exact, so this is a guard, not a second pass:
+  // rebuild, measure, and let the measurement have the last word.
   let result = measured.flatMap((m) => {
     const entry = kept.get(m.index);
     return entry ? [{ m, entry }] : [];
