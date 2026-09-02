@@ -53,6 +53,9 @@ export const MCP_TOOL_ANNOTATIONS = {
   [MCP_TOOL_NAMES.captureThought]: idempotentAdditive,
   [MCP_TOOL_NAMES.retractThought]: destructive,
   [MCP_TOOL_NAMES.restoreThought]: additive,
+  [MCP_TOOL_NAMES.forgetThought]: destructive,
+  [MCP_TOOL_NAMES.forgetFact]: destructive,
+  [MCP_TOOL_NAMES.forgetEntity]: destructive,
   [MCP_TOOL_NAMES.createReport]: additive,
   [MCP_TOOL_NAMES.getInsights]: readOnly,
   [MCP_TOOL_NAMES.deleteInsight]: destructive,
@@ -79,6 +82,9 @@ export const MCP_MEMORY_TOOL_NAMES = [
   MCP_TOOL_NAMES.captureThought,
   MCP_TOOL_NAMES.retractThought,
   MCP_TOOL_NAMES.restoreThought,
+  MCP_TOOL_NAMES.forgetThought,
+  MCP_TOOL_NAMES.forgetFact,
+  MCP_TOOL_NAMES.forgetEntity,
 ] as const;
 
 export type McpToolProfile = "memory" | "full";
