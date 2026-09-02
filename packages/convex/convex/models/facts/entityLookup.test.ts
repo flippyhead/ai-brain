@@ -22,7 +22,12 @@ async function remember(
   t: Harness,
   userId: Id<"users">,
   fact: {
-    subject: { key?: string; name: string; aliases?: string[] };
+    subject: {
+      key?: string;
+      kind?: "person" | "organization" | "project" | "place" | "other";
+      name: string;
+      aliases?: string[];
+    };
     predicate: string;
     value: string;
     isCore?: boolean;
@@ -116,6 +121,34 @@ describe("read-only entity lookup", () => {
     expect(await entityCount(t)).toBe(before);
   });
 
+  test("refuses to guess between entities that share a name", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t);
+    await remember(t, userId, {
+      subject: { key: "person:atlas", kind: "person", name: "Atlas" },
+      predicate: "role",
+      value: "designer",
+    });
+    await remember(t, userId, {
+      subject: { key: "project:atlas", kind: "project", name: "Atlas" },
+      predicate: "status",
+      value: "in beta",
+    });
+
+    await expect(
+      t.run((ctx) => findEntity(ctx, userId, { name: "Atlas" })),
+    ).rejects.toThrow('Several entities are named "Atlas"');
+    const project = await t.run((ctx) =>
+      findEntity(ctx, userId, { name: "Atlas", kind: "project" }),
+    );
+    expect(project?.key).toBe("project:atlas");
+    expect(
+      await t.run((ctx) =>
+        findEntity(ctx, userId, { name: "Atlas", kind: "place" }),
+      ),
+    ).toBeNull();
+  });
+
   test("never returns another account's entity", async () => {
     const t = convexTest(schema, modules);
     const owner = await seedUser(t);
@@ -205,6 +238,81 @@ describe("exact facts for a query", () => {
       name: "Tomas",
       mention: "tom",
     });
+  });
+
+  test("serves every entity a name resolves to, by canonical name or alias", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t);
+    await remember(t, userId, {
+      subject: { key: "person:atlas", kind: "person", name: "Atlas" },
+      predicate: "role",
+      value: "designer",
+    });
+    await remember(t, userId, {
+      subject: { key: "project:atlas", kind: "project", name: "Atlas" },
+      predicate: "status",
+      value: "in beta",
+    });
+    // Two people share the nickname "Sam".
+    await remember(t, userId, {
+      subject: { key: "person:samira", name: "Samira", aliases: ["Sam"] },
+      predicate: "role",
+      value: "engineer",
+    });
+    await remember(t, userId, {
+      subject: { key: "person:samuel", name: "Samuel", aliases: ["Sam"] },
+      predicate: "role",
+      value: "analyst",
+    });
+
+    const atlas = await t.run((ctx) =>
+      recallExactFacts(ctx, userId, "What is Atlas?", { limit: 5 }),
+    );
+    expect(atlas.map((fact) => fact.subject?.key)).toEqual([
+      "person:atlas",
+      "project:atlas",
+    ]);
+
+    const sam = await t.run((ctx) =>
+      recallExactFacts(ctx, userId, "Is Sam free?", { limit: 5 }),
+    );
+    expect(sam.map((fact) => fact.subject?.name).sort()).toEqual([
+      "Samira",
+      "Samuel",
+    ]);
+    expect(sam.every((fact) => fact.matchedEntity.mention === "sam")).toBe(
+      true,
+    );
+  });
+
+  test("finds current facts behind more history than the per-entity window", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await seedUser(t);
+    const zevin = { key: "person:zevin", name: "Zevin" };
+    // The "a"-sorted predicate accumulates more superseded rows than the
+    // window holds; the current school fact sorts after all of them.
+    for (let round = 0; round < 60; round += 1) {
+      await remember(t, userId, {
+        subject: zevin,
+        predicate: "allergy_note",
+        value: `revision ${round}`,
+      });
+    }
+    await remember(t, userId, {
+      subject: zevin,
+      predicate: "school",
+      value: "Redwood Academy",
+    });
+
+    const results = await t.run((ctx) =>
+      recallExactFacts(ctx, userId, "Where does Zevin go to school?", {
+        limit: 5,
+      }),
+    );
+    expect(results.map((fact) => fact.statement)).toEqual([
+      "Zevin — school: Redwood Academy.",
+      "Zevin — allergy note: revision 59.",
+    ]);
   });
 
   test("serves only current facts, whatever the caller asked about history", async () => {

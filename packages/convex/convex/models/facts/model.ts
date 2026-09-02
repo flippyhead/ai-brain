@@ -212,7 +212,8 @@ const ENTITY_KINDS = Object.keys({
 // entityAliases join table (one indexed row per alias).
 const ENTITY_ALIAS_SCAN_LIMIT = 5_000;
 
-export type EntityLookup = { name: string } | { key: string };
+export type EntityLookup =
+  { name: string; kind?: EntityKind } | { key: string };
 
 export type EntityMention = {
   /** The normalized text that matched, as it appeared among the candidates. */
@@ -228,6 +229,11 @@ export type EntityMention = {
  * kind; names that miss are then matched against aliases with one bounded
  * scan shared by every miss. A name that matches nothing is simply absent
  * from the result — it is never created.
+ *
+ * A name can belong to several entities — a person and a project both called
+ * Atlas, or an alias two people share — and every one of them is returned,
+ * in kind order for canonical names. The read path has no way to tell which
+ * one a query meant, so it serves all of them rather than guessing by kind.
  */
 export async function findEntitiesNamed(
   ctx: QueryCtx,
@@ -248,7 +254,7 @@ export async function findEntitiesNamed(
   ];
   if (normalized.length === 0) return [];
 
-  const found = new Map<string, Doc<"entities">>();
+  const found = new Map<string, Doc<"entities">[]>();
   await Promise.all(
     normalized.map(async (name) => {
       const byKind = await Promise.all(
@@ -261,11 +267,11 @@ export async function findEntitiesNamed(
                 .eq("kind", kind)
                 .eq("normalizedName", name),
             )
-            .first(),
+            .collect(),
         ),
       );
-      const hit = byKind.find((entity) => entity !== null);
-      if (hit) found.set(name, hit);
+      const hits = byKind.flat();
+      if (hits.length > 0) found.set(name, hits);
     }),
   );
 
@@ -274,10 +280,22 @@ export async function findEntitiesNamed(
     const entities = await ctx.db
       .query("entities")
       .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .take(ENTITY_ALIAS_SCAN_LIMIT);
+      .take(ENTITY_ALIAS_SCAN_LIMIT + 1);
+    if (entities.length > ENTITY_ALIAS_SCAN_LIMIT) {
+      // The bounded scan is a documented trade-off, not a silent one: past
+      // the threshold an alias can go unresolved, and that is the trigger
+      // for the join table described above.
+      console.warn(
+        `Entity alias scan truncated at ${ENTITY_ALIAS_SCAN_LIMIT} entities for one account; aliases beyond it will not resolve. Replace the scan with an entityAliases join table.`,
+      );
+      entities.length = ENTITY_ALIAS_SCAN_LIMIT;
+    }
     for (const entity of entities) {
       for (const alias of entity.normalizedAliases) {
-        if (missing.has(alias) && !found.has(alias)) found.set(alias, entity);
+        if (!missing.has(alias)) continue;
+        const hits = found.get(alias) ?? [];
+        if (!hits.some((hit) => hit._id === entity._id)) hits.push(entity);
+        found.set(alias, hits);
       }
     }
   }
@@ -285,10 +303,11 @@ export async function findEntitiesNamed(
   const seen = new Set<Id<"entities">>();
   const mentions: EntityMention[] = [];
   for (const name of normalized) {
-    const entity = found.get(name);
-    if (!entity || seen.has(entity._id)) continue;
-    seen.add(entity._id);
-    mentions.push({ mention: name, entity });
+    for (const entity of found.get(name) ?? []) {
+      if (seen.has(entity._id)) continue;
+      seen.add(entity._id);
+      mentions.push({ mention: name, entity });
+    }
   }
   return mentions;
 }
@@ -296,6 +315,11 @@ export async function findEntitiesNamed(
 /**
  * Read-only entity lookup by canonical name, alias, or key, scoped to one
  * account. Returns null on a miss and never writes.
+ *
+ * A name lookup must be unambiguous: when several entities answer to the
+ * name, pass `kind` to pick one, or look up by key. Silently picking one
+ * would hand a caller the wrong entity's facts, so the ambiguity is thrown.
+ * `findEntitiesNamed` is the call for callers that want every match.
  *
  * This is the read path's resolver. `resolveEntity` is the write path's: it
  * inserts on a miss and patches aliases on a hit, so a read that used it would
@@ -316,8 +340,18 @@ export async function findEntity(
       )
       .first();
   }
-  const [hit] = await findEntitiesNamed(ctx, userId, [lookup.name]);
-  return hit?.entity ?? null;
+  const mentions = await findEntitiesNamed(ctx, userId, [lookup.name]);
+  const hits = mentions
+    .map((mention) => mention.entity)
+    .filter(
+      (entity) => lookup.kind === undefined || entity.kind === lookup.kind,
+    );
+  if (hits.length > 1) {
+    throw new Error(
+      `Several entities are named "${lookup.name.trim()}"; look up by key or kind`,
+    );
+  }
+  return hits[0] ?? null;
 }
 
 function normalizeOptionalText(
@@ -720,7 +754,7 @@ export async function listFacts(
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }
 
-/** Facts loaded per named entity before ranking; more than this is ignored. */
+/** Current facts loaded per named entity before ranking; more is ignored. */
 const EXACT_FACTS_PER_ENTITY = 50;
 const RECALL_QUERY_MAX_CHARS = 12_000;
 
@@ -809,6 +843,10 @@ export async function recallExactFacts(
         .withIndex("by_userId_subject_predicate_status", (q) =>
           q.eq("userId", userId).eq("subjectEntityId", entity._id),
         )
+        // Status sits behind predicate in the index, so it is filtered here
+        // rather than probed: the window must hold current facts, not
+        // whatever history happens to sort first.
+        .filter((q) => q.eq(q.field("status"), "current"))
         .take(EXACT_FACTS_PER_ENTITY);
       return facts
         .filter((fact) => isFactRetrievable(fact, false))

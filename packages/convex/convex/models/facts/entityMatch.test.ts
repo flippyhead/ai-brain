@@ -65,6 +65,20 @@ describe("entity candidates in a query", () => {
     ).toEqual(["bank of fernwood", "bank", "fernwood"]);
   });
 
+  test("keeps names in a list or across a sentence break apart", () => {
+    expect(
+      extractEntityCandidates("Compare Alice, Bob, Carol, Dave, Erin"),
+    ).toEqual(["alice", "bob", "carol", "dave", "erin"]);
+    expect(extractEntityCandidates("Ask Marisol. Tomas is next.")).toEqual([
+      "marisol",
+      "tomas",
+    ]);
+    expect(extractEntityCandidates("Ping (Priya) and [Tom]")).toEqual([
+      "priya",
+      "tom",
+    ]);
+  });
+
   test("breaks a run at a lowercase word so unrelated names stay apart", () => {
     expect(
       extractEntityCandidates("Tell Priya that Tomas is covering"),

@@ -181,12 +181,16 @@ const NON_NAME_WORDS = new Set([
   "book",
   "call",
   "check",
+  "compare",
+  "describe",
+  "explain",
   "draft",
   "email",
   "find",
   "get",
   "give",
   "help",
+  "list",
   "log",
   "look",
   "make",
@@ -197,11 +201,15 @@ const NON_NAME_WORDS = new Set([
   "put",
   "remember",
   "remind",
+  "review",
   "save",
+  "search",
   "schedule",
   "send",
   "set",
   "show",
+  "summarise",
+  "summarize",
   "tell",
   "text",
   "track",
@@ -232,18 +240,30 @@ const NON_NAME_WORDS = new Set([
   "won't",
 ]);
 
-type Word = { text: string; capitalised: boolean; connector: boolean };
+type Word = {
+  text: string;
+  capitalised: boolean;
+  connector: boolean;
+  /** Punctuation before the word closed whatever name came before it. */
+  boundaryBefore: boolean;
+  /** Punctuation after the word closes the name it belongs to. */
+  boundaryAfter: boolean;
+};
 
 /**
  * Strips surrounding punctuation and a trailing possessive, so "Zevin's" and
- * "(Priya)," test as "Zevin" and "Priya". Curly apostrophes are folded to
- * straight ones so the contraction list matches either.
+ * "(Priya)," test as "Zevin" and "Priya", and remembers that punctuation was
+ * there: a comma, full stop, or bracket separates names, so "Alice, Bob" is
+ * two names and never the one name "Alice Bob". Curly apostrophes are folded
+ * to straight ones so the contraction list matches either.
  */
 function cleanWord(raw: string): Word | null {
-  const text = raw
-    .replace(/[‘’]/g, "'")
-    .replace(/^[^\p{L}\p{N}]+/u, "")
-    .replace(/[^\p{L}\p{N}]+$/u, "")
+  const folded = raw.replace(/[‘’]/g, "'");
+  const leading = /^[^\p{L}\p{N}]+/u.exec(folded)?.[0] ?? "";
+  const stripped = folded.slice(leading.length);
+  const trailing = /[^\p{L}\p{N}]+$/u.exec(stripped)?.[0] ?? "";
+  const text = stripped
+    .slice(0, stripped.length - trailing.length)
     .replace(/'s$/i, "");
   if (!text) return null;
   const lower = text.toLocaleLowerCase("en-US");
@@ -251,10 +271,16 @@ function cleanWord(raw: string): Word | null {
     text,
     capitalised: /^\p{Lu}/u.test(text),
     connector: CONNECTOR_WORDS.has(lower),
+    boundaryBefore: leading.length > 0,
+    boundaryAfter: trailing.length > 0,
   };
 }
 
-/** Maximal runs of capitalised words, with connectors allowed only inside. */
+/**
+ * Maximal runs of capitalised words, with connectors allowed only inside.
+ * Punctuation on either side of a word ends a run: names in a list or across
+ * a sentence break are separate candidates, not one long span.
+ */
 function capitalisedRuns(words: Word[]): Word[][] {
   const runs: Word[][] = [];
   let current: Word[] = [];
@@ -266,6 +292,7 @@ function capitalisedRuns(words: Word[]): Word[][] {
     current = [];
   };
   for (const word of words) {
+    if (word.boundaryBefore) flush();
     if (word.capitalised) {
       current.push(word);
     } else if (word.connector && current.length > 0) {
@@ -273,6 +300,7 @@ function capitalisedRuns(words: Word[]): Word[][] {
     } else {
       flush();
     }
+    if (word.boundaryAfter) flush();
   }
   flush();
   return runs;
