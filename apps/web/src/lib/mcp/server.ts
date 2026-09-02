@@ -4,6 +4,10 @@ import {
   blendRecallContext,
   coreLimitFor,
 } from "@repo/db/convex/models/recallBlend";
+import {
+  computeRecallGaps,
+  formatRecallGaps,
+} from "@repo/db/convex/models/recallGaps";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
@@ -544,7 +548,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend: at most one core fact at the default limit, then the most relevant current facts and memories; a core memory appears only when it is relevant. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend: at most one core fact at the default limit, then the most relevant current facts and memories; a core memory appears only when it is relevant. Also reports what the brain does not know: a gaps block follows the memories when the window is stale, holds conflicting facts, or lacks an attribute the question asked for; surface those gaps when answering. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -714,12 +718,40 @@ export function createMcpServer(convexAuthToken: string) {
         ...relevanceContext,
       ];
 
+      // What the window does not say, computed from the window itself. The
+      // memories block stays a bare, machine-parseable array; gaps follow it
+      // as a sibling block, and only when there is something to report.
+      const gaps = computeRecallGaps({
+        query,
+        now: Date.now(),
+        coreFacts: selectedCoreFacts,
+        relevanceFacts,
+        thoughts: thoughts.map((thought) => ({
+          id: thought._id,
+          content: thought.content,
+          memoryStatus: thought.memoryStatus,
+          validFrom: thought.validFrom,
+          validTo: thought.validTo,
+          createdAt: thought.createdAt,
+          updatedAt: thought.updatedAt,
+        })),
+      });
+
       return {
         content: [
           {
             type: "text" as const,
             text: JSON.stringify(context, null, 2),
           },
+          ...(gaps.length === 0
+            ? []
+            : [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify({ gaps }, null, 2),
+                },
+                { type: "text" as const, text: formatRecallGaps(gaps) },
+              ]),
         ],
         _meta: { "anthropic/maxResultSizeChars": 50000 },
       };
