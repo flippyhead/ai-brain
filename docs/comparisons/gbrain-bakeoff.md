@@ -167,8 +167,99 @@ A bake-off whose result lives only in a terminal gets re-argued in a month.
 
 ## Results
 
-_Not yet run._
+### Run 1 — 2026-09-02, remote session, MCP-assembled corpus
 
-| Date | Questions | AI Brain | GBrain | Call |
-| ---- | --------- | -------- | ------ | ---- |
-|      |           |          |        |      |
+**Setup.** No prod deploy key was available, so the corpus was pulled through
+AI Brain's own MCP tools rather than the exporter: the 111 current memories
+from 2026-07-29 to 2026-09-01 (a contiguous window, not a sample), plus the
+three project-related facts and their two entities; two relationship facts were
+deliberately left out. The same files were rendered through the shipped
+exporter's renderers and loaded into GBrain v0.47.9.0 (PGLite, OpenAI
+`text-embedding-3-small`, 113 pages, 122 chunks, 100% embedded, 3 facts
+reconciled, 29 backlinks, graph coverage 75%). GBrain's `think` ran on
+`gpt-5.5` because the available Anthropic key was identity-linked and needs a
+workspace header GBrain does not send.
+
+AI Brain answered from its full store of ~400 current memories, with questions
+restricted to the window GBrain held, so AI Brain's job was harder if anything.
+`recall_context` was called at its default limit of 5 — the out-of-the-box
+experience — and the client (Claude) composed answers strictly from each
+payload, saying "no record" when the payload lacked the answer.
+
+Scoring by an independent judge (`gpt-5.5`, answers anonymised and positions
+shuffled per question), against reference answers pinned from the corpus
+before any retrieval ran. One judge score was corrected by hand: on the first
+synthesis question the judge marked GBrain −2 as "fabricated", but the figure it
+gave exists verbatim in a later memory — a wrong-source answer, scored 1.
+
+| #   | Shape                       | AI Brain | GBrain | What happened                                                                                                           |
+| --- | --------------------------- | -------- | ------ | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | exact                       | 3        | 3      | Both exact.                                                                                                             |
+| 2   | exact                       | 3        | 3      | Both exact.                                                                                                             |
+| 3   | semantic                    | 0        | 1      | AI Brain returned a memory that mentioned the bake-off but not the winner. GBrain named the model, missed the fallback. |
+| 4   | semantic                    | 0        | 3      | AI Brain returned nothing relevant. GBrain complete.                                                                    |
+| 5   | open loops                  | 1        | 3      | AI Brain returned the unbilled work, not what the client owed. GBrain assembled six memories.                           |
+| 6   | open loops                  | 3        | 2      | AI Brain's current memory was exact. GBrain's chunk excerpt cut off the remaining items.                                |
+| 7   | change                      | 2        | 2      | Both had the correction, neither the first figure.                                                                      |
+| 8   | change                      | 0        | 1      | AI Brain returned the wrong memory. GBrain had the sequence, not the category names.                                    |
+| 9   | synthesis                   | 3        | 1*     | AI Brain retrieved the exact memory. GBrain answered from a later, different measurement.                               |
+| 10  | synthesis                   | 0        | 2      | AI Brain returned one of three parts. GBrain assembled all three.                                                       |
+| 11  | ignorance ×2                | 3        | 3      | Both said "no record" and gave the adjacent context.                                                                    |
+| 12  | ignorance ×2                | 3        | 3      | Both said "no record".                                                                                                  |
+|     | **Weighted total (max 42)** | **27**   | **33** | as judged: 27 / 30                                                                                                      |
+
+\* corrected from −2, see above.
+
+### The read
+
+**Neither system confabulated.** Zero −2 scores once the judge's error is
+corrected. Both were perfect on honest ignorance, and GBrain's `## Gaps`
+section is genuinely honest — it said what it did not know on nine of twelve
+answers. The curation thesis did not separate the two on the trust axis, at
+least on this corpus and these questions.
+
+**AI Brain lost five questions on retrieval, not on knowledge.** On 3, 4, 5, 8
+and 10 the right memory exists in AI Brain (it is the same corpus) and
+`recall_context` did not return it. The diagnostic that explains it:
+
+- At the default limit of 5, **three slots go to the same core set on every
+  call** — two core facts and one core memory — leaving two slots for
+  relevance. The core memory in question is a meeting note, not an identity
+  fact, and it appeared in all twelve payloads regardless of subject.
+- Of the relevance slots, the blend gives facts at least half. Fact search is
+  keyword-only, so unrelated facts (a model-selection method, a bug note, an
+  escrow file number) took slots on unrelated questions.
+- Re-asking the semantic question at limit 8 **did** return the right memory
+  — as the eighth of eight, below a five-month-old inventory note and three
+  keyword-matched facts. The vector search works. The blend buries it.
+
+This is the defect the recall-quality design already calls W1, plus a second
+one it had not named: the blend policy itself.
+
+**Where AI Brain won, it won on precision.** The two questions it took
+outright (6 and 9) were ones where a single current memory answered exactly and
+it retrieved that memory; GBrain's chunked excerpts lost the tail of the same
+memory, and on 9 it reached for a different number. **Where GBrain won, it won
+on breadth**: 5 and 10 were assembled from four to six memories with citations
+and a gaps list, which is the synthesis layer doing what it claims.
+
+### The call
+
+Per the decision table above: **roughly even; GBrain better on retrieval;
+honest ignorance tied. Stay, and fix retrieval now.** GBrain did not win on the
+axis that would justify a move, and every question it took from AI Brain has a
+named cause with a small fix.
+
+Concretely, ahead of W1:
+
+1. **Blend policy.** Stop reserving three of five slots for core on every call,
+   or make core one slot; stop guaranteeing facts half the relevance slots
+   while fact search is keyword-only. This is one file (`models/recallBlend.ts`)
+   and it would have changed four of the five lost questions.
+2. **Core hygiene.** A memory flagged `isCore` appears in every recall payload.
+   Only identity-grade facts belong there.
+3. **W1** as planned — facts need embeddings.
+
+Then re-run this bake-off on the full export with the prod key. The corpus
+here was a window, and the export path proper has yet to be exercised against
+the real deployment.

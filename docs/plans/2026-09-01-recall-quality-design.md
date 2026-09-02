@@ -24,15 +24,44 @@ W1 and W2 change **what is retrieved**. W3 changes **what fits**. W4 annotates
 memory is wasted work, so retrieval quality comes first. W5 is a surface-area
 commitment and is gated on a decision, not scheduled.
 
-| # | Workstream | Changes | Size |
-| - | ---------- | ------- | ---- |
-| W1 | Semantic recall for facts | what is retrieved | medium |
-| W2 | Exact-entity lookup tier | what is retrieved | small |
-| W3 | Budget-aware recall shaping | what fits | small |
-| W4 | Gap analysis in the recall envelope | what is reported | medium |
-| W5 | MEMORY_VERBS v1 conformance | the public surface | decision first |
+| #   | Workstream                          | Changes            | Size           |
+| --- | ----------------------------------- | ------------------ | -------------- |
+| W0  | Blend policy: core and fact slots   | what is retrieved  | small          |
+| W1  | Semantic recall for facts           | what is retrieved  | medium         |
+| W2  | Exact-entity lookup tier            | what is retrieved  | small          |
+| W3  | Budget-aware recall shaping         | what fits          | small          |
+| W4  | Gap analysis in the recall envelope | what is reported   | medium         |
+| W5  | MEMORY_VERBS v1 conformance         | the public surface | decision first |
 
 ---
+
+## W0 — The blend policy buries the right memory (found by the bake-off)
+
+**Evidence.** In the 2026-09-02 bake-off (`docs/comparisons/gbrain-bakeoff.md`)
+AI Brain lost five of twelve questions on retrieval: the right memory existed
+and `recall_context` did not return it. The diagnostic: at the default limit of
+5, `coreLimitFor` reserves three slots, so the same two core facts and one
+core meeting note arrived in all twelve payloads and only two slots were left
+for relevance. Of those, facts are guaranteed at least half, and fact search is
+keyword-only, so unrelated facts took slots on unrelated questions. Re-asking
+at limit 8 surfaced the missing memory — eighth of eight.
+
+**Design.** Two changes in `models/recallBlend.ts`, both small:
+
+1. Core takes at most one slot at the default limit, and only facts — a
+   narrative memory flagged `isCore` should not ride along on every question.
+   `coreLimitFor(5)` = 1, not 3.
+2. Facts are not guaranteed half the relevance slots until W1 lands. Until fact
+   search can rank semantically, a guaranteed fact slot is a guaranteed junk
+   slot on any question the keyword index cannot serve.
+
+The eval harness shares this policy, so the change is measured by the same
+cases that measure the tool. Add the five lost bake-off questions as eval
+cases before changing anything, so the fix is visible as recall@5 going up.
+
+**Why it comes before W1.** It is a one-file change, it would have flipped four
+of the five lost questions, and it makes W1's effect measurable rather than
+mixed in with a slot-budget artefact.
 
 ## W1 — Facts have no semantic recall
 
@@ -49,9 +78,9 @@ a text index, fused with Reciprocal Rank Fusion at K=60
 (`models/thoughts/actions.ts:380-470`).
 
 The consequence is concrete. The fact "Peter Brown — therapist: Sara Smucker
-Barnwell" is retrievable by the word *therapist* and not by *"who do I see for
-mental health"*, *"my counselor"*, or *"the person I talk to about work
-stress"*. The precise half of the hybrid memory model — the half the README
+Barnwell" is retrievable by the word _therapist_ and not by _"who do I see for
+mental health"_, _"my counselor"_, or _"the person I talk to about work
+stress"_. The precise half of the hybrid memory model — the half the README
 calls authoritative — is the half that cannot be reached semantically.
 
 **Design.** Give facts the same retrieval path thoughts already have:
@@ -114,8 +143,8 @@ a narrative thought that also says the word.
      this is free and simple. Revisit above roughly 5,000 entities.
    - **(b) An `entityAliases` join table** — one row per alias, indexed.
      Correct at any scale, more schema.
-   **Recommend (a) now**, with the threshold written into a comment so the
-   trigger for (b) is explicit rather than discovered under load.
+     **Recommend (a) now**, with the threshold written into a comment so the
+     trigger for (b) is explicit rather than discovered under load.
 4. Exact hits enter the blend as a new source tier ahead of `core`, capped so
    they cannot consume the whole window — the same reasoning
    `blendRecallContext` already applies to core facts
@@ -174,7 +203,7 @@ gaps.
 no additional model call:
 
 - **Stale.** The newest returned memory is older than a threshold. Says
-  plainly: *nothing has been added on this since 14 June.*
+  plainly: _nothing has been added on this since 14 June._
 - **Disagreement.** A returned fact and a returned thought carry different
   values for the same subject and predicate. The eval harness already treats
   this as a first-class failure — `forbiddenExactStrings` exists precisely to
