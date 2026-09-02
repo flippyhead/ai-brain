@@ -144,6 +144,12 @@ export const deterministicRetrievalFixtures: RetrievalEvaluationCase[] = [
 export type RecordedRecallRanking = {
   account: string;
   queryName: string;
+  /**
+   * Facts about the entities the query names, as the exact tier orders them.
+   * `entityLookup.test.ts` checks these against the seeded corpus, so a
+   * recording cannot drift from what the tier serves.
+   */
+  exactFactKeys: string[];
   /** Core facts as `listCore` returns them, newest first. */
   coreFactKeys: string[];
   /** Keyword fact hits in the order the search index returned them. */
@@ -171,6 +177,7 @@ export const recordedBakeoffRankings: RecordedRecallRanking[] = [
   {
     ...averyCore,
     queryName: "semantic recall of a comparison outcome",
+    exactFactKeys: [],
     relevantFactKeys: ["fact-tomas-role"],
     relevantThoughtKeys: [
       "atlas-version",
@@ -183,6 +190,7 @@ export const recordedBakeoffRankings: RecordedRecallRanking[] = [
   {
     ...averyCore,
     queryName: "semantic recall with no shared vocabulary",
+    exactFactKeys: [],
     relevantFactKeys: ["fact-priya-role"],
     relevantThoughtKeys: [
       "foster-owner",
@@ -195,12 +203,15 @@ export const recordedBakeoffRankings: RecordedRecallRanking[] = [
   {
     ...averyCore,
     queryName: "open loop with a named vendor",
+    // Delgado Mechanical is a value in Marisol's role fact, not an entity.
+    exactFactKeys: [],
     relevantFactKeys: ["fact-marisol-role"],
     relevantThoughtKeys: ["hvac", "delgado-credit", "foster-blocker", "diet"],
   },
   {
     ...averyCore,
     queryName: "change over time behind a keyword-heavy neighbour",
+    exactFactKeys: [],
     relevantFactKeys: ["fact-tomas-role"],
     relevantThoughtKeys: [
       "atlas-version",
@@ -212,6 +223,8 @@ export const recordedBakeoffRankings: RecordedRecallRanking[] = [
   {
     ...averyCore,
     queryName: "synthesis across three memories",
+    // The question names Zevin, whose one fact does not answer it.
+    exactFactKeys: ["fact-school"],
     relevantFactKeys: ["fact-school"],
     relevantThoughtKeys: [
       "tuition-amount",
@@ -220,5 +233,29 @@ export const recordedBakeoffRankings: RecordedRecallRanking[] = [
       "school-new",
       "school-old",
     ],
+  },
+];
+
+/**
+ * The two exact-entity shapes. Keyword fact search sees only the subject's
+ * name, which every one of the subject's facts carries, so its order between
+ * them is arbitrary; the recording puts the wrong one first. The exact tier
+ * orders by how much of the fact's wording the query mentions, newest first
+ * among ties.
+ */
+export const recordedExactEntityRankings: RecordedRecallRanking[] = [
+  {
+    ...averyCore,
+    queryName: "named entity with no predicate words",
+    exactFactKeys: ["fact-marisol-line", "fact-marisol-role"],
+    relevantFactKeys: ["fact-marisol-role", "fact-marisol-line"],
+    relevantThoughtKeys: ["hvac", "delgado-credit", "foster-blocker"],
+  },
+  {
+    ...averyCore,
+    queryName: "named entity by alias",
+    exactFactKeys: ["fact-tomas-return", "fact-tomas-role"],
+    relevantFactKeys: ["fact-tomas-role", "fact-tomas-return"],
+    relevantThoughtKeys: ["priya-cover", "atlas-bakeoff", "atlas-version"],
   },
 ];

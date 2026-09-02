@@ -8,6 +8,7 @@ import {
   isMemoryRetrievable,
   normalizeForgetReason,
 } from "../thoughts/memoryLifecycle";
+import { extractEntityCandidates, normalizeEntityText } from "./entityMatch";
 import {
   entityKind,
   entitySelector,
@@ -49,11 +50,9 @@ function boundedText(value: string, label: string, maxChars: number): string {
 }
 
 export function normalizeEntityName(name: string): string {
-  return boundedText(name, "Entity name", ENTITY_NAME_MAX_CHARS)
-    .normalize("NFKC")
-    .toLocaleLowerCase("en-US")
-    .replace(/[\s_-]+/g, " ")
-    .trim();
+  return normalizeEntityText(
+    boundedText(name, "Entity name", ENTITY_NAME_MAX_CHARS),
+  );
 }
 
 function slugifyEntityName(name: string): string {
@@ -196,6 +195,163 @@ export async function resolveEntity(
     ...incomingAliases,
   });
   return (await ctx.db.get(entityId))!;
+}
+
+// Written out so the compiler rejects the list when a kind is added to the
+// validator without being added here.
+const ENTITY_KINDS = Object.keys({
+  person: true,
+  organization: true,
+  project: true,
+  place: true,
+  other: true,
+} satisfies Record<EntityKind, true>) as EntityKind[];
+
+// Alias matching scans the account's entities because normalizedAliases is an
+// array field. Free at tens of entities. Above ~5,000, replace this with an
+// entityAliases join table (one indexed row per alias).
+const ENTITY_ALIAS_SCAN_LIMIT = 5_000;
+
+export type EntityLookup =
+  { name: string; kind?: EntityKind } | { key: string };
+
+export type EntityMention = {
+  /** The normalized text that matched, as it appeared among the candidates. */
+  mention: string;
+  entity: Doc<"entities">;
+};
+
+/**
+ * Resolves the entities a list of names refers to, in the order the names
+ * were given, one row per entity. Reads only.
+ *
+ * Canonical names go through `by_userId_kind_normalizedName`, one probe per
+ * kind; names that miss are then matched against aliases with one bounded
+ * scan shared by every miss. A name that matches nothing is simply absent
+ * from the result — it is never created.
+ *
+ * A name can belong to several entities — a person and a project both called
+ * Atlas, or an alias two people share — and every one of them is returned,
+ * in kind order for canonical names. The read path has no way to tell which
+ * one a query meant, so it serves all of them rather than guessing by kind.
+ */
+export async function findEntitiesNamed(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  names: readonly string[],
+): Promise<EntityMention[]> {
+  const normalized = [
+    ...new Set(
+      names
+        .map((name) => name.trim())
+        .filter(
+          (name) =>
+            name.length > 0 && Array.from(name).length <= ENTITY_NAME_MAX_CHARS,
+        )
+        .map(normalizeEntityText)
+        .filter((name) => name.length > 0),
+    ),
+  ];
+  if (normalized.length === 0) return [];
+
+  const found = new Map<string, Doc<"entities">[]>();
+  await Promise.all(
+    normalized.map(async (name) => {
+      const byKind = await Promise.all(
+        ENTITY_KINDS.map((kind) =>
+          ctx.db
+            .query("entities")
+            .withIndex("by_userId_kind_normalizedName", (q) =>
+              q
+                .eq("userId", userId)
+                .eq("kind", kind)
+                .eq("normalizedName", name),
+            )
+            .collect(),
+        ),
+      );
+      const hits = byKind.flat();
+      if (hits.length > 0) found.set(name, hits);
+    }),
+  );
+
+  const missing = new Set(normalized.filter((name) => !found.has(name)));
+  if (missing.size > 0) {
+    const entities = await ctx.db
+      .query("entities")
+      .withIndex("by_userId", (q) => q.eq("userId", userId))
+      .take(ENTITY_ALIAS_SCAN_LIMIT + 1);
+    if (entities.length > ENTITY_ALIAS_SCAN_LIMIT) {
+      // The bounded scan is a documented trade-off, not a silent one: past
+      // the threshold an alias can go unresolved, and that is the trigger
+      // for the join table described above.
+      console.warn(
+        `Entity alias scan truncated at ${ENTITY_ALIAS_SCAN_LIMIT} entities for one account; aliases beyond it will not resolve. Replace the scan with an entityAliases join table.`,
+      );
+      entities.length = ENTITY_ALIAS_SCAN_LIMIT;
+    }
+    for (const entity of entities) {
+      for (const alias of entity.normalizedAliases) {
+        if (!missing.has(alias)) continue;
+        const hits = found.get(alias) ?? [];
+        if (!hits.some((hit) => hit._id === entity._id)) hits.push(entity);
+        found.set(alias, hits);
+      }
+    }
+  }
+
+  const seen = new Set<Id<"entities">>();
+  const mentions: EntityMention[] = [];
+  for (const name of normalized) {
+    for (const entity of found.get(name) ?? []) {
+      if (seen.has(entity._id)) continue;
+      seen.add(entity._id);
+      mentions.push({ mention: name, entity });
+    }
+  }
+  return mentions;
+}
+
+/**
+ * Read-only entity lookup by canonical name, alias, or key, scoped to one
+ * account. Returns null on a miss and never writes.
+ *
+ * A name lookup must be unambiguous: when several entities answer to the
+ * name, pass `kind` to pick one, or look up by key. Silently picking one
+ * would hand a caller the wrong entity's facts, so the ambiguity is thrown.
+ * `findEntitiesNamed` is the call for callers that want every match.
+ *
+ * This is the read path's resolver. `resolveEntity` is the write path's: it
+ * inserts on a miss and patches aliases on a hit, so a read that used it would
+ * create an entity for every unrecognised proper noun in a user's message.
+ */
+export async function findEntity(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  lookup: EntityLookup,
+): Promise<Doc<"entities"> | null> {
+  if ("key" in lookup) {
+    const key = lookup.key.trim().normalize("NFKC").toLocaleLowerCase("en-US");
+    if (!key) return null;
+    return await ctx.db
+      .query("entities")
+      .withIndex("by_userId_and_key", (q) =>
+        q.eq("userId", userId).eq("key", key),
+      )
+      .first();
+  }
+  const mentions = await findEntitiesNamed(ctx, userId, [lookup.name]);
+  const hits = mentions
+    .map((mention) => mention.entity)
+    .filter(
+      (entity) => lookup.kind === undefined || entity.kind === lookup.kind,
+    );
+  if (hits.length > 1) {
+    throw new Error(
+      `Several entities are named "${lookup.name.trim()}"; look up by key or kind`,
+    );
+  }
+  return hits[0] ?? null;
 }
 
 function normalizeOptionalText(
@@ -652,6 +808,138 @@ export async function listFacts(
           .take(limit);
   }
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
+}
+
+/** Current facts loaded per named entity before ranking; more is ignored. */
+const EXACT_FACTS_PER_ENTITY = 50;
+const RECALL_QUERY_MAX_CHARS = 12_000;
+
+function termsOf(text: string): Set<string> {
+  return new Set(
+    text
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US")
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter((term) => term.length >= 2),
+  );
+}
+
+/**
+ * How many of a fact's own terms the query mentions. A prefix counts once
+ * both sides are four characters long, so "directly" reaches "direct line"
+ * and "payments" reaches "payment". The subject's name is in every one of its
+ * facts, so it cannot separate them; the predicate and value can.
+ */
+function queryOverlap(fact: Doc<"facts">, queryTerms: Set<string>): number {
+  let overlap = 0;
+  for (const term of termsOf(fact.searchText)) {
+    for (const queryTerm of queryTerms) {
+      if (
+        term === queryTerm ||
+        (term.length >= 4 &&
+          queryTerm.length >= 4 &&
+          (term.startsWith(queryTerm) || queryTerm.startsWith(term)))
+      ) {
+        overlap += 1;
+        break;
+      }
+    }
+  }
+  return overlap;
+}
+
+export type ExactFactResult = Awaited<ReturnType<typeof hydrateFact>> & {
+  /** The entity the query named, and the text it named it by. */
+  matchedEntity: { name: string; mention: string };
+};
+
+/**
+ * Current facts about the entities a query names by exact name or alias.
+ *
+ * This is the exact tier of `recall_context`: a query that names a known
+ * thing gets that thing's facts ahead of whatever ranked highest. Names are
+ * extracted without a model call (`extractEntityCandidates`), resolved
+ * without writing (`findEntitiesNamed`), and each entity's current facts
+ * are ordered by how much of their wording the query mentions, core first
+ * among ties, newest last of all. Several named entities share the limit in
+ * turn, so one entity with many facts cannot crowd out another.
+ *
+ * Only current facts are served here, whatever the caller's historical
+ * setting: history reaches the window through the relevance tier, as before.
+ */
+export async function recallExactFacts(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  query: string,
+  options: { limit?: number } = {},
+): Promise<ExactFactResult[]> {
+  const cleanedQuery = boundedText(
+    query,
+    "Recall query",
+    RECALL_QUERY_MAX_CHARS,
+  );
+  const requested = options.limit ?? DEFAULT_FACT_SEARCH_LIMIT;
+  if (!Number.isInteger(requested) || requested < 1) {
+    throw new Error("Exact recall limit must be a positive integer");
+  }
+  const limit = Math.min(requested, MAX_FACT_SEARCH_LIMIT);
+
+  const mentions = await findEntitiesNamed(
+    ctx,
+    userId,
+    extractEntityCandidates(cleanedQuery),
+  );
+  if (mentions.length === 0) return [];
+
+  const queryTerms = termsOf(cleanedQuery);
+  const rankedPerEntity = await Promise.all(
+    mentions.map(async ({ mention, entity }) => {
+      const facts = await ctx.db
+        .query("facts")
+        .withIndex("by_userId_subject_predicate_status", (q) =>
+          q.eq("userId", userId).eq("subjectEntityId", entity._id),
+        )
+        // Status sits behind predicate in the index, so it is filtered here
+        // rather than probed: the window must hold current facts, not
+        // whatever history happens to sort first.
+        .filter((q) => q.eq(q.field("status"), "current"))
+        .take(EXACT_FACTS_PER_ENTITY);
+      return facts
+        .filter((fact) => isFactRetrievable(fact, false))
+        .map((fact) => ({
+          fact,
+          overlap: queryOverlap(fact, queryTerms),
+          matchedEntity: { name: entity.canonicalName, mention },
+        }))
+        .sort(
+          (a, b) =>
+            b.overlap - a.overlap ||
+            Number(b.fact.isCore ?? false) - Number(a.fact.isCore ?? false) ||
+            b.fact._creationTime - a.fact._creationTime,
+        );
+    }),
+  );
+
+  const selected: (typeof rankedPerEntity)[number] = [];
+  for (
+    let round = 0;
+    selected.length < limit &&
+    rankedPerEntity.some((ranked) => round < ranked.length);
+    round += 1
+  ) {
+    for (const ranked of rankedPerEntity) {
+      if (selected.length >= limit) break;
+      const next = ranked[round];
+      if (next) selected.push(next);
+    }
+  }
+
+  return await Promise.all(
+    selected.map(async ({ fact, matchedEntity }) => ({
+      ...(await hydrateFact(ctx, fact)),
+      matchedEntity,
+    })),
+  );
 }
 
 /**

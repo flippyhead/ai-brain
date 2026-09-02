@@ -204,22 +204,23 @@ export type RecalledFact = {
   id: string;
   statement: string;
   status: string;
-  source: "core" | "relevant";
+  source: "exact" | "core" | "relevant";
 };
 
 /**
- * The fact half of the blend `recall_context` serves: core facts plus facts
- * relevant to the query, fetched the way the tool fetches them — two
- * independent reads, `coreLimit` core facts newest first and `limit` fused
- * hits in rank order. A `coreLimit` of zero skips the core read, as the tool
- * does when the window has no core slot.
+ * The fact half of the blend `recall_context` serves: facts about entities the
+ * query names, core facts, and facts relevant to the query, fetched the way
+ * the tool fetches them — three independent reads, `exactLimit` exact hits
+ * best match first, `coreLimit` core facts newest first and `limit` fused
+ * hits in rank order. A limit of zero skips that read, as the tool does when
+ * the window has no slot for the tier.
  *
- * Rows are deliberately not deduplicated across the two sources. The tool
- * hands both lists to `blendRecallContext`, which drops a relevant hit only
- * when it duplicates a core fact the blend actually selected. Deduplicating
- * here against every core fact fetched would drop a core fact that ranked as
- * relevant but was not selected as core, and the harness would then score a
- * window no client receives.
+ * Rows are deliberately not deduplicated across the sources. The tool hands
+ * all three lists to `blendRecallContext`, which drops a core or relevant hit
+ * only when it duplicates a fact the blend actually selected from an earlier
+ * tier. Deduplicating here against every fact fetched would drop a fact that
+ * ranked in a later tier but was not selected in the earlier one, and the
+ * harness would then score a window no client receives.
  */
 export async function recallFacts(
   ctx: ActionCtx,
@@ -228,11 +229,24 @@ export async function recallFacts(
     query: string;
     limit?: number;
     coreLimit?: number;
+    exactLimit?: number;
     includeHistorical?: boolean;
   },
 ): Promise<RecalledFact[]> {
   const coreLimit = args.coreLimit ?? DEFAULT_RECALL_CANDIDATES;
-  const [core, relevant]: [HydratedFact[], HydratedFact[]] = await Promise.all([
+  const exactLimit = args.exactLimit ?? DEFAULT_RECALL_CANDIDATES;
+  const [exact, core, relevant]: [
+    HydratedFact[],
+    HydratedFact[],
+    HydratedFact[],
+  ] = await Promise.all([
+    exactLimit === 0
+      ? Promise.resolve([])
+      : ctx.runQuery(internal.models.facts.private.recallExactByUser, {
+          userId: args.userId,
+          query: args.query,
+          limit: exactLimit,
+        }),
     coreLimit === 0
       ? Promise.resolve([])
       : ctx.runQuery(internal.models.facts.private.listCoreByUser, {
@@ -248,14 +262,18 @@ export async function recallFacts(
   ]);
 
   const row =
-    (source: "core" | "relevant") =>
+    (source: RecalledFact["source"]) =>
     (fact: HydratedFact): RecalledFact => ({
       id: fact.id as string,
       statement: fact.statement,
       status: fact.status,
       source,
     });
-  return [...core.map(row("core")), ...relevant.map(row("relevant"))];
+  return [
+    ...exact.map(row("exact")),
+    ...core.map(row("core")),
+    ...relevant.map(row("relevant")),
+  ];
 }
 
 /** `recallFacts` as a runnable function, for tests and operator inspection. */
@@ -265,6 +283,7 @@ export const recall = internalAction({
     query: v.string(),
     limit: v.optional(v.number()),
     coreLimit: v.optional(v.number()),
+    exactLimit: v.optional(v.number()),
     includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
@@ -272,7 +291,11 @@ export const recall = internalAction({
       id: v.string(),
       statement: v.string(),
       status: v.string(),
-      source: v.union(v.literal("core"), v.literal("relevant")),
+      source: v.union(
+        v.literal("exact"),
+        v.literal("core"),
+        v.literal("relevant"),
+      ),
     }),
   ),
   handler: async (ctx, args): Promise<RecalledFact[]> => {
