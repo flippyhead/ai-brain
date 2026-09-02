@@ -12,6 +12,7 @@ const TYPES = [
   "meeting_note",
   "task",
   "reference",
+  "procedural",
 ] as const;
 
 type ThoughtType = (typeof TYPES)[number];
@@ -32,7 +33,9 @@ interface SearchResult {
 export function ThoughtsView() {
   const [typeFilter, setTypeFilter] = useState<ThoughtType | "">("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(
+    null,
+  );
   const [searching, setSearching] = useState(false);
 
   const searchThoughts = useAction(api.models.thoughts.publicActions.search);

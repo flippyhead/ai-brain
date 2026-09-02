@@ -32,6 +32,20 @@ const ISO_VALIDITY_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(Z|[+-]\d{2}:\d{2}))?$/;
 const MAX_CAPTURE_CONTENT_CHARS = 2_000;
 
+// Mirrors `thoughtType` in packages/convex/convex/models/thoughts/validators.ts.
+// `procedural` is how-to steps, playbooks, and recurring working patterns.
+const THOUGHT_TYPE_VALUES = [
+  "decision",
+  "person_note",
+  "idea",
+  "meeting_note",
+  "task",
+  "reference",
+  "procedural",
+] as const;
+const THOUGHT_TYPE_FILTER_DESCRIPTION =
+  "Optional type filter. procedural covers how-to steps, playbooks, and recurring working patterns; reference is stable background information.";
+
 /** Parse an explicit real-world validity date without using the server's timezone. */
 export function parseValidityTimestamp(value: string): number {
   const match = ISO_VALIDITY_PATTERN.exec(value);
@@ -436,16 +450,9 @@ export function createMcpServer(convexAuthToken: string) {
     {
       query: z.string().describe("Natural language or keyword query"),
       type: z
-        .enum([
-          "decision",
-          "person_note",
-          "idea",
-          "meeting_note",
-          "task",
-          "reference",
-        ])
+        .enum(THOUGHT_TYPE_VALUES)
         .optional()
-        .describe("Optional type filter"),
+        .describe(THOUGHT_TYPE_FILTER_DESCRIPTION),
       limit: z
         .number()
         .min(1)
@@ -776,16 +783,9 @@ export function createMcpServer(convexAuthToken: string) {
         .default(20)
         .describe("How many thoughts to return"),
       type: z
-        .enum([
-          "decision",
-          "person_note",
-          "idea",
-          "meeting_note",
-          "task",
-          "reference",
-        ])
+        .enum(THOUGHT_TYPE_VALUES)
         .optional()
-        .describe("Filter by thought type"),
+        .describe(THOUGHT_TYPE_FILTER_DESCRIPTION),
       topic: z.string().optional().describe("Filter by topic keyword"),
       includeHistorical: z
         .boolean()
@@ -989,16 +989,9 @@ export function createMcpServer(convexAuthToken: string) {
         .default(5)
         .describe("How many thoughts from after the anchor"),
       type: z
-        .enum([
-          "decision",
-          "person_note",
-          "idea",
-          "meeting_note",
-          "task",
-          "reference",
-        ])
+        .enum(THOUGHT_TYPE_VALUES)
         .optional()
-        .describe("Optional type filter"),
+        .describe(THOUGHT_TYPE_FILTER_DESCRIPTION),
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.timelineThoughts],
     async ({ seedId, aroundMs, before, after, type }) => {

@@ -22,6 +22,7 @@ const typeColors: Record<string, string> = {
   meeting_note: "#e8f5e9",
   task: "#fce4ec",
   reference: "#f5f5f5",
+  procedural: "#e0f7fa",
 };
 
 export function ThoughtCard({ thought }: ThoughtCardProps) {
