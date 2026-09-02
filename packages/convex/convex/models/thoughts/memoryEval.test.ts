@@ -10,6 +10,7 @@ import { liveRecallCorpus } from "./memoryEval.corpus";
 import {
   deterministicRetrievalFixtures,
   recordedBakeoffRankings,
+  recordedExactEntityRankings,
   type RecordedRecallRanking,
 } from "./memoryEval.fixtures";
 
@@ -215,8 +216,15 @@ describe("blend policy on the bake-off shapes", () => {
   };
 
   /** Assemble the window a client receives, in the order it receives it. */
-  const windowAt = (ranking: RecordedRecallRanking, limit: number) => {
+  const windowAt = (
+    ranking: RecordedRecallRanking,
+    limit: number,
+    { withExactTier = true } = {},
+  ) => {
     const blend = blendRecallContext({
+      exactFacts: withExactTier
+        ? rowsFor(ranking.account, ranking.exactFactKeys)
+        : [],
       coreFacts: rowsFor(ranking.account, ranking.coreFactKeys),
       relevantFacts: rowsFor(ranking.account, ranking.relevantFactKeys),
       relevantThoughts: rowsFor(ranking.account, ranking.relevantThoughtKeys),
@@ -224,33 +232,38 @@ describe("blend policy on the bake-off shapes", () => {
       factId: (row) => row.id,
     });
     return [
+      ...blend.exactFacts,
       ...blend.coreFacts,
       ...blend.relevanceFacts,
       ...blend.relevanceThoughts,
     ];
   };
 
-  test.each(recordedBakeoffRankings)(
+  const evaluateAtFive = (
+    ranking: RecordedRecallRanking,
+    options?: { withExactTier?: boolean },
+  ) => {
+    const query = account(ranking.account).queries.find(
+      (entry) => entry.name === ranking.queryName,
+    );
+    if (!query) throw new Error(`No corpus query "${ranking.queryName}"`);
+    return evaluateRetrievalCase({
+      name: ranking.queryName,
+      query: query.query,
+      expectedUserId: ranking.account,
+      expectedIds: query.expectedKeys,
+      includeHistorical: query.includeHistorical,
+      expectedExactStrings: query.expectedExactStrings,
+      forbiddenExactStrings: query.forbiddenExactStrings,
+      results: windowAt(ranking, 5, options),
+      k: 5,
+    });
+  };
+
+  test.each([...recordedBakeoffRankings, ...recordedExactEntityRankings])(
     "$queryName is answered at the default limit",
     (ranking) => {
-      const query = account(ranking.account).queries.find(
-        (entry) => entry.name === ranking.queryName,
-      );
-      if (!query) throw new Error(`No corpus query "${ranking.queryName}"`);
-
-      const evaluation = evaluateRetrievalCase({
-        name: ranking.queryName,
-        query: query.query,
-        expectedUserId: ranking.account,
-        expectedIds: query.expectedKeys,
-        includeHistorical: query.includeHistorical,
-        expectedExactStrings: query.expectedExactStrings,
-        forbiddenExactStrings: query.forbiddenExactStrings,
-        results: windowAt(ranking, 5),
-        k: 5,
-      });
-
-      expect(evaluation).toMatchObject({
+      expect(evaluateAtFive(ranking)).toMatchObject({
         recallAtK: 1,
         tenantLeakIds: [],
         unexpectedHistoricalIds: [],
@@ -258,6 +271,18 @@ describe("blend policy on the bake-off shapes", () => {
         presentForbiddenStrings: [],
         passed: true,
       });
+    },
+  );
+
+  test.each(recordedExactEntityRankings)(
+    "$queryName is lost without the exact tier",
+    (ranking) => {
+      // The name alone cannot rank the subject's facts against each other,
+      // and the one relevance slot facts get at this limit goes to the wrong
+      // one. This is the shape the exact tier exists for.
+      expect(evaluateAtFive(ranking, { withExactTier: false }).recallAtK).toBe(
+        0,
+      );
     },
   );
 });

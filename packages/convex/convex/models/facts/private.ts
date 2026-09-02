@@ -1,7 +1,12 @@
 import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
 
-import { listFacts, rememberFact, searchFacts } from "./model";
+import {
+  listFacts,
+  recallExactFacts,
+  rememberFact,
+  searchFacts,
+} from "./model";
 import { entitySelector, factSourceType, factValueInput } from "./validators";
 
 /** How many current facts are offered to the narrative admission gate. */
@@ -34,17 +39,18 @@ export const searchCoveringFacts = internalQuery({
 });
 
 /**
- * The fact half of the blend `recall_context` serves: core facts plus facts
- * relevant to the query, fetched the way the tool fetches them — two
- * independent reads, `coreLimit` core facts newest first and `limit` keyword
- * hits in index order.
+ * The fact half of the blend `recall_context` serves: facts about entities
+ * the query names, core facts, and facts relevant to the query, fetched the
+ * way the tool fetches them — three independent reads, `exactLimit` exact
+ * hits best match first, `coreLimit` core facts newest first and `limit`
+ * keyword hits in index order.
  *
- * Rows are deliberately not deduplicated across the two sources. The tool
- * hands both lists to `blendRecallContext`, which drops a relevant hit only
- * when it duplicates a core fact the blend actually selected. Deduplicating
- * here against every core fact fetched would drop a core fact that ranked as
- * relevant but was not selected as core, and the harness would then score a
- * window no client receives.
+ * Rows are deliberately not deduplicated across the sources. The tool hands
+ * all three lists to `blendRecallContext`, which drops a core or relevant hit
+ * only when it duplicates a fact the blend actually selected from an earlier
+ * tier. Deduplicating here against every fact fetched would drop a fact that
+ * ranked in a later tier but was not selected in the earlier one, and the
+ * harness would then score a window no client receives.
  */
 export const recallFacts = internalQuery({
   args: {
@@ -52,6 +58,7 @@ export const recallFacts = internalQuery({
     query: v.string(),
     limit: v.optional(v.number()),
     coreLimit: v.optional(v.number()),
+    exactLimit: v.optional(v.number()),
     includeHistorical: v.optional(v.boolean()),
   },
   returns: v.array(
@@ -59,11 +66,18 @@ export const recallFacts = internalQuery({
       id: v.string(),
       statement: v.string(),
       status: v.string(),
-      source: v.union(v.literal("core"), v.literal("relevant")),
+      source: v.union(
+        v.literal("exact"),
+        v.literal("core"),
+        v.literal("relevant"),
+      ),
     }),
   ),
   handler: async (ctx, args) => {
-    const [core, relevant] = await Promise.all([
+    const [exact, core, relevant] = await Promise.all([
+      recallExactFacts(ctx, args.userId, args.query, {
+        limit: args.exactLimit ?? COVERAGE_CANDIDATES,
+      }),
       listFacts(ctx, args.userId, {
         limit: args.coreLimit ?? COVERAGE_CANDIDATES,
         coreOnly: true,
@@ -75,13 +89,18 @@ export const recallFacts = internalQuery({
     ]);
 
     const row =
-      (source: "core" | "relevant") => (fact: (typeof core)[number]) => ({
+      (source: "exact" | "core" | "relevant") =>
+      (fact: (typeof core)[number]) => ({
         id: fact.id as string,
         statement: fact.statement,
         status: fact.status,
         source,
       });
-    return [...core.map(row("core")), ...relevant.map(row("relevant"))];
+    return [
+      ...exact.map(row("exact")),
+      ...core.map(row("core")),
+      ...relevant.map(row("relevant")),
+    ];
   },
 });
 
