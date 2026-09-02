@@ -65,6 +65,62 @@ describe("temporal memory transitions", () => {
     ]);
   });
 
+  test("fills memory result limits after lifecycle filtering", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+
+    await t.run(async (ctx) => {
+      const insertMemory = (
+        index: number,
+        memoryStatus: "current" | "retracted" | undefined,
+        validFrom?: number,
+      ) =>
+        ctx.db.insert("thoughts", {
+          userId,
+          content: `Pagination sentinel memory ${index}`,
+          embedding,
+          metadata,
+          memoryStatus,
+          validFrom,
+        });
+
+      for (let index = 0; index < 10; index += 1) {
+        await insertMemory(index, undefined);
+      }
+      for (let index = 10; index < 70; index += 1) {
+        await insertMemory(index, "current", Date.now() + 86_400_000);
+      }
+      for (let index = 70; index < 130; index += 1) {
+        await insertMemory(index, "retracted");
+      }
+    });
+
+    const current = await t.run((ctx) => _listByUser(ctx, userId, 10));
+    const historical = await t.run((ctx) => _listByUser(ctx, userId, 10, true));
+    const search = await t.query(
+      internal.models.thoughts.private.searchByText,
+      {
+        userId,
+        query: "pagination sentinel memory",
+        limit: 10,
+        activeAt: Date.now(),
+      },
+    );
+
+    expect(current).toHaveLength(10);
+    expect(current.every((memory) => memory.memoryStatus === undefined)).toBe(
+      true,
+    );
+    expect(historical).toHaveLength(10);
+    expect(
+      historical.every((memory) => memory.memoryStatus !== "retracted"),
+    ).toBe(true);
+    expect(search).toHaveLength(10);
+    expect(search.every((memory) => memory.memoryStatus === undefined)).toBe(
+      true,
+    );
+  });
+
   test("atomically preserves and links a superseded memory", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
