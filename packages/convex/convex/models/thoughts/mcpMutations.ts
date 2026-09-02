@@ -2,7 +2,7 @@ import { v } from "convex/values";
 
 import { mutation } from "../../_generated/server";
 import { requireMcpUserId } from "../../lib/mcpAuth";
-import { _setRetracted } from "./model";
+import { _forgetThought, _setRetracted } from "./model";
 
 export const retractThought = mutation({
   args: {
@@ -38,5 +38,22 @@ export const restoreThought = mutation({
       Date.now(),
     );
     return null;
+  },
+});
+
+export const forgetThought = mutation({
+  args: {
+    thoughtId: v.id("thoughts"),
+    reason: v.string(),
+  },
+  returns: v.object({
+    thoughtId: v.id("thoughts"),
+    reason: v.string(),
+    detachedPredecessors: v.array(v.id("thoughts")),
+    detachedSuccessor: v.optional(v.id("thoughts")),
+  }),
+  handler: async (ctx, args) => {
+    const userId = await requireMcpUserId(ctx);
+    return await _forgetThought(ctx, userId, args.thoughtId, args.reason);
   },
 });

@@ -112,6 +112,31 @@ describe("MCP memory quality contract", () => {
         idempotentHint: true,
         openWorldHint: false,
       });
+
+      // Retraction and forgetting must be described in complementary terms
+      // everywhere the model reads: retract = it was wrong, forget = it must
+      // not remain in storage. The rationale phrase forgetting owns must not
+      // appear on the retract side, or the two read as the same operation.
+      const forgetRationale = "must not remain in storage";
+      expect(instructions).toContain(
+        `Retract when it was wrong; forget when it ${forgetRationale}`,
+      );
+      expect(instructions).not.toContain("never have been stored");
+      const retract = tools.find((tool) => tool.name === "retract_thought");
+      expect(retract?.description).toContain("was never true");
+      expect(retract?.description).toContain("forget_thought");
+      expect(JSON.stringify(retract)).not.toContain("never have been stored");
+      expect(retract?.description).not.toContain(forgetRationale);
+      // Forgetting is a hard delete, so every forget tool must be flagged
+      // destructive, require a reason, and say how it differs from retraction.
+      for (const name of ["forget_thought", "forget_fact", "forget_entity"]) {
+        const tool = tools.find((candidate) => candidate.name === name);
+        expect(tool?.annotations?.destructiveHint).toBe(true);
+        expect(tool?.description).toContain(forgetRationale);
+        expect(tool?.description).toContain("Retract when");
+        expect(tool?.description).toContain("no undo");
+        expect(tool?.inputSchema.required).toContain("reason");
+      }
     } finally {
       await client.close();
       await server.close();
@@ -429,6 +454,187 @@ describe("MCP memory quality contract", () => {
     }
   });
 
+  test("lists core facts and core memories without running a search", async () => {
+    convexMocks.query
+      .mockResolvedValueOnce([
+        {
+          id: "employer-fact",
+          statement: "Jordan works at Atlas Memory.",
+          subject: {
+            id: "jordan",
+            key: "person:jordan",
+            kind: "person",
+            name: "Jordan",
+            aliases: [],
+          },
+          predicate: "employer",
+          value: { type: "string", value: "Atlas Memory" },
+          sourceType: "user_stated",
+          confidence: 1,
+          isCore: true,
+          status: "current",
+          createdAt: Date.UTC(2026, 7, 1),
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          _id: "core-preference",
+          _creationTime: Date.UTC(2026, 7, 1),
+          content: "Jordan prefers concise, direct answers.",
+          metadata: {
+            type: "person_note",
+            topics: ["communication"],
+            people: ["Jordan"],
+            actionItems: [],
+            summary: "Communication preference",
+          },
+          userId: "jordan",
+          memoryStatus: "current",
+          isCore: true,
+        },
+      ]);
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const tool = (await client.listTools()).tools.find(
+        (candidate) => candidate.name === "list_core_memories",
+      );
+      expect(tool?.annotations?.readOnlyHint).toBe(true);
+      expect(tool?.inputSchema.properties).toHaveProperty("limit.maximum", 25);
+      expect(tool?.inputSchema.properties).toHaveProperty("limit.default", 10);
+
+      const result = await client.callTool({
+        name: "list_core_memories",
+        arguments: {},
+      });
+      const text = (result as { content?: Array<{ text?: string }> })
+        .content?.[0]?.text;
+      const core = JSON.parse(text ?? "{}") as {
+        coreFacts: Array<Record<string, unknown>>;
+        coreMemories: Array<Record<string, unknown>>;
+      };
+
+      expect(core.coreFacts).toEqual([
+        expect.objectContaining({
+          id: "employer-fact",
+          citation: "fact:employer-fact",
+          statement: "Jordan works at Atlas Memory.",
+          memoryKind: "fact",
+          source: "core",
+          createdAt: "2026-08-01T00:00:00.000Z",
+        }),
+      ]);
+      expect(core.coreMemories).toEqual([
+        expect.objectContaining({
+          id: "core-preference",
+          citation: "thought:core-preference",
+          content: "Jordan prefers concise, direct answers.",
+          memoryKind: "thought",
+          source: "core",
+          isCore: true,
+          memoryStatus: "current",
+        }),
+      ]);
+      expect(core).toMatchObject({ truncated: false });
+      // Both stores are read at the default core limit; no search action runs.
+      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 10 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 10 });
+      expect(convexMocks.action).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("holds list_core_memories to its advertised result budget", async () => {
+    const longThought = (index: number) => ({
+      _id: `core-${index}`,
+      _creationTime: Date.UTC(2026, 7, 25 - index),
+      content: `Memory ${index}. ${"x".repeat(5_000)}`,
+      metadata: {
+        type: "reference",
+        topics: ["long"],
+        people: [],
+        actionItems: [],
+        summary: `Memory ${index}`,
+      },
+      userId: "jordan",
+      memoryStatus: "current",
+      isCore: true,
+    });
+    convexMocks.query
+      .mockResolvedValueOnce([
+        {
+          id: "employer-fact",
+          statement: "Jordan works at Atlas Memory.",
+          subject: null,
+          predicate: "employer",
+          value: { type: "string", value: "Atlas Memory" },
+          sourceType: "user_stated",
+          confidence: 1,
+          isCore: true,
+          status: "current",
+          createdAt: Date.UTC(2026, 7, 1),
+        },
+      ])
+      .mockResolvedValueOnce(
+        Array.from({ length: 25 }, (_, index) => longThought(index)),
+      );
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "list_core_memories",
+        arguments: { limit: 25 },
+      });
+      const text = (result as { content?: Array<{ text?: string }> })
+        .content?.[0]?.text;
+      expect(text).toBeDefined();
+      expect(text!.length).toBeLessThanOrEqual(50_000);
+      expect((result as { _meta?: Record<string, unknown> })._meta).toEqual({
+        "anthropic/maxResultSizeChars": 50_000,
+      });
+
+      const core = JSON.parse(text!) as {
+        coreFacts: Array<{ id: string }>;
+        coreMemories: Array<{ id: string; content: string }>;
+        truncated: boolean;
+      };
+      expect(core.truncated).toBe(true);
+      // Memories are dropped from the tail before any fact goes.
+      expect(core.coreFacts.map((fact) => fact.id)).toEqual(["employer-fact"]);
+      expect(core.coreMemories.length).toBeGreaterThan(0);
+      expect(core.coreMemories.length).toBeLessThan(25);
+      expect(core.coreMemories.map((memory) => memory.id)).toEqual(
+        core.coreMemories.map((_, index) => `core-${index}`),
+      );
+      for (const memory of core.coreMemories) {
+        expect(memory.content.endsWith("…")).toBe(true);
+      }
+      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 25 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 25 });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("guides an empty brain to initialization without inventing a citation", async () => {
     convexMocks.query.mockResolvedValue([]);
     convexMocks.action.mockResolvedValue([]);
@@ -574,6 +780,92 @@ describe("MCP memory quality contract", () => {
       expect(
         (result as { content?: Array<{ text?: string }> }).content?.[0]?.text,
       ).toContain("not stored");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("forget_entity loops the batched mutation until done and cites every deletion", async () => {
+    const batch = (overrides: Record<string, unknown>) => ({
+      entityId: "entity-1",
+      key: "person:dr-old",
+      reason: "Third party captured by mistake",
+      deletedSubjectFactIds: [],
+      deletedReferencingFacts: [],
+      detachedPredecessors: [],
+      detachedSuccessors: [],
+      ...overrides,
+    });
+    convexMocks.mutation
+      .mockResolvedValueOnce(
+        batch({
+          done: false,
+          deletedSubjectFactIds: ["fact-a", "fact-b"],
+          // fact-c replaced fact-b, and still points at the entity.
+          detachedSuccessors: ["fact-c"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        batch({
+          done: true,
+          deletedReferencingFacts: [
+            {
+              factId: "fact-c",
+              subjectEntityId: "entity-jordan",
+              predicate: "primary_care_provider",
+            },
+          ],
+          detachedSuccessors: ["fact-d"],
+        }),
+      );
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "forget_entity",
+        arguments: { entityId: "entity-1", reason: "  Third party  " },
+      });
+
+      expect(result.isError).not.toBe(true);
+      // One mutation per batch, same arguments each time, until done.
+      expect(convexMocks.mutation).toHaveBeenCalledTimes(2);
+      expect(convexMocks.mutation.mock.calls[1]?.[1]).toEqual(
+        convexMocks.mutation.mock.calls[0]?.[1],
+      );
+
+      const [narrative, structured] = result.content as Array<{
+        type: string;
+        text: string;
+      }>;
+      // The narrative names only what it can cite; counts and id lists are
+      // in the structured block.
+      expect(narrative?.text).toContain("person:dr-old (entity-1)");
+      expect(narrative?.text).not.toMatch(/\d+ fact/);
+      expect(JSON.parse(structured!.text)).toEqual({
+        entity: { id: "entity-1", key: "person:dr-old" },
+        reason: "Third party captured by mistake",
+        done: true,
+        batches: 2,
+        deletedFactsAboutEntity: ["fact:fact-a", "fact:fact-b"],
+        deletedFactsPointingAtEntity: [
+          {
+            citation: "fact:fact-c",
+            predicate: "primary_care_provider",
+            subjectEntityId: "entity-jordan",
+          },
+        ],
+        // fact-c was detached in batch 1 and deleted in batch 2, so only
+        // fact-d survives as a replacement.
+        survivingReplacements: ["fact:fact-d"],
+      });
     } finally {
       await client.close();
       await server.close();

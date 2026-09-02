@@ -41,6 +41,10 @@ export default defineSchema({
     ])
     .index("by_userId_and_isCore", ["userId", "isCore"])
     .index("by_userId_isCore_status", ["userId", "isCore", "status"])
+    // Entity-valued facts that point at a given entity. Only the entity
+    // variant of `value` carries `entityId`; every other variant sorts as
+    // undefined and is never matched by an equality lookup.
+    .index("by_userId_and_valueEntityId", ["userId", "value.entityId"])
     // Mirrors the thoughts index: text-embedding-3-small dimensions and
     // account isolation at the index, so a vector search can never cross
     // accounts even before ownership is re-checked on hydration.
