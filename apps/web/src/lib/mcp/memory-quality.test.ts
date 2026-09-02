@@ -111,6 +111,20 @@ describe("MCP memory quality contract", () => {
         idempotentHint: true,
         openWorldHint: false,
       });
+
+      // Forgetting is a hard delete, so every forget tool must be flagged
+      // destructive, require a reason, and tell the model how it differs from
+      // retraction so the two are not used interchangeably.
+      expect(instructions).toContain(
+        "Retract when it was wrong; forget when it should never have been stored",
+      );
+      for (const name of ["forget_thought", "forget_fact", "forget_entity"]) {
+        const tool = tools.find((candidate) => candidate.name === name);
+        expect(tool?.annotations?.destructiveHint).toBe(true);
+        expect(tool?.description).toContain("should never have been stored");
+        expect(tool?.description).toContain("no undo");
+        expect(tool?.inputSchema.required).toContain("reason");
+      }
     } finally {
       await client.close();
       await server.close();

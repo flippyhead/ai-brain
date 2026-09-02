@@ -69,6 +69,18 @@ they are not overwritten or deleted. Normal search and browsing return current
 memories. MCP clients can request historical results when answering questions
 about prior states or how something changed.
 
+Forgetting is the one exception. Retract when a memory was wrong; forget when
+it should never have been stored at all, such as a mis-captured credential or a
+third party's private detail. `forget_thought`, `forget_fact`, and
+`forget_entity` hard-delete the record with no undo and no tombstone. A
+forgotten memory's neighbours are repaired rather than left dangling: an
+earlier memory it had replaced stays retired (forgetting a change is not an
+undo of it), and its replacement stays current. Forgetting an entity also
+deletes every fact about it and every fact on another subject whose value is
+that entity, because those facts' readable text carries the entity's name.
+Each call requires a reason, which is echoed back but not stored — nothing
+remains to store it on.
+
 Memories may also carry explicit real-world `validFrom` and `validTo` times.
 These are separate from when AI Brain recorded or superseded the memory, so a
 known school start date, project period, or former role can be represented
