@@ -32,6 +32,7 @@ export default defineSchema({
     ]),
   facts: defineTable(factFields)
     .index("by_userId", ["userId"])
+    .index("by_userId_and_status", ["userId", "status"])
     .index("by_userId_subject_predicate_status", [
       "userId",
       "subjectEntityId",
@@ -39,9 +40,10 @@ export default defineSchema({
       "status",
     ])
     .index("by_userId_and_isCore", ["userId", "isCore"])
+    .index("by_userId_isCore_status", ["userId", "isCore", "status"])
     .searchIndex("by_searchText", {
       searchField: "searchText",
-      filterFields: ["userId"],
+      filterFields: ["userId", "status"],
     }),
   apiKeys: defineTable(apiKeyFields)
     .index("by_keyHash", ["keyHash"])

@@ -133,6 +133,34 @@ describe("memory provider analysis", () => {
     }
   });
 
+  test("types how-to content as procedural rather than reference", () => {
+    // Before the enum gained `procedural`, this content landed as `reference`:
+    // an unknown type falls back to it. The type must survive normalization.
+    const analysis = parseThoughtAnalysis(
+      JSON.stringify({
+        action: "ADD",
+        relatedThoughtIds: [],
+        reason: "Repeatable working pattern",
+        replacementContent: null,
+        metadata: {
+          type: "procedural",
+          topics: ["releases"],
+          people: [],
+          actionItems: [],
+          summary: "How a release is cut",
+        },
+      }),
+      candidateIds,
+      "To cut a release: run the eval, bump the version, tag, then deploy prod.",
+    );
+
+    expect(analysis?.classification.action).toBe("ADD");
+    expect(analysis?.metadata.type).toBe("procedural");
+    expect(
+      normalizeThoughtMetadata({ type: "procedural", summary: "s" }, "x").type,
+    ).toBe("procedural");
+  });
+
   test("bounds and normalizes metadata supplied by a model", () => {
     const long = "x".repeat(400);
     expect(

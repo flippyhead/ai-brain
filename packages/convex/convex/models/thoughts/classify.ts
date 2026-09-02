@@ -145,7 +145,16 @@ For ADD, ASK, and SKIP, relatedThoughtIds must be empty and replacementContent m
 For SUPERSEDE or RETRACT, include only directly affected existing thought ids.
 Do not invent dates or details. When uncertain whether information changed, choose ADD.
 
-Metadata must describe the exact content that will be stored: new content for ADD, or replacementContent for SUPERSEDE and RETRACT. For NOOP, describe the new content even though it will not be stored. Use 1-3 concise topics, exact names for people, only explicit action items, and a one-line summary.`;
+Metadata must describe the exact content that will be stored: new content for ADD, or replacementContent for SUPERSEDE and RETRACT. For NOOP, describe the new content even though it will not be stored. Use 1-3 concise topics, exact names for people, only explicit action items, and a one-line summary.
+
+Metadata type, choose exactly one:
+- decision: a choice that was made, with its rationale.
+- person_note: durable context about a specific person.
+- idea: a proposal or possibility not yet decided or acted on.
+- meeting_note: what happened in a specific meeting or conversation.
+- task: one open piece of work still to be done.
+- reference: stable background information that is looked up, not followed.
+- procedural: how something is done — ordered how-to steps, a playbook, or a recurring working pattern the user follows. Choose procedural over reference when the content prescribes what to do rather than describes what is; choose task over procedural when the content is a single one-off item to complete rather than a repeatable method.`;
 
 export const analyzeThought = internalAction({
   args: {
