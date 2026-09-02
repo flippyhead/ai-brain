@@ -641,8 +641,11 @@ describe("MCP memory quality contract", () => {
     const longContent = (seed: string) =>
       Array.from({ length: 80 }, (_, n) => `${seed} ${paragraph(n)}`).join("");
     const ids = ["atlas-a", "atlas-b", "atlas-c", "atlas-d", "atlas-e"];
-    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    // Core (query) and fact search (action) find nothing; thought search and
+    // hydration carry the five long memories.
+    convexMocks.query.mockResolvedValueOnce([]);
     convexMocks.action
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce(
         ids.map((id, n) => ({
           _id: id,
@@ -730,8 +733,9 @@ describe("MCP memory quality contract", () => {
   });
 
   test("returns short memories whole with no budget note by default", async () => {
-    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    convexMocks.query.mockResolvedValueOnce([]);
     convexMocks.action
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           _id: "atlas-version",
