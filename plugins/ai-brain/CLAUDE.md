@@ -13,6 +13,7 @@ Single source of truth: `plugins/ai-brain/.claude-plugin/plugin.json` — the `v
 The root `.claude-plugin/marketplace.json` (dev install) and the distribution repo's generated `marketplace.json` both pull from that one place. Don't hand-edit marketplace versions.
 
 **Bump rules:**
+
 - Patch (`3.0.0` → `3.0.1`) — typo fixes, nudge text tweaks, CI changes that don't affect behavior
 - Minor (`3.0.0` → `3.1.0`) — new skills, non-breaking prompt improvements
 - Major (`3.0.0` → `4.0.0`) — breaking skill contracts, rename, or any change that forces users to reinstall
@@ -22,7 +23,7 @@ The root `.claude-plugin/marketplace.json` (dev install) and the distribution re
 All skills follow these invariants. If you break one of them, fix it before committing.
 
 1. **Tool names are namespaced `mcp__ai-brain__<tool>`.** Never use bare tool names in skill prompts — the drift check in CI verifies namespaced names resolve to registered tools.
-2. **Progressive disclosure.** `search_thoughts` returns a compact index (`id`, `summary`, `snippet`, `type`, `topics`, `score`). Never assume full `content` is present. Always triage the index, then hydrate via `get_thoughts` for the IDs you want to read. `recall_context` is the exception: it already returns a bounded, deduplicated set of fully hydrated core and query-specific memories.
+2. **Progressive disclosure.** `search_thoughts` returns a compact index (`id`, `summary`, `snippet`, `type`, `topics`, `score`). Never assume full `content` is present. Always triage the index, then hydrate via `get_thoughts` for the IDs you want to read. `recall_context` is the exception: it already returns a bounded, deduplicated set of fully hydrated core facts and query-specific memories.
 3. **Citations.** Any synthesized output (narrative, brief, summary) must cite `fact:<id>`, `thought:<id>`, `insight:<id>`, or `list:<id>` for every factual claim. No naked claims. Prefer `fact:<id>` when a structured fact records the attribute, since it owns that predicate.
 4. **Graceful empty-brain.** Every skill must handle the "brain is empty" case with a friendly message suggesting `/brain-init` — not an error stack.
 5. **Client-mediated automation.** Server instructions can strongly request automatic recall and capture, but no plugin or MCP server can guarantee a tool call unless the host client follows those instructions. Never claim the server passively observes conversations.

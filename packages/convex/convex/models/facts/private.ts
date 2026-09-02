@@ -35,8 +35,16 @@ export const searchCoveringFacts = internalQuery({
 
 /**
  * The fact half of the blend `recall_context` serves: core facts plus facts
- * relevant to the query. Kept together so the evaluation harness exercises the
- * same shape a client receives rather than approximating it.
+ * relevant to the query, fetched the way the tool fetches them — two
+ * independent reads, `coreLimit` core facts newest first and `limit` keyword
+ * hits in index order.
+ *
+ * Rows are deliberately not deduplicated across the two sources. The tool
+ * hands both lists to `blendRecallContext`, which drops a relevant hit only
+ * when it duplicates a core fact the blend actually selected. Deduplicating
+ * here against every core fact fetched would drop a core fact that ranked as
+ * relevant but was not selected as core, and the harness would then score a
+ * window no client receives.
  */
 export const recallFacts = internalQuery({
   args: {
@@ -66,25 +74,14 @@ export const recallFacts = internalQuery({
       }),
     ]);
 
-    const seen = new Set<string>();
-    const rows: Array<{
-      id: string;
-      statement: string;
-      status: string;
-      source: "core" | "relevant";
-    }> = [];
-    for (const [source, facts] of [
-      ["core", core],
-      ["relevant", relevant],
-    ] as const) {
-      for (const fact of facts) {
-        const id = fact.id as string;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        rows.push({ id, statement: fact.statement, status: fact.status, source });
-      }
-    }
-    return rows;
+    const row =
+      (source: "core" | "relevant") => (fact: (typeof core)[number]) => ({
+        id: fact.id as string,
+        statement: fact.statement,
+        status: fact.status,
+        source,
+      });
+    return [...core.map(row("core")), ...relevant.map(row("relevant"))];
   },
 });
 

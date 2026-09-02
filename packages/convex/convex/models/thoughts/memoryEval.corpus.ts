@@ -88,11 +88,60 @@ export const liveRecallCorpus: SeedAccount[] = [
         content:
           "The Foster Clarity rollout is blocked on MLS credential provisioning.",
       },
-      { key: "foster-owner", content: "Priya owns the Foster Clarity rollout." },
+      {
+        key: "foster-owner",
+        content: "Priya owns the Foster Clarity rollout.",
+      },
       {
         key: "diet",
         content: "Avery is vegetarian and cannot eat shellfish.",
         isCore: true,
+      },
+      // The five shapes the 2026-09-02 bake-off lost on retrieval
+      // (docs/comparisons/gbrain-bakeoff.md): the answer is a narrative memory
+      // that ranks second or third among thought hits, and the window is
+      // spent on core context and keyword-matched facts before it is reached.
+      {
+        key: "atlas-bakeoff",
+        content:
+          "The Atlas Memory search bake-off was won by the hybrid configuration with the cross-encoder reranker; the keyword-only baseline stays as the fallback when the embedding provider is down.",
+      },
+      {
+        key: "priya-cover",
+        content:
+          "While Priya is on leave from 14 September to 30 November, Tomas covers the Foster Clarity rollout.",
+      },
+      {
+        key: "delgado-credit",
+        content:
+          "Delgado Mechanical owes a $180 credit for the returned boiler part; Marisol said it will appear on the next invoice.",
+      },
+      {
+        key: "categories-old",
+        content:
+          "Atlas Memory thought categories are Note, Task, and Reference.",
+      },
+      {
+        key: "categories-new",
+        content:
+          "Atlas Memory thought categories are now Decision, Person Note, Task, and Reference; the original Note category was split into Decision and Person Note.",
+        supersedes: "categories-old",
+        validFrom: "2026-08-15",
+      },
+      {
+        key: "tuition-amount",
+        content:
+          "Zevin's Redwood Academy tuition is $9,600 for the 2026-27 year.",
+      },
+      {
+        key: "tuition-schedule",
+        content:
+          "Redwood Academy bills Zevin's tuition in two instalments, due 15 August and 15 January.",
+      },
+      {
+        key: "tuition-discount",
+        content:
+          "Redwood Academy's sibling discount is 5%, and Zevin does not qualify for it.",
       },
     ],
     facts: [
@@ -126,6 +175,39 @@ export const liveRecallCorpus: SeedAccount[] = [
         predicate: "dietary_restriction",
         value: "vegetarian, no shellfish",
         isCore: true,
+      },
+      // A second core fact, so the account carries the bake-off's core set:
+      // two core facts and one core narrative memory.
+      {
+        key: "fact-home",
+        subjectKey: "person:avery",
+        subjectName: "Avery",
+        predicate: "home_city",
+        value: "Fernwood",
+        isCore: true,
+      },
+      // Facts that share a keyword with the bake-off questions without
+      // answering them, so keyword-only fact search has something to return.
+      {
+        key: "fact-priya-role",
+        subjectKey: "person:priya",
+        subjectName: "Priya",
+        predicate: "role",
+        value: "Foster Clarity rollout owner",
+      },
+      {
+        key: "fact-tomas-role",
+        subjectKey: "person:tomas",
+        subjectName: "Tomas",
+        predicate: "role",
+        value: "Atlas Memory maintainer",
+      },
+      {
+        key: "fact-marisol-role",
+        subjectKey: "person:marisol",
+        subjectName: "Marisol",
+        predicate: "role",
+        value: "Delgado Mechanical service coordinator",
       },
     ],
     queries: [
@@ -170,6 +252,47 @@ export const liveRecallCorpus: SeedAccount[] = [
         name: "enduring constraint reached by paraphrase",
         query: "What should I cook for dinner when Avery visits?",
         expectedKeys: ["diet"],
+      },
+      // Bake-off shapes 3, 4, 5, 8 and 10. Each has a keyword-adjacent fact
+      // that does not answer it, and none is answered by core context.
+      {
+        name: "semantic recall of a comparison outcome",
+        query:
+          "Which Atlas Memory search setup came out ahead when we compared them?",
+        expectedKeys: ["atlas-bakeoff"],
+        expectedExactStrings: ["cross-encoder reranker"],
+      },
+      {
+        name: "semantic recall with no shared vocabulary",
+        query:
+          "Who is standing in on the brokerage rollout while its usual owner is away?",
+        expectedKeys: ["priya-cover"],
+        expectedExactStrings: ["Tomas"],
+      },
+      {
+        name: "open loop with a named vendor",
+        query: "What is still outstanding with Delgado Mechanical?",
+        expectedKeys: ["delgado-credit"],
+        expectedExactStrings: ["$180"],
+      },
+      {
+        name: "change over time behind a keyword-heavy neighbour",
+        query:
+          "How have the Atlas Memory thought categories changed over time?",
+        expectedKeys: ["categories-new", "categories-old"],
+        includeHistorical: true,
+        expectedExactStrings: ["Person Note"],
+      },
+      {
+        name: "synthesis across three memories",
+        query:
+          "What will Zevin's tuition come to this year, and when are the payments due?",
+        expectedKeys: [
+          "tuition-amount",
+          "tuition-schedule",
+          "tuition-discount",
+        ],
+        expectedExactStrings: ["$9,600", "15 January"],
       },
     ],
   },
