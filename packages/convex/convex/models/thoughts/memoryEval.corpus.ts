@@ -35,6 +35,8 @@ export type SeedFact = {
   key: string;
   subjectKey: string;
   subjectName: string;
+  /** Other names the subject goes by; merged into the entity when seeded. */
+  subjectAliases?: string[];
   predicate: string;
   value: string;
   isCore?: boolean;
@@ -199,6 +201,7 @@ export const liveRecallCorpus: SeedAccount[] = [
         key: "fact-tomas-role",
         subjectKey: "person:tomas",
         subjectName: "Tomas",
+        subjectAliases: ["Tom"],
         predicate: "role",
         value: "Atlas Memory maintainer",
       },
@@ -208,6 +211,24 @@ export const liveRecallCorpus: SeedAccount[] = [
         subjectName: "Marisol",
         predicate: "role",
         value: "Delgado Mechanical service coordinator",
+      },
+      // Facts the exact-entity tier exists for: the question names the
+      // subject and nothing else in its wording reaches the predicate or
+      // value, so keyword search sees only the name and cannot tell this fact
+      // from the subject's other one.
+      {
+        key: "fact-marisol-line",
+        subjectKey: "person:marisol",
+        subjectName: "Marisol",
+        predicate: "direct_line",
+        value: "extension 4471",
+      },
+      {
+        key: "fact-tomas-return",
+        subjectKey: "person:tomas",
+        subjectName: "Tomas",
+        predicate: "sabbatical_return",
+        value: "1 December 2026",
       },
     ],
     queries: [
@@ -293,6 +314,20 @@ export const liveRecallCorpus: SeedAccount[] = [
           "tuition-discount",
         ],
         expectedExactStrings: ["$9,600", "15 January"],
+      },
+      // Exact-entity shapes: the question names a known person and its other
+      // words reach neither the predicate nor the value.
+      {
+        name: "named entity with no predicate words",
+        query: "How do I reach Marisol directly?",
+        expectedKeys: ["fact-marisol-line"],
+        expectedExactStrings: ["4471"],
+      },
+      {
+        name: "named entity by alias",
+        query: "When is Tom back?",
+        expectedKeys: ["fact-tomas-return"],
+        expectedExactStrings: ["1 December 2026"],
       },
     ],
   },

@@ -20,6 +20,10 @@ data already in hand.
 default limit, facts only, and no guaranteed fact share of the relevance
 slots. It precedes everything below and is not repeated here.
 
+**W2 (exact-entity tier) is implemented** in PR #43: Tasks 5–7 below landed
+as `findEntity` / `findEntitiesNamed`, `entityMatch.ts`, and the `exact`
+blend tier.
+
 **Decision gate:** W5 (MEMORY_VERBS conformance) is deliberately absent from
 this plan. Answer the positioning question in the design doc before W4 lands —
 it changes W4's envelope shape and nothing else.

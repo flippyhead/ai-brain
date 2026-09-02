@@ -203,7 +203,10 @@ describe("MCP memory quality contract", () => {
       factRow("fact-role", "role", "Atlas Memory maintainer"),
       factRow("fact-editor", "editor", "Atlas Memory Studio"),
     ];
-    convexMocks.query.mockResolvedValueOnce(coreFacts);
+    convexMocks.query
+      .mockResolvedValueOnce(coreFacts)
+      // The question names no known entity.
+      .mockResolvedValueOnce([]);
     // Fact search embeds the query, so it is an action like thought search.
     convexMocks.action
       .mockResolvedValueOnce(keywordFacts)
@@ -347,9 +350,13 @@ describe("MCP memory quality contract", () => {
         }),
       ]);
       // Core is asked for exactly the slots it can use, and core memories are
-      // not fetched at all.
-      expect(convexMocks.query).toHaveBeenCalledTimes(1);
+      // not fetched at all. Exact is asked for its share of the rest.
+      expect(convexMocks.query).toHaveBeenCalledTimes(2);
       expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 1 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({
+        query,
+        limit: 2,
+      });
       // Fact and thought search stay parallel and receive the same request.
       expect(convexMocks.action.mock.calls[0]?.[1]).toEqual({
         query,
@@ -371,7 +378,138 @@ describe("MCP memory quality contract", () => {
     }
   });
 
+  test("serves facts about a named entity ahead of core and ranked memories", async () => {
+    const query = "How do I reach Marisol directly?";
+    const factRow = (
+      id: string,
+      subject: string,
+      predicate: string,
+      value: string,
+    ) => ({
+      id,
+      statement: `${subject} — ${predicate.replaceAll("_", " ")}: ${value}.`,
+      subject: {
+        id: `entity-${subject.toLowerCase()}`,
+        key: `person:${subject.toLowerCase()}`,
+        kind: "person",
+        name: subject,
+        aliases: [],
+      },
+      predicate,
+      value: { type: "text", value },
+      sourceType: "user_stated" as const,
+      confidence: 1,
+      isCore: false,
+      status: "current" as const,
+      createdAt: Date.UTC(2026, 7, 1),
+    });
+    const marisolLine = factRow(
+      "fact-marisol-line",
+      "Marisol",
+      "direct_line",
+      "extension 4471",
+    );
+    const marisolRole = factRow(
+      "fact-marisol-role",
+      "Marisol",
+      "role",
+      "Delgado Mechanical service coordinator",
+    );
+    convexMocks.query
+      .mockResolvedValueOnce([
+        {
+          ...factRow("fact-home", "Jordan", "home_city", "Fernwood"),
+          isCore: true,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          ...marisolLine,
+          matchedEntity: { name: "Marisol", mention: "marisol" },
+        },
+        {
+          ...marisolRole,
+          matchedEntity: { name: "Marisol", mention: "marisol" },
+        },
+      ]);
+    const thoughtRow = (id: string, content: string, score: number) => ({
+      _id: id,
+      summary: content,
+      snippet: content,
+      type: "reference",
+      topics: [],
+      score,
+      createdAt: Date.UTC(2026, 7, 2),
+      memoryStatus: "current",
+    });
+    convexMocks.action
+      // Fused fact search sees only the name, so it cannot order the two.
+      .mockResolvedValueOnce([marisolRole, marisolLine])
+      .mockResolvedValueOnce([
+        thoughtRow("hvac", "Delgado Mechanical services the furnace.", 0.02),
+        thoughtRow("delgado-credit", "Delgado owes a $180 credit.", 0.019),
+        thoughtRow("foster-blocker", "Foster Clarity is blocked.", 0.018),
+      ])
+      .mockResolvedValueOnce(
+        ["hvac", "delgado-credit"].map((id) => ({
+          _id: id,
+          content: id,
+          metadata: {
+            type: "reference",
+            topics: [],
+            people: [],
+            actionItems: [],
+            summary: id,
+          },
+          createdAt: Date.UTC(2026, 7, 2),
+          memoryStatus: "current",
+        })),
+      );
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "recall_context",
+        arguments: { query, limit: 5 },
+      });
+      const firstContent = (result as { content?: unknown[] }).content?.[0];
+      const context = JSON.parse(
+        (firstContent as { type: "text"; text: string }).text,
+      ) as Array<{ id: string; source: string }>;
+
+      // Two exact, one core, two relevance: the named entity's facts lead,
+      // the fact already served as exact is not repeated by relevance, and
+      // relevance keeps half of the non-core window.
+      expect(context).toEqual([
+        expect.objectContaining({
+          id: "fact-marisol-line",
+          source: "exact",
+          citation: "fact:fact-marisol-line",
+          matchedEntity: { name: "Marisol", mention: "marisol" },
+        }),
+        expect.objectContaining({ id: "fact-marisol-role", source: "exact" }),
+        expect.objectContaining({ id: "fact-home", source: "core" }),
+        expect.objectContaining({ id: "hvac", source: "relevance" }),
+        expect.objectContaining({ id: "delgado-credit", source: "relevance" }),
+      ]);
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ query, limit: 2 });
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   test("spends a window of two entirely on the answer", async () => {
+    // The exact tier has one slot at this limit and names nothing.
+    convexMocks.query.mockResolvedValueOnce([]);
     convexMocks.action
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
@@ -449,8 +587,12 @@ describe("MCP memory quality contract", () => {
         "atlas-migration",
       ]);
       // No core slot exists at this limit, so core is never queried; the only
-      // reads are the two search actions and the hydration.
-      expect(convexMocks.query).not.toHaveBeenCalled();
+      // reads are the two search actions, the exact lookup, and the hydration.
+      expect(convexMocks.query).toHaveBeenCalledTimes(1);
+      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({
+        query: "Atlas Memory status?",
+        limit: 1,
+      });
       expect(convexMocks.action.mock.calls[0]?.[1]).toMatchObject({
         query: "Atlas Memory status?",
         limit: 2,
@@ -671,9 +813,10 @@ describe("MCP memory quality contract", () => {
       createdAt,
     });
     // Two current facts disagree, the newest relevant memory is months old,
-    // and the question asks for a phone number no fact records. Core is the
-    // one query; fact search, thought search, and hydration are actions.
-    convexMocks.query.mockResolvedValueOnce([]);
+    // and the question asks for a phone number no fact records. Core and the
+    // exact lookup are queries; fact search, thought search, and hydration
+    // are actions.
+    convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     convexMocks.action
       .mockResolvedValueOnce([
         factRow("fact-city-a", "home_city", "Fernwood", Date.UTC(2026, 2, 1)),

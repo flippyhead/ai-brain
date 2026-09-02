@@ -42,12 +42,13 @@ capable clients to call `remember_fact` or `capture_thought` automatically for
 explicit durable information. This remains client-mediated: an MCP server
 cannot observe a conversation unless the client invokes one of its tools.
 
-For relevant prompts, `recall_context` combines a small set of explicitly
-marked core facts/memories with query-specific fact and thought search results.
-Clients are instructed to send the user's complete current message so exact
-names, identifiers, and version strings reach retrieval unchanged. The result
-also says what the brain does not know: when the newest relevant memory is
-older than six weeks, two current facts disagree, or the question asks for an
+For relevant prompts, `recall_context` combines current facts about any entity
+the message names (by stored name or alias), a small set of explicitly marked
+core facts, and query-specific fact and thought search results. Clients are
+instructed to send the user's complete current message so exact names,
+identifiers, and version strings reach retrieval unchanged. The result also
+says what the brain does not know: when the newest relevant memory is older
+than six weeks, two current facts disagree, or the question asks for an
 attribute no fact records, a `gaps` block follows the memories.
 `list_core_memories` returns the same explicitly marked core facts and
 memories on their own, without a query and without running a search, so a
