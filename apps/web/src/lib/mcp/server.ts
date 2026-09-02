@@ -3,6 +3,7 @@ import { api } from "@repo/db/convex/_generated/api";
 import {
   blendRecallContext,
   coreLimitFor,
+  exactLimitFor,
 } from "@repo/db/convex/models/recallBlend";
 import {
   DEFAULT_CORE_MEMORY_LIMIT,
@@ -633,7 +634,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const recallContextTool = server.tool(
     MCP_TOOL_NAMES.recallContext,
-    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend: at most one core fact at the default limit, then the most relevant current facts and memories; a core memory appears only when it is relevant. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
+    "Use this at the start of a relevant turn to recall precise facts and narrative context before answering. Pass the user's complete current message verbatim; do not paraphrase or normalize exact names, identifiers, project names, or version strings. Returns a bounded blend, each entry labelled by source: exact (current facts about a person or thing the message names by its stored name or alias), then at most one core fact at the default limit, then relevance (the most relevant current facts and memories); a core memory appears only when it is relevant. Set includeHistorical only for an explicitly historical question. Cite sources as fact:<id> or thought:<id>.",
     {
       query: z
         .string()
@@ -671,14 +672,20 @@ export function createMcpServer(convexAuthToken: string) {
         changeReason?: string;
       };
       type ContextFact = FactResult;
+      type ExactFact = FactResult & {
+        matchedEntity: { name: string; mention: string };
+      };
       // Core slots go to facts only; a core memory reaches the window through
       // the relevance ranking or not at all. At limit one or two there is no
       // core slot, and listCore rejects a zero limit, so the query is skipped.
+      // The exact tier is skipped the same way at limit one.
       const coreLimit = coreLimitFor(limit);
-      const [coreFacts, relevantFacts, index]: [
+      const exactLimit = exactLimitFor(limit);
+      const [coreFacts, relevantFacts, index, exactFacts]: [
         ContextFact[],
         ContextFact[],
         IndexRow[],
+        ExactFact[],
       ] = await Promise.all([
         coreLimit === 0
           ? Promise.resolve([])
@@ -695,9 +702,16 @@ export function createMcpServer(convexAuthToken: string) {
           limit,
           includeHistorical,
         }),
+        exactLimit === 0
+          ? Promise.resolve([])
+          : convex.query(api.models.facts.mcpQueries.recallExact, {
+              query,
+              limit: exactLimit,
+            }),
       ]);
 
       if (
+        exactFacts.length === 0 &&
         coreFacts.length === 0 &&
         relevantFacts.length === 0 &&
         index.length === 0
@@ -713,10 +727,12 @@ export function createMcpServer(convexAuthToken: string) {
       }
 
       const {
+        exactFacts: selectedExactFacts,
         coreFacts: selectedCoreFacts,
         relevanceFacts,
         relevanceThoughts: relevanceIndex,
       } = blendRecallContext({
+        exactFacts,
         coreFacts,
         relevantFacts,
         relevantThoughts: index,
@@ -753,6 +769,14 @@ export function createMcpServer(convexAuthToken: string) {
             });
       const thoughtById = new Map(
         thoughts.map((thought) => [thought._id, thought]),
+      );
+      const exactFactContext = selectedExactFacts.map(
+        ({ matchedEntity, ...fact }) => ({
+          ...formatFactForMcp(fact),
+          memoryKind: "fact" as const,
+          source: "exact" as const,
+          matchedEntity,
+        }),
       );
       const coreFactContext = selectedCoreFacts.map((fact) => ({
         ...formatFactForMcp(fact),
@@ -798,6 +822,7 @@ export function createMcpServer(convexAuthToken: string) {
         ];
       });
       const context = [
+        ...exactFactContext,
         ...coreFactContext,
         ...relevanceFactContext,
         ...relevanceContext,

@@ -305,7 +305,10 @@ describe("structured durable facts", () => {
       }),
       owner.action(api.models.facts.mcpActions.search, { query, limit }),
     ]);
+    // The exact tier is covered in entityLookup.test.ts; it is empty here so
+    // the core/relevance dedup is the only thing under test.
     const mcpWindow = blendRecallContext({
+      exactFacts: [],
       coreFacts: mcpCore,
       relevantFacts: mcpRelevant,
       relevantThoughts: noThoughts,
@@ -332,6 +335,7 @@ describe("structured durable facts", () => {
         .map((row: { id: string }) => row.id),
     ).toContain(older.factId);
     const evalWindow = blendRecallContext({
+      exactFacts: [],
       coreFacts: rows.filter(
         (row: { source: string }) => row.source === "core",
       ),

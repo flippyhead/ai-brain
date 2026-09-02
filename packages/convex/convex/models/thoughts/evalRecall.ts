@@ -8,7 +8,11 @@ import {
 } from "./memoryEval";
 import { liveRecallCorpus, type SeedMemory } from "./memoryEval.corpus";
 import { recallFacts, rememberFactWithEmbedding } from "../facts/actions";
-import { blendRecallContext, coreLimitFor } from "../recallBlend";
+import {
+  blendRecallContext,
+  coreLimitFor,
+  exactLimitFor,
+} from "../recallBlend";
 
 // Matches the pattern in mcpActions.ts: the generated API type collapses under
 // action-to-action recursion.
@@ -176,6 +180,7 @@ export const runBaseline = internalAction({
               key: fact.subjectKey,
               kind: "person",
               name: fact.subjectName,
+              aliases: fact.subjectAliases,
             },
             predicate: fact.predicate,
             value: { type: "text", value: fact.value },
@@ -219,10 +224,12 @@ export const runBaseline = internalAction({
             userId,
             query: query.query,
             // Exactly what recall_context fetches at SEARCH_LIMIT. Core facts
-            // come newest first, so the fetch at a smaller cutoff is a prefix
-            // of this one and the blend slices it per cutoff.
+            // come newest first and exact hits best match first, so the fetch
+            // at a smaller cutoff is a prefix of this one and the blend slices
+            // it per cutoff.
             limit: SEARCH_LIMIT,
             coreLimit: coreLimitFor(SEARCH_LIMIT),
+            exactLimit: exactLimitFor(SEARCH_LIMIT),
             includeHistorical: query.includeHistorical,
           });
 
@@ -265,6 +272,7 @@ export const runBaseline = internalAction({
           // depends on the limit.
           const blendAt = (limit: number): RetrievalEvaluationResult[] => {
             const blend = blendRecallContext({
+              exactFacts: factRows.filter((row) => row.source === "exact"),
               coreFacts: factRows.filter((row) => row.source === "core"),
               relevantFacts: factRows.filter(
                 (row) => row.source === "relevant",
@@ -274,6 +282,7 @@ export const runBaseline = internalAction({
               factId: (row) => row.id,
             });
             return [
+              ...blend.exactFacts.map(toFactResult),
               ...blend.coreFacts.map(toFactResult),
               ...blend.relevanceFacts.map(toFactResult),
               ...blend.relevanceThoughts.map(toThoughtResult),

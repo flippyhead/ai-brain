@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import {
   getRetrievableFacts,
   listFacts,
+  recallExactFacts,
   rememberFact as rememberFactModel,
   searchFacts,
   setFactEmbedding,
@@ -117,5 +118,23 @@ export const setEmbedding = internalMutation({
       args.searchText,
       args.embedding,
     );
+  },
+});
+
+/**
+ * The exact tier of `recall_context` for a known account: current facts about
+ * the entities the query names. The read is a query so it never writes; the
+ * fused action in `actions.ts` calls it alongside the core and ranked reads.
+ */
+export const recallExactByUser = internalQuery({
+  args: {
+    userId: v.id("users"),
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await recallExactFacts(ctx, args.userId, args.query, {
+      limit: args.limit,
+    });
   },
 });

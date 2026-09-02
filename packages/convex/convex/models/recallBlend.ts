@@ -8,10 +8,19 @@
  * exists to catch.
  *
  * Order is significant. Scoring is top-k, so the sequence returned here is the
- * sequence that gets evaluated.
+ * sequence that gets evaluated. Tiers arrive in this order: exact (facts
+ * about an entity the query names), core (facts flagged as identity-grade),
+ * then relevance (ranked facts, then ranked memories).
  */
 
-export type RecallBlendInput<Fact, Thought> = {
+/**
+ * Exact hits carry more than a plain fact (the entity the query named), so
+ * they get their own type parameter; it must still be a fact so one `factId`
+ * serves every tier's dedup.
+ */
+export type RecallBlendInput<Fact, Thought, Exact extends Fact = Fact> = {
+  /** Current facts about entities the query names, best match first. */
+  exactFacts: readonly Exact[];
   coreFacts: readonly Fact[];
   relevantFacts: readonly Fact[];
   relevantThoughts: readonly Thought[];
@@ -19,7 +28,8 @@ export type RecallBlendInput<Fact, Thought> = {
   factId: (fact: Fact) => string;
 };
 
-export type RecallBlend<Fact, Thought> = {
+export type RecallBlend<Fact, Thought, Exact extends Fact = Fact> = {
+  exactFacts: Exact[];
   coreFacts: Fact[];
   relevanceFacts: Fact[];
   relevanceThoughts: Thought[];
@@ -48,6 +58,27 @@ export function coreLimitFor(limit: number): number {
 }
 
 /**
+ * Exact slots available at a given result limit: facts about an entity the
+ * query names by exact name or alias.
+ *
+ * A named entity is the strongest signal a query carries about what it
+ * wants, so its facts go ahead of everything ranked. But a query can name an
+ * entity and still be about something only the ranking can find, so exact
+ * shares the non-core budget with relevance rather than owning it: at most
+ * half of the slots left after core, rounded down, so relevance always keeps
+ * at least the other half. `exactLimitFor(5) === 2` — one core, up to two
+ * exact, at least two relevance — and `exactLimitFor(8) === 3`.
+ *
+ * Exact does not reduce core; core is the one slot the question did not ask
+ * for, and this tier is the part it asked for most precisely. At limit one
+ * there is no exact slot: the entity's fact still reaches the window through
+ * keyword relevance, which indexes the name.
+ */
+export function exactLimitFor(limit: number): number {
+  return Math.floor(Math.max(0, limit - coreLimitFor(limit)) / 2);
+}
+
+/**
  * Relevance slots facts may fill when thoughts also matched: at most a third,
  * rounded down, so one fact at the default limit.
  *
@@ -63,17 +94,28 @@ function factRelevanceCap(relevanceLimit: number): number {
   return Math.floor(relevanceLimit / 3);
 }
 
-export function blendRecallContext<Fact, Thought>({
+export function blendRecallContext<Fact, Thought, Exact extends Fact = Fact>({
+  exactFacts,
   coreFacts,
   relevantFacts,
   relevantThoughts,
   limit,
   factId,
-}: RecallBlendInput<Fact, Thought>): RecallBlend<Fact, Thought> {
-  const selectedCoreFacts = coreFacts.slice(0, coreLimitFor(limit));
-  const coreFactIds = new Set(selectedCoreFacts.map(factId));
+}: RecallBlendInput<Fact, Thought, Exact>): RecallBlend<Fact, Thought, Exact> {
+  const selectedExactFacts = exactFacts.slice(0, exactLimitFor(limit));
+  const takenIds = new Set(selectedExactFacts.map(factId));
 
-  const relevanceLimit = Math.max(0, limit - selectedCoreFacts.length);
+  // A core fact the query named is served once, as exact, and core moves on
+  // to the next core fact.
+  const selectedCoreFacts = coreFacts
+    .filter((fact) => !takenIds.has(factId(fact)))
+    .slice(0, coreLimitFor(limit));
+  for (const fact of selectedCoreFacts) takenIds.add(factId(fact));
+
+  const relevanceLimit = Math.max(
+    0,
+    limit - selectedExactFacts.length - selectedCoreFacts.length,
+  );
   // Thoughts that did not match leave their slots to facts, so an account
   // whose only matches are facts still fills the window.
   const factRelevanceLimit = Math.min(
@@ -85,7 +127,7 @@ export function blendRecallContext<Fact, Thought>({
   );
 
   const relevanceFacts = relevantFacts
-    .filter((fact) => !coreFactIds.has(factId(fact)))
+    .filter((fact) => !takenIds.has(factId(fact)))
     .slice(0, factRelevanceLimit);
   const relevanceThoughts = relevantThoughts.slice(
     0,
@@ -93,6 +135,7 @@ export function blendRecallContext<Fact, Thought>({
   );
 
   return {
+    exactFacts: selectedExactFacts,
     coreFacts: selectedCoreFacts,
     relevanceFacts,
     relevanceThoughts,
