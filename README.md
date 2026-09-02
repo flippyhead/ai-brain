@@ -75,6 +75,36 @@ known school start date, project period, or former role can be represented
 without treating the database write time as the event time. Inaccurate claims
 are retracted and have no historical validity interval.
 
+## Exporting your memories
+
+    pnpm export:brain --prod                                    # list accounts
+    pnpm export:brain --prod --user <userId> --out ./brain-export
+
+Two formats are written. `json/` is a faithful archive — every stored field
+except the embedding, unaltered, one file per collection, covering every
+account-owned table (memories, facts, entities, lists and their items, reports
+and their insights). `markdown/` is a brain directory another memory system can
+read: entity pages carrying a `## Facts` fence and memory pages carrying
+frontmatter.
+
+Re-running into the same `--out` replaces the generated `json/` and
+`markdown/` directories outright rather than writing over them, so a memory
+retracted since the last run does not survive as a stale page. Anything else
+under `--out` is left alone.
+
+The markdown form preserves lifecycle rather than flattening it. A superseded
+fact is written struck through and pointed at the row that replaced it; a
+retracted fact is written struck through and marked forgotten, with its reason.
+An export that dropped that distinction would hand the reader two competing
+current claims where the account holds one retired one.
+
+Embeddings are never exported. They are derived from content the archive
+already carries in full, and any consumer that needs them can regenerate them.
+
+Superseded and retracted memories are excluded unless `--include-historical` is
+passed. Export reads through `convex run`, so it uses the deployment
+credentials already configured rather than handling a key itself.
+
 ## AI provider configuration
 
 The Convex backend currently uses OpenAI

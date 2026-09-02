@@ -17,6 +17,8 @@ import type * as models_apiKeys_model from "../models/apiKeys/model.js";
 import type * as models_apiKeys_private from "../models/apiKeys/private.js";
 import type * as models_apiKeys_public from "../models/apiKeys/public.js";
 import type * as models_apiKeys_validators from "../models/apiKeys/validators.js";
+import type * as models_export_model from "../models/export/model.js";
+import type * as models_export_private from "../models/export/private.js";
 import type * as models_facts_mcpActions from "../models/facts/mcpActions.js";
 import type * as models_facts_mcpQueries from "../models/facts/mcpQueries.js";
 import type * as models_facts_model from "../models/facts/model.js";
@@ -72,6 +74,8 @@ declare const fullApi: ApiFromModules<{
   "models/apiKeys/private": typeof models_apiKeys_private;
   "models/apiKeys/public": typeof models_apiKeys_public;
   "models/apiKeys/validators": typeof models_apiKeys_validators;
+  "models/export/model": typeof models_export_model;
+  "models/export/private": typeof models_export_private;
   "models/facts/mcpActions": typeof models_facts_mcpActions;
   "models/facts/mcpQueries": typeof models_facts_mcpQueries;
   "models/facts/model": typeof models_facts_model;
