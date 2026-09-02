@@ -161,6 +161,12 @@ is almost certainly sufficient; the blend already does this for core.
 
 ## W3 — Budget-aware recall shaping
 
+**Status: implemented** in PR #45 — `apps/web/src/lib/mcp/recall-budget.ts`
+fits the whole envelope under `maxContextChars` (default 24,000): core and
+exact keep their text, relevance is trimmed longest-first at a sentence
+boundary before anything is dropped, trimmed memories carry
+`truncated: true`, and a note reports the loss.
+
 **A correction to the comparison document:** the claim that recall has "no size
 bound" was imprecise. There are two bounds today — `truncateContext` caps each
 thought at 4,000 characters (`server.ts:254-259`), and the response declares
