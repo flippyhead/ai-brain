@@ -94,6 +94,7 @@ export const THOUGHT_PAGE_TYPES = {
   meeting_note: "meeting",
   task: "note",
   reference: "note",
+  procedural: "note",
 };
 
 export function slugify(value, { maxLength = 60 } = {}) {

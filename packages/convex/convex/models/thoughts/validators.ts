@@ -7,6 +7,11 @@ export const thoughtType = v.union(
   v.literal("meeting_note"),
   v.literal("task"),
   v.literal("reference"),
+  // How-to steps, playbooks, and recurring working patterns. Kept on the one
+  // type enum rather than an orthogonal semantic|procedural field, which the
+  // roadmap rejected: the type is already a filter on the search index and
+  // `by_userId_and_type`, so this is an enum addition, not a schema change.
+  v.literal("procedural"),
 );
 
 export const thoughtMetadata = v.object({

@@ -225,6 +225,15 @@ describe("memory pages", () => {
     assert.ok(page.includes("type: meeting"));
   });
 
+  test("maps a procedural memory to a note page and keeps its brain_type", () => {
+    const page = renderThoughtPage({
+      ...thought,
+      metadata: { ...thought.metadata, type: "procedural" },
+    });
+    assert.ok(page.includes("type: note"));
+    assert.ok(page.includes("brain_type: procedural"));
+  });
+
   test("names files by date and summary, disambiguating collisions", () => {
     const taken = new Set();
     assert.equal(
