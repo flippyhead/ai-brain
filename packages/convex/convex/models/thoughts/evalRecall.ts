@@ -7,7 +7,7 @@ import {
   type RetrievalEvaluationResult,
 } from "./memoryEval";
 import { liveRecallCorpus, type SeedMemory } from "./memoryEval.corpus";
-import { blendRecallContext } from "../recallBlend";
+import { blendRecallContext, coreLimitFor } from "../recallBlend";
 
 // Matches the pattern in mcpActions.ts: the generated API type collapses under
 // action-to-action recursion.
@@ -224,6 +224,11 @@ export const runBaseline = internalAction({
           }> = await ctx.runQuery(internal.models.facts.private.recallFacts, {
             userId,
             query: query.query,
+            // Exactly what recall_context fetches at SEARCH_LIMIT. Core facts
+            // come newest first, so the fetch at a smaller cutoff is a prefix
+            // of this one and the blend slices it per cutoff.
+            limit: SEARCH_LIMIT,
+            coreLimit: coreLimitFor(SEARCH_LIMIT),
             includeHistorical: query.includeHistorical,
           });
 

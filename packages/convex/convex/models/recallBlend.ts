@@ -26,13 +26,14 @@ export type RecallBlend<Fact, Thought> = {
 };
 
 /**
- * Core slots available at a given result limit.
+ * Core slots available at a given result limit: at most one.
  *
- * Core is context the question did not ask for, so it takes one slot at the
- * default limit of five and gains one more for every further five requested:
- * `coreLimitFor(5) === 1`, `coreLimitFor(10) === 2`. It used to take three of
- * five, which sent the same core set on every call and left two slots for the
- * answer (docs/comparisons/gbrain-bakeoff.md, run 1).
+ * Core is context the question did not ask for. It used to take three of
+ * five, which sent the same core set on every call and left two slots for
+ * the answer (docs/comparisons/gbrain-bakeoff.md, run 1). One slot carries
+ * the identity-grade fact a client should always see, and `recall_context`
+ * caps `limit` at eight, so no window it can ask for is wide enough to
+ * justify a second.
  *
  * Below three results core takes nothing. A caller asking for one or two
  * memories wants the answer, and a window that small cannot spare a slot for
@@ -43,8 +44,7 @@ export type RecallBlend<Fact, Thought> = {
  * along on every question.
  */
 export function coreLimitFor(limit: number): number {
-  if (limit < 3) return 0;
-  return Math.max(1, Math.floor(limit / 5));
+  return limit < 3 ? 0 : 1;
 }
 
 /**

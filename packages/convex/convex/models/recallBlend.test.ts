@@ -17,11 +17,12 @@ function blend(limit: number, counts: [number, number, number]) {
 }
 
 describe("core slots", () => {
-  test("core takes one slot at the default limit and scales gently", () => {
-    expect(coreLimitFor(5)).toBe(1);
-    expect(coreLimitFor(8)).toBe(1);
-    expect(coreLimitFor(10)).toBe(2);
-    expect(coreLimitFor(15)).toBe(3);
+  test("core takes at most one slot at any limit the tool accepts", () => {
+    // recall_context caps limit at eight; the eval harness scores at ten.
+    for (const limit of [3, 4, 5, 8, 10]) {
+      expect(coreLimitFor(limit)).toBe(1);
+    }
+    expect(blend(8, [5, 0, 0]).coreFacts.map((f) => f.id)).toEqual(["cf0"]);
   });
 
   test("core takes nothing from a window of one or two", () => {
