@@ -378,10 +378,17 @@ describe("semantic recall for facts", () => {
         query: SEMANTIC_QUERY,
       });
 
-      expect(rows.map((row) => [row.source, row.id])).toEqual([
-        ["core", core.factId],
-        ["relevant", therapist.factId],
-      ]);
+      // Core rows are the core fetch; relevant rows are the fused ranking. The
+      // two are not deduplicated here: the blend drops a relevant hit only when
+      // it duplicates a core fact the blend actually selected.
+      expect(
+        rows.filter((row) => row.source === "core").map((row) => row.id),
+      ).toEqual([core.factId]);
+      const relevant = rows
+        .filter((row) => row.source === "relevant")
+        .map((row) => row.id);
+      expect(relevant[0]).toBe(therapist.factId);
+      expect(relevant).toContain(core.factId);
     });
   });
 

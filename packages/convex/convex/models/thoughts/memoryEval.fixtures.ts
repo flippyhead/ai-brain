@@ -109,11 +109,7 @@ export const deterministicRetrievalFixtures: RetrievalEvaluationCase[] = [
     name: "recalls every memory behind a multi-fact project question",
     query: "What's the status of the Foster Clarity rollout?",
     expectedUserId: "avery",
-    expectedIds: [
-      "foster-stage",
-      "foster-blocker",
-      "foster-owner",
-    ],
+    expectedIds: ["foster-stage", "foster-blocker", "foster-owner"],
     expectedExactStrings: ["Foster Clarity", "Priya"],
     results: [
       {
@@ -135,6 +131,94 @@ export const deterministicRetrievalFixtures: RetrievalEvaluationCase[] = [
         memoryStatus: "current",
         content: "Priya owns the Foster Clarity rollout.",
       },
+    ],
+  },
+];
+
+/**
+ * A recorded recall ranking: what each retriever returned for one corpus
+ * query, keyed into `liveRecallCorpus`, before the blend policy decided what
+ * a client sees. The blend is the thing under test, so it is applied at test
+ * time rather than baked into the recording.
+ */
+export type RecordedRecallRanking = {
+  account: string;
+  queryName: string;
+  /** Core facts as `listCore` returns them, newest first. */
+  coreFactKeys: string[];
+  /** Keyword fact hits in the order the search index returned them. */
+  relevantFactKeys: string[];
+  /** Hybrid thought hits in fused rank order. */
+  relevantThoughtKeys: string[];
+};
+
+// The account's core set: two core facts, neither of which answers any of the
+// questions below. It also holds a core narrative memory ("diet"); that used
+// to ride along on every question, and now appears only where it ranks.
+const averyCore = {
+  account: "avery",
+  coreFactKeys: ["fact-home", "fact-diet"],
+};
+
+/**
+ * The five question shapes the 2026-09-02 bake-off lost on retrieval
+ * (docs/comparisons/gbrain-bakeoff.md). In each, the right memory is in the
+ * thought ranking at second or third place, and keyword-only fact search
+ * returns a fact that shares a word with the question without answering it.
+ * Scored at the default limit of five.
+ */
+export const recordedBakeoffRankings: RecordedRecallRanking[] = [
+  {
+    ...averyCore,
+    queryName: "semantic recall of a comparison outcome",
+    relevantFactKeys: ["fact-tomas-role"],
+    relevantThoughtKeys: [
+      "atlas-version",
+      "atlas-bakeoff",
+      "categories-new",
+      "hvac",
+      "foster-stage",
+    ],
+  },
+  {
+    ...averyCore,
+    queryName: "semantic recall with no shared vocabulary",
+    relevantFactKeys: ["fact-priya-role"],
+    relevantThoughtKeys: [
+      "foster-owner",
+      "foster-stage",
+      "priya-cover",
+      "foster-blocker",
+      "atlas-version",
+    ],
+  },
+  {
+    ...averyCore,
+    queryName: "open loop with a named vendor",
+    relevantFactKeys: ["fact-marisol-role"],
+    relevantThoughtKeys: ["hvac", "delgado-credit", "foster-blocker", "diet"],
+  },
+  {
+    ...averyCore,
+    queryName: "change over time behind a keyword-heavy neighbour",
+    relevantFactKeys: ["fact-tomas-role"],
+    relevantThoughtKeys: [
+      "atlas-version",
+      "categories-new",
+      "categories-old",
+      "atlas-bakeoff",
+    ],
+  },
+  {
+    ...averyCore,
+    queryName: "synthesis across three memories",
+    relevantFactKeys: ["fact-school"],
+    relevantThoughtKeys: [
+      "tuition-amount",
+      "tuition-schedule",
+      "tuition-discount",
+      "school-new",
+      "school-old",
     ],
   },
 ];

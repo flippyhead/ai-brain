@@ -209,8 +209,17 @@ export type RecalledFact = {
 
 /**
  * The fact half of the blend `recall_context` serves: core facts plus facts
- * relevant to the query. Kept together so the evaluation harness exercises the
- * same shape a client receives rather than approximating it.
+ * relevant to the query, fetched the way the tool fetches them — two
+ * independent reads, `coreLimit` core facts newest first and `limit` fused
+ * hits in rank order. A `coreLimit` of zero skips the core read, as the tool
+ * does when the window has no core slot.
+ *
+ * Rows are deliberately not deduplicated across the two sources. The tool
+ * hands both lists to `blendRecallContext`, which drops a relevant hit only
+ * when it duplicates a core fact the blend actually selected. Deduplicating
+ * here against every core fact fetched would drop a core fact that ranked as
+ * relevant but was not selected as core, and the harness would then score a
+ * window no client receives.
  */
 export async function recallFacts(
   ctx: ActionCtx,
@@ -222,11 +231,14 @@ export async function recallFacts(
     includeHistorical?: boolean;
   },
 ): Promise<RecalledFact[]> {
+  const coreLimit = args.coreLimit ?? DEFAULT_RECALL_CANDIDATES;
   const [core, relevant]: [HydratedFact[], HydratedFact[]] = await Promise.all([
-    ctx.runQuery(internal.models.facts.private.listCoreByUser, {
-      userId: args.userId,
-      limit: args.coreLimit ?? DEFAULT_RECALL_CANDIDATES,
-    }),
+    coreLimit === 0
+      ? Promise.resolve([])
+      : ctx.runQuery(internal.models.facts.private.listCoreByUser, {
+          userId: args.userId,
+          limit: coreLimit,
+        }),
     hybridSearchFacts(ctx, {
       userId: args.userId,
       query: args.query,
@@ -235,20 +247,15 @@ export async function recallFacts(
     }),
   ]);
 
-  const seen = new Set<string>();
-  const rows: RecalledFact[] = [];
-  for (const [source, facts] of [
-    ["core", core],
-    ["relevant", relevant],
-  ] as const) {
-    for (const fact of facts) {
-      const id = fact.id as string;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      rows.push({ id, statement: fact.statement, status: fact.status, source });
-    }
-  }
-  return rows;
+  const row =
+    (source: "core" | "relevant") =>
+    (fact: HydratedFact): RecalledFact => ({
+      id: fact.id as string,
+      statement: fact.statement,
+      status: fact.status,
+      source,
+    });
+  return [...core.map(row("core")), ...relevant.map(row("relevant"))];
 }
 
 /** `recallFacts` as a runnable function, for tests and operator inspection. */

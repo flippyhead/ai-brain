@@ -218,6 +218,11 @@ export const runBaseline = internalAction({
           const factRows = await recallFacts(ctx, {
             userId,
             query: query.query,
+            // Exactly what recall_context fetches at SEARCH_LIMIT. Core facts
+            // come newest first, so the fetch at a smaller cutoff is a prefix
+            // of this one and the blend slices it per cutoff.
+            limit: SEARCH_LIMIT,
+            coreLimit: coreLimitFor(SEARCH_LIMIT),
             includeHistorical: query.includeHistorical,
           });
 
@@ -254,15 +259,6 @@ export const runBaseline = internalAction({
             };
           };
 
-          const coreThoughtDocs: Array<{
-            _id: Id<"thoughts">;
-            content: string;
-            memoryStatus?: "current" | "superseded" | "retracted";
-          }> = await ctx.runQuery(
-            internal.models.thoughts.private.listCoreByUser,
-            { userId, limit: coreLimitFor(SEARCH_LIMIT) },
-          );
-
           // Score the window a client actually receives. `recall_context`
           // defaults to five results, so the blend is rebuilt per cutoff rather
           // than sliced from one oversized list — the core allocation itself
@@ -270,25 +266,15 @@ export const runBaseline = internalAction({
           const blendAt = (limit: number): RetrievalEvaluationResult[] => {
             const blend = blendRecallContext({
               coreFacts: factRows.filter((row) => row.source === "core"),
-              coreThoughts: coreThoughtDocs,
               relevantFacts: factRows.filter(
                 (row) => row.source === "relevant",
               ),
               relevantThoughts: hits,
               limit,
               factId: (row) => row.id,
-              coreThoughtId: (doc) => doc._id as string,
-              relevantThoughtId: (hit) => hit._id as string,
             });
             return [
               ...blend.coreFacts.map(toFactResult),
-              ...blend.coreThoughts.map((doc) =>
-                toThoughtResult({
-                  _id: doc._id,
-                  content: doc.content,
-                  memoryStatus: doc.memoryStatus ?? "current",
-                }),
-              ),
               ...blend.relevanceFacts.map(toFactResult),
               ...blend.relevanceThoughts.map(toThoughtResult),
             ];

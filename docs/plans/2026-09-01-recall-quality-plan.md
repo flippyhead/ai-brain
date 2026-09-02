@@ -16,6 +16,10 @@ data already in hand.
 
 **Design doc:** `docs/plans/2026-09-01-recall-quality-design.md`
 
+**W0 (blend policy) is implemented** in PR #40: one core slot at the
+default limit, facts only, and no guaranteed fact share of the relevance
+slots. It precedes everything below and is not repeated here.
+
 **Decision gate:** W5 (MEMORY_VERBS conformance) is deliberately absent from
 this plan. Answer the positioning question in the design doc before W4 lands —
 it changes W4's envelope shape and nothing else.

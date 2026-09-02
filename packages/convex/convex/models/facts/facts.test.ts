@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { api, internal } from "../../_generated/api";
 import schema from "../../schema";
 import { modules } from "../../test.setup";
+import { blendRecallContext, coreLimitFor } from "../recallBlend";
 import { listFacts, searchFacts } from "./model";
 
 const issuer = "https://brain.example.test";
@@ -270,6 +271,83 @@ describe("structured durable facts", () => {
     const ids = covering.map((fact: { id: string }) => fact.id);
     expect(ids).toContain(corrected.factId);
     expect(ids).not.toContain(wrong.factId);
+  });
+
+  test("scores the eval harness on the fact window recall_context serves", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    const owner = t.withIdentity({ issuer, subject: userId });
+    // Two core facts. The older one is also the best keyword match, so at the
+    // default limit it belongs in the relevance slot: core takes one, and the
+    // newer fact takes it.
+    const older = await owner.action(api.models.facts.mcpActions.remember, {
+      subject: { key: "person:zevin", kind: "person", name: "Zevin" },
+      predicate: "school",
+      value: { type: "text", value: "Redwood Academy" },
+      sourceType: "user_stated",
+      isCore: true,
+    });
+    const newer = await owner.action(api.models.facts.mcpActions.remember, {
+      subject: { key: "person:avery", kind: "person", name: "Avery" },
+      predicate: "home_city",
+      value: { type: "text", value: "Fernwood" },
+      sourceType: "user_stated",
+      isCore: true,
+    });
+    const limit = 5;
+    const query = "Zevin school Redwood Academy";
+    const noThoughts: Array<{ _id: string }> = [];
+
+    // What recall_context fetches, then blends.
+    const [mcpCore, mcpRelevant] = await Promise.all([
+      owner.query(api.models.facts.mcpQueries.listCore, {
+        limit: coreLimitFor(limit),
+      }),
+      owner.action(api.models.facts.mcpActions.search, { query, limit }),
+    ]);
+    const mcpWindow = blendRecallContext({
+      coreFacts: mcpCore,
+      relevantFacts: mcpRelevant,
+      relevantThoughts: noThoughts,
+      limit,
+      factId: (fact) => fact.id as string,
+    });
+    expect(mcpWindow.coreFacts.map((fact) => fact.id)).toEqual([newer.factId]);
+    expect(mcpWindow.relevanceFacts.map((fact) => fact.id)).toEqual([
+      older.factId,
+    ]);
+
+    // What the harness fetches, then blends. A wider core fetch than the
+    // blend will select must not hide the older fact from the relevance
+    // slot: dedup belongs to the blend, against the core it selected.
+    const rows = await t.action(internal.models.facts.actions.recall, {
+      userId,
+      query,
+      limit,
+      coreLimit: 5,
+    });
+    expect(
+      rows
+        .filter((row: { source: string }) => row.source === "relevant")
+        .map((row: { id: string }) => row.id),
+    ).toContain(older.factId);
+    const evalWindow = blendRecallContext({
+      coreFacts: rows.filter(
+        (row: { source: string }) => row.source === "core",
+      ),
+      relevantFacts: rows.filter(
+        (row: { source: string }) => row.source === "relevant",
+      ),
+      relevantThoughts: noThoughts,
+      limit,
+      factId: (row: { id: string }) => row.id,
+    });
+    expect(evalWindow.coreFacts.map((row: { id: string }) => row.id)).toEqual(
+      mcpWindow.coreFacts.map((fact) => fact.id),
+    );
+    expect(
+      evalWindow.relevanceFacts.map((row: { id: string }) => row.id),
+    ).toEqual(mcpWindow.relevanceFacts.map((fact) => fact.id));
   });
 
   test("keeps MCP and dashboard fact reads isolated by account and issuer", async () => {
