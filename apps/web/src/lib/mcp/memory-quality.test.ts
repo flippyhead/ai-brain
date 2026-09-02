@@ -753,7 +753,8 @@ describe("MCP memory quality contract", () => {
       expect(gaps[0]!.message).toContain("Two current facts disagree");
       expect(gaps[1]).toEqual({
         kind: "absent",
-        message: "No fact recording a phone number was found for Jordan.",
+        message:
+          "This recall found no fact recording a phone number for Jordan; it may not be stored.",
       });
       expect(gaps[2]).toMatchObject({ refs: ["thought:moving-note"] });
       expect(gaps[2]!.message).toContain("since 2026-04-10");

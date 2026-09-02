@@ -6,7 +6,7 @@ import {
 } from "@repo/db/convex/models/recallBlend";
 import {
   computeRecallGaps,
-  formatRecallGaps,
+  fitRecallGapBlocks,
 } from "@repo/db/convex/models/recallGaps";
 import {
   DEFAULT_CORE_MEMORY_LIMIT,
@@ -221,6 +221,7 @@ type FactResult = {
   isCore: boolean;
   validFrom?: number;
   validTo?: number;
+  cardinality?: "single" | "multiple";
   status: "current" | "superseded" | "retracted";
   supersededAt?: number;
   supersededBy?: string;
@@ -274,6 +275,9 @@ function formatFactForMcp(fact: FactResult) {
         : new Date(fact.updatedAt).toISOString(),
   };
 }
+
+/** The host's hard limit on a `recall_context` result, declared in `_meta`. */
+const RECALL_RESULT_SIZE_CHARS = 50_000;
 
 function truncateContext(content: string, maxChars = 4_000): string {
   const chars = Array.from(content);
@@ -809,7 +813,8 @@ export function createMcpServer(convexAuthToken: string) {
 
       // What the window does not say, computed from the window itself. The
       // memories block stays a bare, machine-parseable array; gaps follow it
-      // as a sibling block, and only when there is something to report.
+      // as sibling blocks, only when there is something to report, and only
+      // in the room the memories block leaves under the declared result size.
       const gaps = computeRecallGaps({
         query,
         now: Date.now(),
@@ -826,23 +831,18 @@ export function createMcpServer(convexAuthToken: string) {
         })),
       });
 
+      const memoriesText = JSON.stringify(context, null, 2);
+      const gapBlocks = fitRecallGapBlocks(
+        gaps,
+        RECALL_RESULT_SIZE_CHARS - memoriesText.length,
+      );
+
       return {
         content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(context, null, 2),
-          },
-          ...(gaps.length === 0
-            ? []
-            : [
-                {
-                  type: "text" as const,
-                  text: JSON.stringify({ gaps }, null, 2),
-                },
-                { type: "text" as const, text: formatRecallGaps(gaps) },
-              ]),
+          { type: "text" as const, text: memoriesText },
+          ...gapBlocks.map((text) => ({ type: "text" as const, text })),
         ],
-        _meta: { "anthropic/maxResultSizeChars": 50000 },
+        _meta: { "anthropic/maxResultSizeChars": RECALL_RESULT_SIZE_CHARS },
       };
     },
   );

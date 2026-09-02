@@ -439,7 +439,8 @@ export async function rememberFact(
     };
   }
 
-  const affected = (args.cardinality ?? "single") === "single" ? current : [];
+  const cardinality = args.cardinality ?? "single";
+  const affected = cardinality === "single" ? current : [];
   const now = Date.now();
   const factId = await ctx.db.insert("facts", {
     userId,
@@ -456,6 +457,7 @@ export async function rememberFact(
     isCore: args.isCore,
     validFrom: args.validFrom,
     validTo: args.validTo,
+    cardinality,
     status: "current",
     supersedes:
       affected.length > 0 ? affected.map((fact) => fact._id) : undefined,
@@ -565,6 +567,7 @@ export async function hydrateFact(ctx: QueryCtx, fact: Doc<"facts">) {
     isCore: fact.isCore ?? false,
     validFrom: fact.validFrom,
     validTo: fact.validTo,
+    cardinality: fact.cardinality,
     status: fact.status,
     supersededAt: fact.supersededAt,
     supersededBy: fact.supersededBy,
