@@ -89,13 +89,10 @@ function clampPageSize(requested: number | undefined): number {
  * dropped because an export belongs to exactly one account, and repeating its
  * id on every row invites a re-import into the wrong one.
  */
-function scrubThought(doc: Doc<"thoughts">) {
+function scrubRow<T extends { userId: Id<"users">; embedding?: unknown }>(
+  doc: T,
+) {
   const { embedding: _embedding, userId: _userId, ...rest } = doc;
-  return rest;
-}
-
-function scrubRow<T extends { userId: Id<"users"> }>(doc: T) {
-  const { userId: _userId, ...rest } = doc;
   return rest;
 }
 
@@ -175,10 +172,7 @@ export async function exportCollectionPage(
   const kept = docs.filter(
     (doc) => includeHistorical || isCurrent(collection, doc),
   );
-  const rows =
-    collection === "thoughts"
-      ? (kept as Doc<"thoughts">[]).map(scrubThought)
-      : kept.map(scrubRow);
+  const rows = kept.map(scrubRow);
 
   return {
     collection,
