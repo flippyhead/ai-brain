@@ -7,13 +7,8 @@ import {
   _listCoreByUser,
   _setCoreStatus,
   _transitionMemory,
-  collectFiltered,
-  takeFiltered,
+  memoryRetrievabilityFilter,
 } from "./model";
-import {
-  isMemoryRetrievable,
-  type MemoryStatus,
-} from "./memoryLifecycle";
 import {
   memorySourceType,
   thoughtLifecycleFields,
@@ -192,18 +187,16 @@ export const searchByText = internalQuery({
   ),
   handler: async (ctx, args) => {
     const limit = args.limit ?? 50;
-    const query = () =>
-      ctx.db.query("thoughts").withSearchIndex("by_content", (q) => {
+    const results = await ctx.db
+      .query("thoughts")
+      .withSearchIndex("by_content", (q) => {
         const base = q.search("content", args.query).eq("userId", args.userId);
         return args.type ? base.eq("metadata.type", args.type) : base;
-      });
-
-    const results = await collectFiltered(
-      (cursor, numItems) => query().paginate({ cursor, numItems }),
-      (memory) =>
-        isMemoryRetrievable(memory, args.includeHistorical, args.activeAt),
-      limit,
-    );
+      })
+      .filter((q) =>
+        memoryRetrievabilityFilter(q, args.includeHistorical, args.activeAt),
+      )
+      .take(limit);
 
     return results.map(({ embedding: _embedding, ...rest }) => rest);
   },
@@ -253,65 +246,67 @@ export const listAroundTime = internalQuery({
     const type = args.type;
 
     // A timeline is a history view, so superseded memories belong in it. A
-    // retracted memory does not: it was never true, and `isMemoryRetrievable`
-    // withholds it from every other read path regardless of `includeHistorical`.
-    // This query returns whole documents, so without the filter a retraction
-    // would leave the content readable here after being hidden everywhere else.
+    // retracted memory does not: it was never true, and every other read path
+    // withholds it regardless of `includeHistorical`. This query returns whole
+    // documents, so without the filter a retraction would leave the content
+    // readable here after being hidden everywhere else.
     //
-    // Streaming rather than `.take(n)`: taking the window first would spend
-    // slots on rows the filter then drops, returning a short timeline while
-    // visible memories sat just past the cut. `collectFiltered` cannot serve
-    // this — it paginates, and Convex permits one `.paginate()` per function
-    // execution, so the second side would fail in a deployed backend.
-    const isRetrievable = (row: { memoryStatus?: MemoryStatus }) =>
-      row.memoryStatus !== "retracted";
+    // The filter runs inside the query, ahead of `take`, so `take` counts only
+    // rows that survive it. Taking the window first and filtering after would
+    // spend slots on dropped rows and return a short timeline while visible
+    // memories sat just past the cut. Two `.take()` calls in one execution are
+    // fine; two `.paginate()` calls are not, which rules out paging here.
 
     // Strictly older than aroundMs, most recent first, collect `before`.
     // _creationTime is the implicit suffix of every Convex index, so the
     // bound can be pushed into the index builder directly.
-    const earlierQuery = () =>
-      type
-        ? ctx.db
-            .query("thoughts")
-            .withIndex("by_userId_and_type", (q) =>
-              q
-                .eq("userId", args.userId)
-                .eq("metadata.type", type)
-                .lt("_creationTime", args.aroundMs),
-            )
-            .order("desc")
-        : ctx.db
-            .query("thoughts")
-            .withIndex("by_userId", (q) =>
-              q.eq("userId", args.userId).lt("_creationTime", args.aroundMs),
-            )
-            .order("desc");
+    const earlierQuery = type
+      ? ctx.db
+          .query("thoughts")
+          .withIndex("by_userId_and_type", (q) =>
+            q
+              .eq("userId", args.userId)
+              .eq("metadata.type", type)
+              .lt("_creationTime", args.aroundMs),
+          )
+          .order("desc")
+      : ctx.db
+          .query("thoughts")
+          .withIndex("by_userId", (q) =>
+            q.eq("userId", args.userId).lt("_creationTime", args.aroundMs),
+          )
+          .order("desc");
 
     // Strictly newer than aroundMs, oldest first, collect `after`.
-    const laterQuery = () =>
-      type
-        ? ctx.db
-            .query("thoughts")
-            .withIndex("by_userId_and_type", (q) =>
-              q
-                .eq("userId", args.userId)
-                .eq("metadata.type", type)
-                .gt("_creationTime", args.aroundMs),
-            )
-            .order("asc")
-        : ctx.db
-            .query("thoughts")
-            .withIndex("by_userId", (q) =>
-              q.eq("userId", args.userId).gt("_creationTime", args.aroundMs),
-            )
-            .order("asc");
+    const laterQuery = type
+      ? ctx.db
+          .query("thoughts")
+          .withIndex("by_userId_and_type", (q) =>
+            q
+              .eq("userId", args.userId)
+              .eq("metadata.type", type)
+              .gt("_creationTime", args.aroundMs),
+          )
+          .order("asc")
+      : ctx.db
+          .query("thoughts")
+          .withIndex("by_userId", (q) =>
+            q.eq("userId", args.userId).gt("_creationTime", args.aroundMs),
+          )
+          .order("asc");
 
-    const earlier = await takeFiltered(
-      earlierQuery(),
-      isRetrievable,
-      args.before,
-    );
-    const later = await takeFiltered(laterQuery(), isRetrievable, args.after);
+    const earlier =
+      args.before > 0
+        ? await earlierQuery
+            .filter((q) => q.neq(q.field("memoryStatus"), "retracted"))
+            .take(args.before)
+        : [];
+    const later =
+      args.after > 0
+        ? await laterQuery
+            .filter((q) => q.neq(q.field("memoryStatus"), "retracted"))
+            .take(args.after)
+        : [];
 
     const combined = [...earlier.reverse(), ...later];
     return combined.map(({ embedding: _embedding, ...rest }) => rest);

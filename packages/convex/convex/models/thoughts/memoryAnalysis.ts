@@ -12,6 +12,7 @@ export const THOUGHT_TYPES = [
   "meeting_note",
   "task",
   "reference",
+  "procedural",
 ] as const;
 
 export type ThoughtType = (typeof THOUGHT_TYPES)[number];

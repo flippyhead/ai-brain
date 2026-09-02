@@ -18,7 +18,7 @@ Trace how your thinking on a topic evolved over time. Given a seed — either a 
   - A topic, e.g. `/brain-thread "COPA remodel"`
   - OR a thought ID, e.g. `/brain-thread thought:abc123xyz` or `/brain-thread abc123xyz`
 - Optional flag:
-  - `--type <decision|person_note|idea|meeting_note|task|reference>` — filter the timeline to one thought type
+  - `--type <decision|person_note|idea|meeting_note|task|reference|procedural>` — filter the timeline to one thought type
 
 Parse `$ARGUMENTS` to extract:
 

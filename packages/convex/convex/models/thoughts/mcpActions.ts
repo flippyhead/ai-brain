@@ -4,7 +4,12 @@ import type { Id } from "../../_generated/dataModel";
 import { v, type Infer } from "convex/values";
 import { requireMcpUserId } from "../../lib/mcpAuth";
 import type { MemoryStatus } from "./memoryLifecycle";
-import { memorySourceType, memoryStatus, thoughtMetadata } from "./validators";
+import {
+  memorySourceType,
+  memoryStatus,
+  thoughtMetadata,
+  thoughtType,
+} from "./validators";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const internal = _internal as any;
@@ -68,16 +73,7 @@ export const capture = action({
 export const search = action({
   args: {
     query: v.string(),
-    type: v.optional(
-      v.union(
-        v.literal("decision"),
-        v.literal("person_note"),
-        v.literal("idea"),
-        v.literal("meeting_note"),
-        v.literal("task"),
-        v.literal("reference"),
-      ),
-    ),
+    type: v.optional(thoughtType),
     limit: v.optional(v.number()),
     includeHistorical: v.optional(v.boolean()),
   },
@@ -207,16 +203,7 @@ export const timeline = action({
     aroundMs: v.optional(v.number()),
     before: v.optional(v.number()),
     after: v.optional(v.number()),
-    type: v.optional(
-      v.union(
-        v.literal("decision"),
-        v.literal("person_note"),
-        v.literal("idea"),
-        v.literal("meeting_note"),
-        v.literal("task"),
-        v.literal("reference"),
-      ),
-    ),
+    type: v.optional(thoughtType),
   },
   returns: v.array(
     v.object({
