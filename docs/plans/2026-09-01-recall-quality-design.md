@@ -64,6 +64,13 @@ mixed in with a slot-budget artefact.
 
 ## W1 — Facts have no semantic recall
 
+**Status:** implemented (PR "Give facts semantic recall"). Facts carry an
+`embedding` and a `by_embedding` vector index; `remember_fact` embeds
+`searchText` after the write; `search_facts` and `recall_context` fuse vector
+and keyword hits in `models/facts/actions.ts`. Existing facts get embeddings
+from `models/facts/migrations:backfillFactEmbeddings`, which still has to be
+run on production after deploy.
+
 **This was not on the GBrain list. It is the largest recall defect in the
 system and it was found while planning the others.**
 
