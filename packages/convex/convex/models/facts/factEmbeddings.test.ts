@@ -547,28 +547,36 @@ describe("semantic recall for facts", () => {
       expect(await missingCount(t)).toBe(0);
     });
 
-    test("audit reports zero once the backfill has run", async () => {
+    test("audit counts the whole table, not one page, and reports zero once the backfill has run", async () => {
       const t = convexTest(schema, modules);
       const userId = await t.run((ctx) => ctx.db.insert("users", {}));
-      await seedRawFacts(t, userId, 2);
+      await seedRawFacts(t, userId, 7);
+      await seedRawFacts(t, userId, 2, true);
       stubEmbeddingProvider();
 
-      const before = await t.query(
+      // Nine facts across four pages of three. A single-page audit would
+      // report at most three missing and call it done.
+      const before = await t.action(
         internal.models.facts.migrations.countMissingFactEmbeddings,
-        {},
+        { batchSize: 3 },
       );
-      expect(before.missing).toBe(2);
+      expect(before).toEqual({
+        scanned: 9,
+        missing: 7,
+        isDone: true,
+        cursor: null,
+      });
 
       await t.action(
         internal.models.facts.migrations.backfillFactEmbeddings,
         {},
       );
 
-      const after = await t.query(
+      const after = await t.action(
         internal.models.facts.migrations.countMissingFactEmbeddings,
-        {},
+        { batchSize: 3 },
       );
-      expect(after.missing).toBe(0);
+      expect(after).toMatchObject({ scanned: 9, missing: 0, isDone: true });
     });
   });
 });

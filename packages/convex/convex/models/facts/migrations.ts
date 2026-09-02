@@ -130,11 +130,21 @@ export const backfillFactEmbeddings = internalAction({
   },
 });
 
+/** Pages one audit run may read before it stops and hands back a cursor. */
+const AUDIT_MAX_BATCHES = 1_000;
+
 /**
- * Read-only audit: how many facts still lack an embedding. Run before and
- * after the backfill; a completed migration reports zero.
+ * Read-only audit: how many facts still lack an embedding, across the whole
+ * table. Run before and after the backfill; a completed migration reports
+ * zero. Writes nothing.
+ *
+ * Loops `pageFactsMissingEmbedding` until the table is exhausted, so one call
+ * with `{}` is a complete count rather than the first page of one. The loop is
+ * bounded at `AUDIT_MAX_BATCHES` pages (200,000 facts at the default page
+ * size); a run that stops early returns `isDone: false` and a `cursor` to pass
+ * back, and `missing` then covers only what was scanned.
  */
-export const countMissingFactEmbeddings = internalQuery({
+export const countMissingFactEmbeddings = internalAction({
   args: {
     cursor: v.optional(v.string()),
     batchSize: v.optional(v.number()),
@@ -146,16 +156,25 @@ export const countMissingFactEmbeddings = internalQuery({
     cursor: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, args) => {
-    const batchSize = Math.min(Math.max(args.batchSize ?? 500, 1), 1000);
-    const page = await ctx.db.query("facts").paginate({
-      cursor: args.cursor ?? null,
-      numItems: batchSize,
-    });
-    return {
-      scanned: page.page.length,
-      missing: page.page.filter((fact) => fact.embedding === undefined).length,
-      isDone: page.isDone,
-      cursor: page.isDone ? null : page.continueCursor,
-    };
+    let cursor: string | null = args.cursor ?? null;
+    let scanned = 0;
+    let missing = 0;
+    let isDone = false;
+
+    for (let batch = 0; batch < AUDIT_MAX_BATCHES && !isDone; batch += 1) {
+      const page: MissingEmbeddingPage = await ctx.runQuery(
+        internal.models.facts.migrations.pageFactsMissingEmbedding,
+        {
+          cursor: cursor ?? undefined,
+          batchSize: args.batchSize ?? MAX_BATCH_SIZE,
+        },
+      );
+      scanned += page.scanned;
+      missing += page.candidates.length;
+      isDone = page.isDone;
+      cursor = page.cursor;
+    }
+
+    return { scanned, missing, isDone, cursor: isDone ? null : cursor };
   },
 });
