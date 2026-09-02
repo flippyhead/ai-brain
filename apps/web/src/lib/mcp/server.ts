@@ -24,9 +24,9 @@ Capture narrative memory: Use capture_thought automatically for a single durable
 
 Admission: Direct, explicit user statements may be stored automatically when durable. Information found in email, calendars, Slack, GitHub, files, or other connectors is only a candidate: present a small atomic preview and obtain user confirmation before storage. Skip single mentions, inferred relationships, vendor/company lists, completed work, and derived values. If uncertain whether a candidate is explicit, durable, atomic, or useful later, ask rather than store.
 
-Correction: Distinguish wrong from outdated. Information that changed is corrected by capturing the current state, which retires the old memory as linked history. Use retract_thought only when the user says a memory should never have been stored, and pass their reason. Never retract to tidy up memories that merely went stale, and never retract on your own judgement. A retraction is reversible with restore_thought until a replacement exists.
+Correction: Distinguish wrong from outdated. Information that changed is corrected by capturing the current state, which retires the old memory as linked history. Use retract_thought only when the user says a memory is wrong — it was never true — and pass their reason. Never retract to tidy up memories that merely went stale, and never retract on your own judgement. A retraction keeps the memory and is reversible with restore_thought until a replacement exists.
 
-Forgetting: Retract when it was wrong; forget when it should never have been stored. Use forget_thought, forget_fact, or forget_entity only when the user asks for something to be erased because it should not exist in memory at all, such as a mis-captured credential or a third party's private detail. Forgetting is a permanent delete with no undo: the record is removed rather than marked, and forget_entity also removes every fact about or pointing at that entity. Never forget on your own judgement, and never forget to correct or tidy.
+Forgetting: Retract when it was wrong; forget when it must not remain in storage. Use forget_thought, forget_fact, or forget_entity only when the user asks for something to be erased regardless of whether it was true, such as a mis-captured credential or a third party's private detail. Forgetting is a permanent delete with no undo: the record is removed rather than marked, and forget_entity also removes every fact about or pointing at that entity. Never forget on your own judgement, and never forget to correct or tidy.
 
 This server cannot observe conversations or force tool calls; recall and capture remain client-mediated.`;
 
@@ -1397,7 +1397,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const retractThoughtTool = server.tool(
     MCP_TOOL_NAMES.retractThought,
-    "Withdraw one narrative memory the user says should never have been stored. Use only when the user asserts the memory is wrong or was captured in error, never to tidy up memories that merely became outdated — outdated memories are replaced by capturing the current state, which preserves them as history. A retracted memory is withheld from every read path. This is reversible with restore_thought while no replacement memory exists.",
+    "Withdraw one narrative memory the user says is wrong: it was never true, as opposed to outdated. Use only when the user asserts the memory is wrong or was captured in error, never to tidy up memories that merely became outdated — outdated memories are replaced by capturing the current state, which preserves them as history. A retracted memory is kept but withheld from every read path, and is reversible with restore_thought while no replacement memory exists. To erase a memory outright rather than mark it, use forget_thought instead.",
     {
       thoughtId: z.string().describe("The ID of the memory to retract"),
       reason: z
@@ -1406,7 +1406,7 @@ export function createMcpServer(convexAuthToken: string) {
         .min(1)
         .max(500)
         .describe(
-          "Why this memory should never have been stored, in the user's terms. Recorded on the memory.",
+          "Why this memory is wrong, in the user's terms. Recorded on the memory.",
         ),
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.retractThought],
@@ -1454,12 +1454,12 @@ export function createMcpServer(convexAuthToken: string) {
     .min(1)
     .max(500)
     .describe(
-      "Why this should never have been stored, in the user's terms. Returned in the response but not recorded anywhere: nothing remains to record it on.",
+      "Why this must not remain in storage, in the user's terms. Returned in the response but not recorded anywhere: nothing remains to record it on.",
     );
 
   const forgetThoughtTool = server.tool(
     MCP_TOOL_NAMES.forgetThought,
-    "Permanently delete one narrative memory that should never have been stored, such as a mis-captured credential or a third party's private detail. Retract when it was wrong; forget when it should never have been stored. This is a hard delete with no undo: the memory is removed rather than marked, and it disappears from history as well as from recall. Use only when the user asks for the memory to be erased, never to correct or tidy. If the memory had replaced an earlier one, the earlier one stays retired rather than being revived; its id is returned so it can be restated deliberately.",
+    "Permanently delete one narrative memory that must not remain in storage, such as a mis-captured credential or a third party's private detail. Retract when it was wrong; forget when it must not remain in storage. This is a hard delete with no undo: the memory is removed rather than marked, and it disappears from history as well as from recall. Use only when the user asks for the memory to be erased, never to correct or tidy. If the memory had replaced an earlier one, the earlier one stays retired rather than being revived; its id is returned so it can be restated deliberately.",
     {
       thoughtId: z.string().describe("The ID of the memory to delete"),
       reason: forgetReasonSchema,
@@ -1497,7 +1497,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const forgetFactTool = server.tool(
     MCP_TOOL_NAMES.forgetFact,
-    "Permanently delete one structured fact that should never have been stored. Retract when it was wrong (use remember_fact with changeKind corrected); forget when it should never have been stored. This is a hard delete with no undo: the fact is removed from current results and from history. The subject entity is kept; use forget_entity when the entity itself should never have been stored. Use only when the user asks for the fact to be erased.",
+    "Permanently delete one structured fact that must not remain in storage. Retract when it was wrong (use remember_fact with changeKind corrected); forget when it must not remain in storage. This is a hard delete with no undo: the fact is removed from current results and from history. The subject entity is kept; use forget_entity when the entity itself must not remain. Use only when the user asks for the fact to be erased.",
     {
       factId: z.string().describe("The ID of the fact to delete"),
       reason: forgetReasonSchema,
@@ -1535,47 +1535,78 @@ export function createMcpServer(convexAuthToken: string) {
 
   const forgetEntityTool = server.tool(
     MCP_TOOL_NAMES.forgetEntity,
-    "Permanently delete an entity (a person, organization, project, or place) that should never have been stored, together with every fact about it and every fact on another subject that points at it. Retract when a fact was wrong; forget when the entity should never have been in memory at all, such as a third party whose details were captured by mistake. This is a hard delete with no undo, and it cascades: facts whose value is this entity are deleted too, because their text carries the entity's name. Entity ids appear as subject.id and value.entity.id in search_facts results. Use only when the user asks for the entity to be erased.",
+    "Permanently delete an entity (a person, organization, project, or place) that must not remain in storage, together with every fact about it and every fact on another subject that points at it. Retract when a fact was wrong; forget when the entity must not remain in memory at all, such as a third party whose details were captured by mistake. This is a hard delete with no undo, and it cascades: facts whose value is this entity are deleted too, because their text carries the entity's name. Entity ids appear as subject.id and value.entity.id in search_facts results. Use only when the user asks for the entity to be erased.",
     {
       entityId: z.string().describe("The ID of the entity to delete"),
       reason: forgetReasonSchema,
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.forgetEntity],
     async ({ entityId, reason }) => {
-      const result = await convex.mutation(
-        api.models.facts.mcpActions.forgetEntityWithFacts,
-        { entityId: entityId as never, reason },
+      // The mutation deletes a bounded batch per call and removes the entity
+      // row only when nothing is left, so looping here is safe to interrupt:
+      // a partial run leaves an entity a repeat call can finish. The cap is a
+      // guard against a pathological account, not an expected exit.
+      const MAX_BATCHES = 200;
+      const deletedSubjectFactIds: string[] = [];
+      const deletedReferencingFacts: Array<{
+        factId: string;
+        subjectEntityId: string;
+        predicate: string;
+      }> = [];
+      const detachedSuccessors = new Set<string>();
+      let key = "";
+      let normalizedReason = reason;
+      let done = false;
+      let batches = 0;
+      while (!done && batches < MAX_BATCHES) {
+        const result = await convex.mutation(
+          api.models.facts.mcpActions.forgetEntityWithFacts,
+          { entityId: entityId as never, reason },
+        );
+        batches += 1;
+        key = result.key;
+        normalizedReason = result.reason;
+        done = result.done;
+        deletedSubjectFactIds.push(...result.deletedSubjectFactIds);
+        deletedReferencingFacts.push(...result.deletedReferencingFacts);
+        for (const id of result.detachedSuccessors) detachedSuccessors.add(id);
+      }
+      // A successor detached in one batch may itself point at the entity and
+      // be deleted in a later one; report only replacements that survived.
+      const deletedIds = new Set([
+        ...deletedSubjectFactIds,
+        ...deletedReferencingFacts.map((fact) => fact.factId),
+      ]);
+      const survivingReplacements = [...detachedSuccessors].filter(
+        (id) => !deletedIds.has(id),
       );
-      const notes: string[] = [
-        `${result.deletedSubjectFactIds.length} fact(s) about it deleted.`,
-      ];
-      if (result.deletedReferencingFacts.length > 0) {
-        notes.push(
-          `${result.deletedReferencingFacts.length} fact(s) on other subjects that pointed at it deleted: ${result.deletedReferencingFacts
-            .map(
-              (fact) =>
-                `fact:${fact.factId} (${fact.predicate} of entity ${fact.subjectEntityId})`,
-            )
-            .join(
-              ", ",
-            )}. Restate those relationships with remember_fact if the user wants them kept against a different value.`,
-        );
-      }
-      if (result.detachedSuccessors.length > 0) {
-        notes.push(
-          `Current facts that had replaced a deleted one remain current: ${result.detachedSuccessors.map((id) => `fact:${id}`).join(", ")}.`,
-        );
-      }
+
+      // Counts and id lists live in the structured block so every claim in
+      // the narrative is one the reader can cite.
+      const summary = {
+        entity: { id: entityId, key },
+        reason: normalizedReason,
+        done,
+        batches,
+        deletedFactsAboutEntity: deletedSubjectFactIds.map(
+          (id) => `fact:${id}`,
+        ),
+        deletedFactsPointingAtEntity: deletedReferencingFacts.map((fact) => ({
+          citation: `fact:${fact.factId}`,
+          predicate: fact.predicate,
+          subjectEntityId: fact.subjectEntityId,
+        })),
+        survivingReplacements: survivingReplacements.map((id) => `fact:${id}`),
+      };
+      const narrative = done
+        ? `Entity ${key} (${entityId}) permanently deleted (reason: ${normalizedReason}). The facts removed with it are listed by citation below. Restate any relationship that pointed at it with remember_fact if the user wants it kept against a different value.`
+        : `Entity ${key} (${entityId}) is not yet deleted: ${MAX_BATCHES} batches ran and facts still remain. Call forget_entity again with the same id to continue; the facts removed so far are listed below.`;
       return {
         content: [
-          {
-            type: "text" as const,
-            text: [
-              `Entity ${result.key} (${entityId}) permanently deleted (reason: ${result.reason}).`,
-              ...notes,
-            ].join(" "),
-          },
+          { type: "text" as const, text: narrative },
+          { type: "text" as const, text: JSON.stringify(summary, null, 2) },
         ],
+        ...(done ? {} : { isError: true }),
       };
     },
   );

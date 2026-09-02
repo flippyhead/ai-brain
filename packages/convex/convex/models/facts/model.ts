@@ -720,12 +720,15 @@ export async function forgetFact(
   };
 }
 
+/** Upper bound on facts one `forgetEntity` mutation deletes. */
+export const FORGET_ENTITY_BATCH_LIMIT = 100;
+
 /**
- * Hard-deletes an entity together with every fact that mentions it, in one
- * mutation.
+ * Hard-deletes an entity together with every fact that mentions it, up to
+ * `batchSize` facts per call. The caller loops until `done`.
  *
  * Facts whose subject is the entity go with it: they are claims about
- * something that should never have been stored. Entity-valued facts on other
+ * something that must not remain in storage. Entity-valued facts on other
  * subjects that point at the entity are deleted too, not detached. Their
  * `statement` and `searchText` are generated from the entity's name and
  * aliases, so a detached fact would keep the forgotten name searchable, and a
@@ -733,48 +736,81 @@ export async function forgetFact(
  * predicate of each such fact are returned so the caller can restate the
  * relationship against a different object if that is what the user wants.
  *
- * Finding referencing facts scans the account's facts: the value's entity id
- * is not indexed. Accounts are personal, so this stays bounded in practice.
+ * Both fact sets come from indexes (`by_userId_subject_predicate_status` and
+ * `by_userId_and_valueEntityId`), so a call reads only what it deletes plus
+ * one probe per index, and its write count is bounded by `batchSize` plus the
+ * link repairs those rows need. The entity row itself is deleted only in the
+ * batch that finds nothing left.
  */
 export async function forgetEntity(
   ctx: MutationCtx,
   userId: Id<"users">,
   entityId: Id<"entities">,
   reason: string,
+  batchSize: number = FORGET_ENTITY_BATCH_LIMIT,
 ) {
   const entity = await ctx.db.get(entityId);
   if (!entity || entity.userId !== userId) {
     throw new Error("Entity not found");
   }
   const normalizedReason = normalizeForgetReason(reason);
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > FORGET_ENTITY_BATCH_LIMIT
+  ) {
+    throw new Error(
+      `Forget batch size must be an integer from 1 to ${FORGET_ENTITY_BATCH_LIMIT}`,
+    );
+  }
 
-  const subjectFacts = await ctx.db
-    .query("facts")
-    .withIndex("by_userId_subject_predicate_status", (q) =>
-      q.eq("userId", userId).eq("subjectEntityId", entityId),
-    )
-    .collect();
-  const subjectFactIds = new Set(subjectFacts.map((fact) => fact._id));
-  const referencingFacts = (
-    await ctx.db
+  const subjectQuery = () =>
+    ctx.db
       .query("facts")
-      .withIndex("by_userId", (q) => q.eq("userId", userId))
-      .collect()
-  ).filter(
-    (fact) =>
-      !subjectFactIds.has(fact._id) &&
-      fact.value.type === "entity" &&
-      fact.value.entityId === entityId,
-  );
+      .withIndex("by_userId_subject_predicate_status", (q) =>
+        q.eq("userId", userId).eq("subjectEntityId", entityId),
+      );
+  const referencingQuery = () =>
+    ctx.db
+      .query("facts")
+      .withIndex("by_userId_and_valueEntityId", (q) =>
+        q.eq("userId", userId).eq("value.entityId", entityId),
+      );
+
+  const subjectFacts = await subjectQuery().take(batchSize);
+  const subjectFactIds = new Set(subjectFacts.map((fact) => fact._id));
+  const remaining = batchSize - subjectFacts.length;
+  // A self-referential fact sits in both indexes; it is counted once, as a
+  // subject fact. Anything the filter drops here is still deleted, since it
+  // was already fetched under the subject index or will be next batch.
+  const referencingFacts =
+    remaining > 0
+      ? (await referencingQuery().take(remaining)).filter(
+          (fact) => !subjectFactIds.has(fact._id),
+        )
+      : [];
 
   const { detachedPredecessors, detachedSuccessors } =
     await deleteFactsWithLinkRepair(ctx, userId, [
       ...subjectFacts,
       ...referencingFacts,
     ]);
-  await ctx.db.delete(entityId);
+
+  // Reads inside a mutation see its own writes, so this is the post-delete
+  // state. The entity row goes only once nothing references it: an
+  // interrupted run leaves a findable entity a later call can finish, never a
+  // headless set of facts.
+  const [moreSubject, moreReferencing] = await Promise.all([
+    subjectQuery().first(),
+    referencingQuery().first(),
+  ]);
+  const done = moreSubject === null && moreReferencing === null;
+  if (done) {
+    await ctx.db.delete(entityId);
+  }
 
   return {
+    done,
     entityId,
     key: entity.key,
     reason: normalizedReason,

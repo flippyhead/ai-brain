@@ -197,6 +197,7 @@ describe("forgetting facts and entities", () => {
       );
 
       expect(result).toMatchObject({
+        done: true,
         entityId: drOld!._id,
         key: "person:dr-old",
         reason: "Dr. Old is a third party who never consented to be stored",
@@ -291,6 +292,117 @@ describe("forgetting facts and entities", () => {
           .collect(),
       );
       expect(otherEntities).toHaveLength(3);
+    });
+
+    test("deletes in bounded batches and removes the entity only in the last one", async () => {
+      const { t, owner } = await seed();
+      const zevin = {
+        key: "person:zevin",
+        kind: "person" as const,
+        name: "Zevin",
+      };
+      // Three facts about Zevin and two facts on other subjects pointing at
+      // Zevin: five rows, so a batch of two needs three calls.
+      for (const [predicate, value] of [
+        ["home_city", "Seattle"],
+        ["school", "Redwood Academy"],
+        ["favorite_color", "green"],
+      ] as const) {
+        await owner.mutation(api.models.facts.mcpActions.remember, {
+          subject: zevin,
+          predicate,
+          value: { type: "text", value },
+          sourceType: "user_stated",
+        });
+      }
+      for (const parent of ["Jordan", "Sam"]) {
+        await owner.mutation(api.models.facts.mcpActions.remember, {
+          subject: { kind: "person", name: parent },
+          predicate: "child",
+          value: { type: "entity", entity: zevin },
+          sourceType: "user_stated",
+          cardinality: "multiple",
+        });
+      }
+      const entity = await t.run((ctx) =>
+        ctx.db
+          .query("entities")
+          .filter((q) => q.eq(q.field("key"), "person:zevin"))
+          .unique(),
+      );
+      const factCount = () =>
+        t.run(async (ctx) => (await ctx.db.query("facts").collect()).length);
+      expect(await factCount()).toBe(5);
+
+      const calls: Array<{ done: boolean; deleted: number }> = [];
+      for (let i = 0; i < 3; i += 1) {
+        const result = await owner.mutation(
+          api.models.facts.mcpActions.forgetEntityWithFacts,
+          { entityId: entity!._id, reason: "Wrong person", batchSize: 2 },
+        );
+        calls.push({
+          done: result.done,
+          deleted:
+            result.deletedSubjectFactIds.length +
+            result.deletedReferencingFacts.length,
+        });
+        // The entity row stays until the final batch, so an interrupted run
+        // is resumable by calling again with the same id.
+        expect((await t.run((ctx) => ctx.db.get(entity!._id))) === null).toBe(
+          result.done,
+        );
+      }
+      expect(calls).toEqual([
+        { done: false, deleted: 2 },
+        { done: false, deleted: 2 },
+        { done: true, deleted: 1 },
+      ]);
+      expect(await factCount()).toBe(0);
+      // Jordan and Sam keep their identities; only the facts pointing at
+      // Zevin went.
+      const keys = await t.run(async (ctx) =>
+        (await ctx.db.query("entities").collect()).map((row) => row.key).sort(),
+      );
+      expect(keys).toEqual(["person:jordan", "person:sam"]);
+      await expect(
+        owner.mutation(api.models.facts.mcpActions.forgetEntityWithFacts, {
+          entityId: entity!._id,
+          reason: "Again",
+        }),
+      ).rejects.toThrow("Entity not found");
+      await expect(
+        owner.mutation(api.models.facts.mcpActions.forgetEntityWithFacts, {
+          entityId: entity!._id,
+          reason: "Bad batch",
+          batchSize: 0,
+        }),
+      ).rejects.toThrow("Entity not found");
+    });
+
+    test("rejects a batch size outside 1-100 before deleting anything", async () => {
+      const { t, owner } = await seed();
+      await seedProviderChange(owner);
+      const drNew = await t.run((ctx) =>
+        ctx.db
+          .query("entities")
+          .filter((q) => q.eq(q.field("key"), "person:dr-new"))
+          .unique(),
+      );
+      for (const batchSize of [0, 101, 1.5]) {
+        await expect(
+          owner.mutation(api.models.facts.mcpActions.forgetEntityWithFacts, {
+            entityId: drNew!._id,
+            reason: "Bad batch",
+            batchSize,
+          }),
+        ).rejects.toThrow("batch size");
+      }
+      expect(await t.run((ctx) => ctx.db.get(drNew!._id))).not.toBeNull();
+      expect(
+        await t.run(
+          async (ctx) => (await ctx.db.query("facts").collect()).length,
+        ),
+      ).toBe(2);
     });
 
     test("reports not found for an already-forgotten entity", async () => {

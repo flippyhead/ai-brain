@@ -48,12 +48,19 @@ export const forget = mutation({
   },
 });
 
+/**
+ * One batch of an entity forget. Returns `done: false` while facts remain;
+ * call again with the same arguments until `done` is true, at which point the
+ * entity row is gone and a further call reports not found.
+ */
 export const forgetEntityWithFacts = mutation({
   args: {
     entityId: v.id("entities"),
     reason: v.string(),
+    batchSize: v.optional(v.number()),
   },
   returns: v.object({
+    done: v.boolean(),
     entityId: v.id("entities"),
     key: v.string(),
     reason: v.string(),
@@ -70,6 +77,12 @@ export const forgetEntityWithFacts = mutation({
   }),
   handler: async (ctx, args) => {
     const userId = await requireMcpUserId(ctx);
-    return await forgetEntity(ctx, userId, args.entityId, args.reason);
+    return await forgetEntity(
+      ctx,
+      userId,
+      args.entityId,
+      args.reason,
+      args.batchSize,
+    );
   },
 });

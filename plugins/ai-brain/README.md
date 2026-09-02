@@ -57,7 +57,7 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 - **Use `/brain-thread` for retrospectives.** When a decision didn't go the way you hoped, trace the thread back to see what you were optimizing for.
 - **Use `/brain-context` when returning from a break.** The brief restores ambient context — who you were working with, what was in flight — in under a minute.
 - **Ask historical questions naturally.** Search defaults to current memories; the plugin can include superseded or corrected memories when you ask what used to be true or how something changed.
-- **Retract what was wrong; forget what should never have been stored.** Telling Claude a memory is wrong retracts it, which hides it but keeps it restorable. Asking Claude to forget something — a credential captured by mistake, a third party's private detail — calls `forget_thought`, `forget_fact`, or `forget_entity`, which delete permanently with no undo. Forgetting an entity also removes every fact about it or pointing at it.
+- **Retract what was wrong; forget what must not remain in storage.** Telling Claude a memory is wrong retracts it, which hides it but keeps it restorable. Asking Claude to forget something — a credential captured by mistake, a third party's private detail — calls `forget_thought`, `forget_fact`, or `forget_entity`, which delete permanently with no undo. Forgetting an entity also removes every fact about it or pointing at it.
 - **Mark core context sparingly.** Core memories are always considered during grounded recall, so reserve them for durable identity, relationship, preference, and active-project facts.
 
 ## Troubleshooting

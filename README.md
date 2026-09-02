@@ -70,7 +70,7 @@ memories. MCP clients can request historical results when answering questions
 about prior states or how something changed.
 
 Forgetting is the one exception. Retract when a memory was wrong; forget when
-it should never have been stored at all, such as a mis-captured credential or a
+it must not remain in storage regardless, such as a mis-captured credential or a
 third party's private detail. `forget_thought`, `forget_fact`, and
 `forget_entity` hard-delete the record with no undo and no tombstone. A
 forgotten memory's neighbours are repaired rather than left dangling: an

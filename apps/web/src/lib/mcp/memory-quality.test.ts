@@ -112,16 +112,27 @@ describe("MCP memory quality contract", () => {
         openWorldHint: false,
       });
 
-      // Forgetting is a hard delete, so every forget tool must be flagged
-      // destructive, require a reason, and tell the model how it differs from
-      // retraction so the two are not used interchangeably.
+      // Retraction and forgetting must be described in complementary terms
+      // everywhere the model reads: retract = it was wrong, forget = it must
+      // not remain in storage. The rationale phrase forgetting owns must not
+      // appear on the retract side, or the two read as the same operation.
+      const forgetRationale = "must not remain in storage";
       expect(instructions).toContain(
-        "Retract when it was wrong; forget when it should never have been stored",
+        `Retract when it was wrong; forget when it ${forgetRationale}`,
       );
+      expect(instructions).not.toContain("never have been stored");
+      const retract = tools.find((tool) => tool.name === "retract_thought");
+      expect(retract?.description).toContain("was never true");
+      expect(retract?.description).toContain("forget_thought");
+      expect(JSON.stringify(retract)).not.toContain("never have been stored");
+      expect(retract?.description).not.toContain(forgetRationale);
+      // Forgetting is a hard delete, so every forget tool must be flagged
+      // destructive, require a reason, and say how it differs from retraction.
       for (const name of ["forget_thought", "forget_fact", "forget_entity"]) {
         const tool = tools.find((candidate) => candidate.name === name);
         expect(tool?.annotations?.destructiveHint).toBe(true);
-        expect(tool?.description).toContain("should never have been stored");
+        expect(tool?.description).toContain(forgetRationale);
+        expect(tool?.description).toContain("Retract when");
         expect(tool?.description).toContain("no undo");
         expect(tool?.inputSchema.required).toContain("reason");
       }
@@ -496,6 +507,92 @@ describe("MCP memory quality contract", () => {
       expect(
         (result as { content?: Array<{ text?: string }> }).content?.[0]?.text,
       ).toContain("not stored");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("forget_entity loops the batched mutation until done and cites every deletion", async () => {
+    const batch = (overrides: Record<string, unknown>) => ({
+      entityId: "entity-1",
+      key: "person:dr-old",
+      reason: "Third party captured by mistake",
+      deletedSubjectFactIds: [],
+      deletedReferencingFacts: [],
+      detachedPredecessors: [],
+      detachedSuccessors: [],
+      ...overrides,
+    });
+    convexMocks.mutation
+      .mockResolvedValueOnce(
+        batch({
+          done: false,
+          deletedSubjectFactIds: ["fact-a", "fact-b"],
+          // fact-c replaced fact-b, and still points at the entity.
+          detachedSuccessors: ["fact-c"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        batch({
+          done: true,
+          deletedReferencingFacts: [
+            {
+              factId: "fact-c",
+              subjectEntityId: "entity-jordan",
+              predicate: "primary_care_provider",
+            },
+          ],
+          detachedSuccessors: ["fact-d"],
+        }),
+      );
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "forget_entity",
+        arguments: { entityId: "entity-1", reason: "  Third party  " },
+      });
+
+      expect(result.isError).not.toBe(true);
+      // One mutation per batch, same arguments each time, until done.
+      expect(convexMocks.mutation).toHaveBeenCalledTimes(2);
+      expect(convexMocks.mutation.mock.calls[1]?.[1]).toEqual(
+        convexMocks.mutation.mock.calls[0]?.[1],
+      );
+
+      const [narrative, structured] = result.content as Array<{
+        type: string;
+        text: string;
+      }>;
+      // The narrative names only what it can cite; counts and id lists are
+      // in the structured block.
+      expect(narrative?.text).toContain("person:dr-old (entity-1)");
+      expect(narrative?.text).not.toMatch(/\d+ fact/);
+      expect(JSON.parse(structured!.text)).toEqual({
+        entity: { id: "entity-1", key: "person:dr-old" },
+        reason: "Third party captured by mistake",
+        done: true,
+        batches: 2,
+        deletedFactsAboutEntity: ["fact:fact-a", "fact:fact-b"],
+        deletedFactsPointingAtEntity: [
+          {
+            citation: "fact:fact-c",
+            predicate: "primary_care_provider",
+            subjectEntityId: "entity-jordan",
+          },
+        ],
+        // fact-c was detached in batch 1 and deleted in batch 2, so only
+        // fact-d survives as a replacement.
+        survivingReplacements: ["fact:fact-d"],
+      });
     } finally {
       await client.close();
       await server.close();

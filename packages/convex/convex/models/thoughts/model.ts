@@ -197,10 +197,12 @@ export async function _transitionMemory(
 }
 
 /**
- * Caller-declared retraction: the user asserts this memory should never have
- * been stored. Unlike the RETRACT branch of `_transitionMemory`, no replacement
+ * Caller-declared retraction: the user asserts this memory is wrong — it was
+ * never true. Unlike the RETRACT branch of `_transitionMemory`, no replacement
  * is written and no classifier has to agree — this mirrors the `changeKind:
- * "corrected"` argument the structured fact path already accepts.
+ * "corrected"` argument the structured fact path already accepts. The row is
+ * kept; `_forgetThought` is the path for content that must not remain in
+ * storage at all.
  *
  * `supersededBy` stays unset, which is what makes the memory restorable: a
  * memory retracted as part of a supersession has a current successor, and
