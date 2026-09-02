@@ -1,6 +1,7 @@
 import type { Infer } from "convex/values";
+import type { Expression, FilterBuilder, NamedTableInfo } from "convex/server";
 
-import type { Doc, Id } from "../../_generated/dataModel";
+import type { DataModel, Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import {
   assertValidMemoryValidity,
@@ -304,6 +305,30 @@ export function isFactRetrievable(
   );
 }
 
+type FactFilterBuilder = FilterBuilder<NamedTableInfo<DataModel, "facts">>;
+
+/**
+ * Express current business-time validity inside the Convex query so `take`
+ * counts retrievable rows rather than candidates later discarded in memory.
+ */
+function currentFactValidityFilter(
+  q: FactFilterBuilder,
+  activeAt: number,
+): Expression<boolean> {
+  const validFrom = q.field("validFrom");
+  const validTo = q.field("validTo");
+  return q.and(
+    q.or(
+      q.eq(validFrom, undefined),
+      q.lte(validFrom as Expression<number>, activeAt),
+    ),
+    q.or(
+      q.eq(validTo, undefined),
+      q.gt(validTo as Expression<number>, activeAt),
+    ),
+  );
+}
+
 export type RememberFactArgs = {
   subject: EntitySelector;
   predicate: string;
@@ -532,22 +557,43 @@ export async function listFacts(
     throw new Error("Fact limit must be a positive integer");
   }
   const limit = Math.min(requested, MAX_FACT_SEARCH_LIMIT);
-  const facts = options.coreOnly
-    ? await ctx.db
-        .query("facts")
-        .withIndex("by_userId_and_isCore", (q) =>
-          q.eq("userId", userId).eq("isCore", true),
-        )
-        .order("desc")
-        .take(limit * 5)
-    : await ctx.db
-        .query("facts")
-        .withIndex("by_userId", (q) => q.eq("userId", userId))
-        .order("desc")
-        .take(limit * 5);
-  const selected = facts
-    .filter((fact) => isFactRetrievable(fact, options.includeHistorical))
-    .slice(0, limit);
+  const activeAt = Date.now();
+  let selected: Doc<"facts">[];
+  if (options.includeHistorical) {
+    selected = options.coreOnly
+      ? await ctx.db
+          .query("facts")
+          .withIndex("by_userId_and_isCore", (q) =>
+            q.eq("userId", userId).eq("isCore", true),
+          )
+          .order("desc")
+          .filter((q) => q.neq(q.field("status"), "retracted"))
+          .take(limit)
+      : await ctx.db
+          .query("facts")
+          .withIndex("by_userId", (q) => q.eq("userId", userId))
+          .order("desc")
+          .filter((q) => q.neq(q.field("status"), "retracted"))
+          .take(limit);
+  } else {
+    selected = options.coreOnly
+      ? await ctx.db
+          .query("facts")
+          .withIndex("by_userId_isCore_status", (q) =>
+            q.eq("userId", userId).eq("isCore", true).eq("status", "current"),
+          )
+          .order("desc")
+          .filter((q) => currentFactValidityFilter(q, activeAt))
+          .take(limit)
+      : await ctx.db
+          .query("facts")
+          .withIndex("by_userId_and_status", (q) =>
+            q.eq("userId", userId).eq("status", "current"),
+          )
+          .order("desc")
+          .filter((q) => currentFactValidityFilter(q, activeAt))
+          .take(limit);
+  }
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }
 
@@ -563,14 +609,20 @@ export async function searchFacts(
     throw new Error("Fact search limit must be a positive integer");
   }
   const limit = Math.min(requested, MAX_FACT_SEARCH_LIMIT);
-  const hits = await ctx.db
+  const activeAt = Date.now();
+  const selected = await ctx.db
     .query("facts")
-    .withSearchIndex("by_searchText", (q) =>
-      q.search("searchText", cleanedQuery).eq("userId", userId),
+    .withSearchIndex("by_searchText", (q) => {
+      const search = q.search("searchText", cleanedQuery).eq("userId", userId);
+      return options.includeHistorical
+        ? search
+        : search.eq("status", "current");
+    })
+    .filter((q) =>
+      options.includeHistorical
+        ? q.neq(q.field("status"), "retracted")
+        : currentFactValidityFilter(q, activeAt),
     )
-    .take(limit * 5);
-  const selected = hits
-    .filter((fact) => isFactRetrievable(fact, options.includeHistorical))
-    .slice(0, limit);
+    .take(limit);
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }

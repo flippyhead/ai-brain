@@ -1,13 +1,17 @@
 import { query } from "../../_generated/server";
 import { v } from "convex/values";
 import { requireWebUserId } from "../../lib/webAuth";
-import { isMemoryActive, isMemoryRetrievable } from "./memoryLifecycle";
+import { isMemoryActive } from "./memoryLifecycle";
 import {
   thoughtLifecycleFields,
   thoughtMetadata,
   thoughtType,
 } from "./validators";
-import { _listByUser, _listCoreByUser, collectFiltered } from "./model";
+import {
+  _listByUser,
+  _listCoreByUser,
+  memoryRetrievabilityFilter,
+} from "./model";
 import { isFactActive } from "../facts/model";
 
 export const listRecent = query({
@@ -33,21 +37,17 @@ export const listRecent = query({
     let results;
     if (args.type) {
       const limit = args.limit ?? 20;
-      const query = () =>
-        ctx.db
-          .query("thoughts")
-          .withIndex("by_userId_and_type", (q) =>
-            q.eq("userId", userId).eq("metadata.type", args.type!),
-          )
-          .order("desc");
-
       const activeAt = Date.now();
-      results = await collectFiltered(
-        (cursor, numItems) => query().paginate({ cursor, numItems }),
-        (memory) =>
-          isMemoryRetrievable(memory, args.includeHistorical, activeAt),
-        limit,
-      );
+      results = await ctx.db
+        .query("thoughts")
+        .withIndex("by_userId_and_type", (q) =>
+          q.eq("userId", userId).eq("metadata.type", args.type!),
+        )
+        .order("desc")
+        .filter((q) =>
+          memoryRetrievabilityFilter(q, args.includeHistorical, activeAt),
+        )
+        .take(limit);
     } else {
       results = await _listByUser(
         ctx,
