@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import {
   assertValidMemoryValidity,
   isMemoryRetrievable,
+  normalizeForgetReason,
 } from "../thoughts/memoryLifecycle";
 import { extractEntityCandidates, normalizeEntityText } from "./entityMatch";
 import {
@@ -875,4 +876,201 @@ export async function searchFacts(
     )
     .take(limit);
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
+}
+
+/**
+ * Deletes a set of facts in one mutation and repairs the supersession links
+ * that would otherwise point at a missing id. Supersession only ever happens
+ * within one subject and predicate, so the links declared on each row are the
+ * complete set of neighbours to repair; links between two facts in the same
+ * doomed set need nothing.
+ *
+ * As with thoughts, a predecessor keeps its retired status and only loses its
+ * `supersededBy` pointer: forgetting a successor is not an undo of the change
+ * it recorded. A successor drops the forgotten id from `supersedes`.
+ */
+async function deleteFactsWithLinkRepair(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  facts: Array<Doc<"facts">>,
+) {
+  const doomed = new Set<Id<"facts">>(facts.map((fact) => fact._id));
+  const detachedPredecessors = new Set<Id<"facts">>();
+  const detachedSuccessors = new Set<Id<"facts">>();
+
+  for (const fact of facts) {
+    for (const previousId of fact.supersedes ?? []) {
+      if (doomed.has(previousId)) continue;
+      const previous = await ctx.db.get(previousId);
+      if (
+        previous &&
+        previous.userId === userId &&
+        previous.supersededBy === fact._id
+      ) {
+        await ctx.db.patch(previousId, { supersededBy: undefined });
+        detachedPredecessors.add(previousId);
+      }
+    }
+    if (fact.supersededBy !== undefined && !doomed.has(fact.supersededBy)) {
+      // Re-read each time: two doomed facts can share one successor, and the
+      // second repair must see the first's patch.
+      const successor = await ctx.db.get(fact.supersededBy);
+      if (
+        successor &&
+        successor.userId === userId &&
+        successor.supersedes?.includes(fact._id)
+      ) {
+        const remaining = successor.supersedes.filter(
+          (other) => other !== fact._id,
+        );
+        await ctx.db.patch(successor._id, {
+          supersedes: remaining.length > 0 ? remaining : undefined,
+        });
+        detachedSuccessors.add(successor._id);
+      }
+    }
+  }
+
+  for (const fact of facts) {
+    await ctx.db.delete(fact._id);
+  }
+
+  return {
+    detachedPredecessors: [...detachedPredecessors],
+    detachedSuccessors: [...detachedSuccessors],
+  };
+}
+
+/**
+ * Hard-deletes one fact. Retraction marks a fact never-true and keeps it;
+ * forgetting is for a fact that should not be in storage at all, so the row
+ * goes and the reason is echoed back rather than recorded. Any status can be
+ * forgotten. The subject entity is left in place: it may anchor other facts,
+ * and an entity is an identity rather than a claim — use `forgetEntity` when
+ * the entity itself is what should never have been stored.
+ */
+export async function forgetFact(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  factId: Id<"facts">,
+  reason: string,
+) {
+  const fact = await ctx.db.get(factId);
+  if (!fact || fact.userId !== userId) {
+    throw new Error("Fact not found");
+  }
+  const normalizedReason = normalizeForgetReason(reason);
+  const { detachedPredecessors, detachedSuccessors } =
+    await deleteFactsWithLinkRepair(ctx, userId, [fact]);
+  return {
+    factId,
+    reason: normalizedReason,
+    detachedPredecessors,
+    detachedSuccessor: detachedSuccessors[0],
+  };
+}
+
+/** Upper bound on facts one `forgetEntity` mutation deletes. */
+export const FORGET_ENTITY_BATCH_LIMIT = 100;
+
+/**
+ * Hard-deletes an entity together with every fact that mentions it, up to
+ * `batchSize` facts per call. The caller loops until `done`.
+ *
+ * Facts whose subject is the entity go with it: they are claims about
+ * something that must not remain in storage. Entity-valued facts on other
+ * subjects that point at the entity are deleted too, not detached. Their
+ * `statement` and `searchText` are generated from the entity's name and
+ * aliases, so a detached fact would keep the forgotten name searchable, and a
+ * relationship fact whose object is gone states nothing. The subject and
+ * predicate of each such fact are returned so the caller can restate the
+ * relationship against a different object if that is what the user wants.
+ *
+ * Both fact sets come from indexes (`by_userId_subject_predicate_status` and
+ * `by_userId_and_valueEntityId`), so a call reads only what it deletes plus
+ * one probe per index, and its write count is bounded by `batchSize` plus the
+ * link repairs those rows need. The entity row itself is deleted only in the
+ * batch that finds nothing left.
+ */
+export async function forgetEntity(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  entityId: Id<"entities">,
+  reason: string,
+  batchSize: number = FORGET_ENTITY_BATCH_LIMIT,
+) {
+  const entity = await ctx.db.get(entityId);
+  if (!entity || entity.userId !== userId) {
+    throw new Error("Entity not found");
+  }
+  const normalizedReason = normalizeForgetReason(reason);
+  if (
+    !Number.isInteger(batchSize) ||
+    batchSize < 1 ||
+    batchSize > FORGET_ENTITY_BATCH_LIMIT
+  ) {
+    throw new Error(
+      `Forget batch size must be an integer from 1 to ${FORGET_ENTITY_BATCH_LIMIT}`,
+    );
+  }
+
+  const subjectQuery = () =>
+    ctx.db
+      .query("facts")
+      .withIndex("by_userId_subject_predicate_status", (q) =>
+        q.eq("userId", userId).eq("subjectEntityId", entityId),
+      );
+  const referencingQuery = () =>
+    ctx.db
+      .query("facts")
+      .withIndex("by_userId_and_valueEntityId", (q) =>
+        q.eq("userId", userId).eq("value.entityId", entityId),
+      );
+
+  const subjectFacts = await subjectQuery().take(batchSize);
+  const subjectFactIds = new Set(subjectFacts.map((fact) => fact._id));
+  const remaining = batchSize - subjectFacts.length;
+  // A self-referential fact sits in both indexes; it is counted once, as a
+  // subject fact. Anything the filter drops here is still deleted, since it
+  // was already fetched under the subject index or will be next batch.
+  const referencingFacts =
+    remaining > 0
+      ? (await referencingQuery().take(remaining)).filter(
+          (fact) => !subjectFactIds.has(fact._id),
+        )
+      : [];
+
+  const { detachedPredecessors, detachedSuccessors } =
+    await deleteFactsWithLinkRepair(ctx, userId, [
+      ...subjectFacts,
+      ...referencingFacts,
+    ]);
+
+  // Reads inside a mutation see its own writes, so this is the post-delete
+  // state. The entity row goes only once nothing references it: an
+  // interrupted run leaves a findable entity a later call can finish, never a
+  // headless set of facts.
+  const [moreSubject, moreReferencing] = await Promise.all([
+    subjectQuery().first(),
+    referencingQuery().first(),
+  ]);
+  const done = moreSubject === null && moreReferencing === null;
+  if (done) {
+    await ctx.db.delete(entityId);
+  }
+
+  return {
+    done,
+    entityId,
+    key: entity.key,
+    reason: normalizedReason,
+    deletedSubjectFactIds: subjectFacts.map((fact) => fact._id),
+    deletedReferencingFacts: referencingFacts.map((fact) => ({
+      factId: fact._id,
+      subjectEntityId: fact.subjectEntityId,
+      predicate: fact.predicate,
+    })),
+    detachedPredecessors,
+    detachedSuccessors,
+  };
 }
