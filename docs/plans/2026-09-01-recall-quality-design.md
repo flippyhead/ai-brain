@@ -196,6 +196,11 @@ Small, self-contained, and entirely inside the MCP layer — no schema change.
 
 ## W4 — Gap analysis in the recall envelope
 
+**Status: implemented** in PR #44 — `models/recallGaps.ts` computes `empty`,
+`stale` (six weeks), `conflict`, and `absent` gaps from the assembled window,
+and `recall_context` appends them as sibling blocks after the unchanged
+memories array, only when there are any.
+
 The single most-cited reason GBrain reads as a brain rather than a search box is
 that `gbrain think` says what it does not know. That behavior does not require
 GBrain's synthesis layer or a second model call: at the moment `recall_context`
