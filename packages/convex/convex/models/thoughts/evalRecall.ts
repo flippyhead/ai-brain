@@ -7,6 +7,7 @@ import {
   type RetrievalEvaluationResult,
 } from "./memoryEval";
 import { liveRecallCorpus, type SeedMemory } from "./memoryEval.corpus";
+import { recallFacts, rememberFactWithEmbedding } from "../facts/actions";
 import {
   blendRecallContext,
   coreLimitFor,
@@ -172,28 +173,26 @@ export const runBaseline = internalAction({
               );
             }
           }
-          const result: { factId: Id<"facts"> } = await ctx.runMutation(
-            internal.models.facts.private.seedFact,
-            {
-              userId,
-              subject: {
-                key: fact.subjectKey,
-                kind: "person",
-                name: fact.subjectName,
-                aliases: fact.subjectAliases,
-              },
-              predicate: fact.predicate,
-              value: { type: "text", value: fact.value },
-              sourceType: "user_stated",
-              isCore: fact.isCore,
-              validFrom: parseValidity(fact.validFrom),
-              changeKind: fact.corrects === undefined ? undefined : "corrected",
-              changeReason:
-                fact.corrects === undefined
-                  ? undefined
-                  : "memory eval baseline seed",
+          // The production write path, embedding included, so the vector half
+          // of fact search is measured rather than bypassed.
+          const result = await rememberFactWithEmbedding(ctx, userId, {
+            subject: {
+              key: fact.subjectKey,
+              kind: "person",
+              name: fact.subjectName,
+              aliases: fact.subjectAliases,
             },
-          );
+            predicate: fact.predicate,
+            value: { type: "text", value: fact.value },
+            sourceType: "user_stated",
+            isCore: fact.isCore,
+            validFrom: parseValidity(fact.validFrom),
+            changeKind: fact.corrects === undefined ? undefined : "corrected",
+            changeReason:
+              fact.corrects === undefined
+                ? undefined
+                : "memory eval baseline seed",
+          });
           factIdByKey.set(fact.key, result.factId);
           ownerByFactId.set(result.factId as string, {
             key: fact.key,
@@ -221,12 +220,7 @@ export const runBaseline = internalAction({
             },
           );
 
-          const factRows: Array<{
-            id: string;
-            statement: string;
-            status: string;
-            source: "exact" | "core" | "relevant";
-          }> = await ctx.runQuery(internal.models.facts.private.recallFacts, {
+          const factRows = await recallFacts(ctx, {
             userId,
             query: query.query,
             // Exactly what recall_context fetches at SEARCH_LIMIT. Core facts

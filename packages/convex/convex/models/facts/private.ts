@@ -2,12 +2,14 @@ import { internalMutation, internalQuery } from "../../_generated/server";
 import { v } from "convex/values";
 
 import {
+  getRetrievableFacts,
   listFacts,
   recallExactFacts,
-  rememberFact,
+  rememberFact as rememberFactModel,
   searchFacts,
+  setFactEmbedding,
 } from "./model";
-import { entitySelector, factSourceType, factValueInput } from "./validators";
+import { rememberFactArgs } from "./validators";
 
 /** How many current facts are offered to the narrative admission gate. */
 const COVERAGE_CANDIDATES = 5;
@@ -39,89 +41,100 @@ export const searchCoveringFacts = internalQuery({
 });
 
 /**
- * The fact half of the blend `recall_context` serves: facts about entities
- * the query names, core facts, and facts relevant to the query, fetched the
- * way the tool fetches them — three independent reads, `exactLimit` exact
- * hits best match first, `coreLimit` core facts newest first and `limit`
- * keyword hits in index order.
- *
- * Rows are deliberately not deduplicated across the sources. The tool hands
- * all three lists to `blendRecallContext`, which drops a core or relevant hit
- * only when it duplicates a fact the blend actually selected from an earlier
- * tier. Deduplicating here against every fact fetched would drop a fact that
- * ranked in a later tier but was not selected in the earlier one, and the
- * harness would then score a window no client receives.
+ * The keyword half of fused fact search. Lifecycle filtering happens inside
+ * the query, so every row returned is one the caller may serve.
  */
-export const recallFacts = internalQuery({
+export const searchByText = internalQuery({
   args: {
     userId: v.id("users"),
     query: v.string(),
     limit: v.optional(v.number()),
-    coreLimit: v.optional(v.number()),
-    exactLimit: v.optional(v.number()),
     includeHistorical: v.optional(v.boolean()),
+    activeAt: v.number(),
   },
-  returns: v.array(
-    v.object({
-      id: v.string(),
-      statement: v.string(),
-      status: v.string(),
-      source: v.union(
-        v.literal("exact"),
-        v.literal("core"),
-        v.literal("relevant"),
-      ),
-    }),
-  ),
   handler: async (ctx, args) => {
-    const [exact, core, relevant] = await Promise.all([
-      recallExactFacts(ctx, args.userId, args.query, {
-        limit: args.exactLimit ?? COVERAGE_CANDIDATES,
-      }),
-      listFacts(ctx, args.userId, {
-        limit: args.coreLimit ?? COVERAGE_CANDIDATES,
-        coreOnly: true,
-      }),
-      searchFacts(ctx, args.userId, args.query, {
-        limit: args.limit ?? COVERAGE_CANDIDATES,
-        includeHistorical: args.includeHistorical,
-      }),
-    ]);
-
-    const row =
-      (source: "exact" | "core" | "relevant") =>
-      (fact: (typeof core)[number]) => ({
-        id: fact.id as string,
-        statement: fact.statement,
-        status: fact.status,
-        source,
-      });
-    return [
-      ...exact.map(row("exact")),
-      ...core.map(row("core")),
-      ...relevant.map(row("relevant")),
-    ];
+    return await searchFacts(ctx, args.userId, args.query, {
+      limit: args.limit,
+      includeHistorical: args.includeHistorical,
+      activeAt: args.activeAt,
+    });
   },
 });
 
-/** Seeds a fact for the evaluation harness without going through MCP auth. */
-export const seedFact = internalMutation({
+/**
+ * Hydrates vector-search candidates, dropping any the read may not return.
+ * The vector index filters on account, but ownership is re-checked here as
+ * defence in depth, and the optional lifecycle fields can only be applied
+ * after the row is in hand.
+ */
+export const getRetrievableByIds = internalQuery({
   args: {
     userId: v.id("users"),
-    subject: entitySelector,
-    predicate: v.string(),
-    value: factValueInput,
-    sourceType: factSourceType,
-    isCore: v.optional(v.boolean()),
-    validFrom: v.optional(v.number()),
-    validTo: v.optional(v.number()),
-    changeKind: v.optional(
-      v.union(v.literal("changed"), v.literal("corrected")),
-    ),
-    changeReason: v.optional(v.string()),
+    ids: v.array(v.id("facts")),
+    includeHistorical: v.optional(v.boolean()),
+    activeAt: v.number(),
   },
   handler: async (ctx, args) => {
+    return await getRetrievableFacts(ctx, args.userId, args.ids, {
+      includeHistorical: args.includeHistorical,
+      activeAt: args.activeAt,
+    });
+  },
+});
+
+export const listCoreByUser = internalQuery({
+  args: { userId: v.id("users"), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    return await listFacts(ctx, args.userId, {
+      limit: args.limit,
+      coreOnly: true,
+    });
+  },
+});
+
+/**
+ * Commits a fact for a known account. The embedding is attached afterwards by
+ * `actions.ts`, so the write itself never depends on the embedding provider.
+ */
+export const rememberFact = internalMutation({
+  args: { userId: v.id("users"), ...rememberFactArgs },
+  handler: async (ctx, args) => {
     const { userId, ...fact } = args;
-    return await rememberFact(ctx, userId, fact);
+    return await rememberFactModel(ctx, userId, fact);
+  },
+});
+
+export const setEmbedding = internalMutation({
+  args: {
+    factId: v.id("facts"),
+    searchText: v.string(),
+    embedding: v.array(v.float64()),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    return await setFactEmbedding(
+      ctx,
+      args.factId,
+      args.searchText,
+      args.embedding,
+    );
+  },
+});
+
+/**
+ * The exact tier of `recall_context` for a known account: current facts about
+ * the entities the query names. The read is a query so it never writes; the
+ * fused action in `actions.ts` calls it alongside the core and ranked reads.
+ */
+export const recallExactByUser = internalQuery({
+  args: {
+    userId: v.id("users"),
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await recallExactFacts(ctx, args.userId, args.query, {
+      limit: args.limit,
+    });
   },
 });

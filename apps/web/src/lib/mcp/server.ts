@@ -380,7 +380,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const searchFactsTool = server.tool(
     MCP_TOOL_NAMES.searchFacts,
-    "Search precise structured facts such as names, exact dates, relationships, providers, schools, employers, and stable preferences. Use this for direct factual questions and use search_thoughts for narrative decisions or project context. Current facts are returned by default. Set includeHistorical for what used to be true. Cite results as fact:<id>.",
+    "Search precise structured facts such as names, exact dates, relationships, providers, schools, employers, and stable preferences. Matches by meaning as well as by exact words, so a plain question works and does not need the stored predicate. Use this for direct factual questions and use search_thoughts for narrative decisions or project context. Current facts are returned by default. Set includeHistorical for what used to be true. Cite results as fact:<id>.",
     {
       query: z
         .string()
@@ -393,8 +393,8 @@ export function createMcpServer(convexAuthToken: string) {
     },
     MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.searchFacts],
     async ({ query, limit, includeHistorical }) => {
-      const facts: FactResult[] = await convex.query(
-        api.models.facts.mcpQueries.search,
+      const facts: FactResult[] = await convex.action(
+        api.models.facts.mcpActions.search,
         { query, limit, includeHistorical },
       );
       return {
@@ -502,7 +502,7 @@ export function createMcpServer(convexAuthToken: string) {
         factId: string;
         statement: string;
         operation: "stored" | "noop" | "superseded" | "corrected";
-      } = await convex.mutation(api.models.facts.mcpActions.remember, {
+      } = await convex.action(api.models.facts.mcpActions.remember, {
         subject,
         predicate,
         value: convertedValue,
@@ -692,7 +692,7 @@ export function createMcpServer(convexAuthToken: string) {
           : convex.query(api.models.facts.mcpQueries.listCore, {
               limit: coreLimit,
             }),
-        convex.query(api.models.facts.mcpQueries.search, {
+        convex.action(api.models.facts.mcpActions.search, {
           query,
           limit,
           includeHistorical,

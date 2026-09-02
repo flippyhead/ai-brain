@@ -35,7 +35,7 @@ async function remember(
   },
 ) {
   return await t.run((ctx) =>
-    ctx.runMutation(internal.models.facts.private.seedFact, {
+    ctx.runMutation(internal.models.facts.private.rememberFact, {
       userId,
       subject: { kind: "person", ...fact.subject },
       predicate: fact.predicate,
@@ -428,14 +428,16 @@ describe("exact tier on the eval corpus", () => {
       ...recordedExactEntityRankings,
     ]) {
       const rows = await t.run((ctx) =>
-        ctx.runQuery(internal.models.facts.private.recallFacts, {
-          userId: userIdByLabel.get(ranking.account)!,
-          query: queryText(ranking.account, ranking.queryName),
-        }),
+        recallExactFacts(
+          ctx,
+          userIdByLabel.get(ranking.account)!,
+          queryText(ranking.account, ranking.queryName),
+          { limit: 5 },
+        ),
       );
-      const exactKeys = rows
-        .filter((row) => row.source === "exact")
-        .map((row) => keyByFactId.get(row.id) ?? `unseeded:${row.id}`);
+      const exactKeys = rows.map(
+        (row) => keyByFactId.get(row.id) ?? `unseeded:${row.id}`,
+      );
       expect({ query: ranking.queryName, exactKeys }).toEqual({
         query: ranking.queryName,
         exactKeys: ranking.exactFactKeys,

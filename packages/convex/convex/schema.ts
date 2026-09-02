@@ -45,6 +45,14 @@ export default defineSchema({
     // variant of `value` carries `entityId`; every other variant sorts as
     // undefined and is never matched by an equality lookup.
     .index("by_userId_and_valueEntityId", ["userId", "value.entityId"])
+    // Mirrors the thoughts index: text-embedding-3-small dimensions and
+    // account isolation at the index, so a vector search can never cross
+    // accounts even before ownership is re-checked on hydration.
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["userId"],
+    })
     .searchIndex("by_searchText", {
       searchField: "searchText",
       filterFields: ["userId", "status"],

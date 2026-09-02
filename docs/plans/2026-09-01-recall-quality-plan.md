@@ -32,6 +32,12 @@ it changes W4's envelope shape and nothing else.
 
 ## Workstream 1 — Semantic recall for facts
 
+**Status:** Tasks 1–4 implemented. The fused search is `hybridSearchFacts` in
+`models/facts/actions.ts`, served through `mcpActions.search`;
+`mcpQueries.search` remains the keyword-only fallback. The backfill
+(`convex run models/facts/migrations:backfillFactEmbeddings '{}' --prod`) is
+run by the operator after deploy, not by the PR.
+
 ### Task 1: Add an embedding field and vector index to `facts`
 
 **Files:**

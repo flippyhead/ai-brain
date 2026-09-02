@@ -53,6 +53,43 @@ describe("account export", () => {
     expect(page.rows.every((row) => !("userId" in row))).toBe(true);
   });
 
+  test("never exports a fact's embedding either", async () => {
+    const t = convexTest(schema, modules);
+    const userId = await t.run((ctx) => ctx.db.insert("users", {}));
+    await t.run(async (ctx) => {
+      const subjectEntityId = await ctx.db.insert("entities", {
+        userId,
+        key: "person:jordan",
+        kind: "person",
+        canonicalName: "Jordan",
+        normalizedName: "jordan",
+        aliases: [],
+        normalizedAliases: [],
+      });
+      await ctx.db.insert("facts", {
+        userId,
+        subjectEntityId,
+        predicate: "home_city",
+        value: { type: "text", value: "Seattle" },
+        statement: "Jordan — home city: Seattle.",
+        searchText: "person:jordan Jordan home_city home city Seattle",
+        embedding,
+        sourceType: "user_stated",
+        confidence: 1,
+        status: "current",
+      });
+    });
+
+    const page = await t.query(internal.models.export.private.collectionPage, {
+      userId,
+      collection: "facts",
+    });
+
+    expect(page.rows).toHaveLength(1);
+    expect(page.rows.every((row) => !("embedding" in row))).toBe(true);
+    expect(page.rows.every((row) => !("userId" in row))).toBe(true);
+  });
+
   test("excludes superseded and retracted memories unless asked", async () => {
     const t = convexTest(schema, modules);
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
