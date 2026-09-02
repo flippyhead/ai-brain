@@ -671,9 +671,10 @@ describe("MCP memory quality contract", () => {
       createdAt,
     });
     // Two current facts disagree, the newest relevant memory is months old,
-    // and the question asks for a phone number no fact records.
-    convexMocks.query
-      .mockResolvedValueOnce([])
+    // and the question asks for a phone number no fact records. Core is the
+    // one query; fact search, thought search, and hydration are actions.
+    convexMocks.query.mockResolvedValueOnce([]);
+    convexMocks.action
       .mockResolvedValueOnce([
         factRow("fact-city-a", "home_city", "Fernwood", Date.UTC(2026, 2, 1)),
         factRow(
@@ -682,8 +683,7 @@ describe("MCP memory quality contract", () => {
           "Brightwater",
           Date.UTC(2026, 3, 1),
         ),
-      ]);
-    convexMocks.action
+      ])
       .mockResolvedValueOnce([
         {
           _id: "moving-note",
