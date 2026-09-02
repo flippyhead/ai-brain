@@ -4,6 +4,10 @@ import {
   blendRecallContext,
   coreLimitFor,
 } from "@repo/db/convex/models/recallBlend";
+import {
+  DEFAULT_CORE_MEMORY_LIMIT,
+  MAX_CORE_MEMORY_LIMIT,
+} from "@repo/db/convex/models/thoughts/model";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
@@ -270,6 +274,89 @@ function truncateContext(content: string, maxChars = 4_000): string {
   return chars.length > maxChars
     ? `${chars.slice(0, maxChars).join("")}…`
     : content;
+}
+
+/** A hydrated core memory row as `thoughts.mcpQueries.listCore` returns it. */
+type CoreThought = {
+  _id: string;
+  _creationTime: number;
+  content: string;
+  metadata: {
+    type: string;
+    topics: string[];
+    people: string[];
+    actionItems: string[];
+    summary: string;
+  };
+  userId: string;
+  updatedAt?: number;
+  memoryStatus?: "current" | "superseded" | "retracted";
+  isCore?: boolean;
+  validFrom?: number;
+  validTo?: number;
+  supersededAt?: number;
+  supersededBy?: string;
+  supersedes?: string[];
+  changeReason?: string;
+};
+
+function formatCoreThoughtForMcp(thought: CoreThought) {
+  return {
+    id: thought._id,
+    citation: `thought:${thought._id}`,
+    content: truncateContext(thought.content),
+    metadata: thought.metadata,
+    memoryKind: "thought" as const,
+    source: "core" as const,
+    memoryStatus: thought.memoryStatus ?? "current",
+    isCore: true,
+    validFrom:
+      thought.validFrom !== undefined
+        ? new Date(thought.validFrom).toISOString()
+        : undefined,
+    validTo:
+      thought.validTo !== undefined
+        ? new Date(thought.validTo).toISOString()
+        : undefined,
+    createdAt: new Date(thought._creationTime).toISOString(),
+  };
+}
+
+/**
+ * list_core_memories advertises this result budget to clients, so it has to
+ * hold it: at MAX_CORE_MEMORY_LIMIT the truncated contents alone can exceed it.
+ */
+const LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS = 50_000;
+
+/**
+ * Serialize the core payload within the budget by dropping trailing memories,
+ * then trailing facts. Both lists arrive newest-first, so what survives is the
+ * most recent core context, and the output is always complete JSON.
+ */
+export function serializeCoreMemoriesWithinBudget(
+  coreFacts: readonly unknown[],
+  coreMemories: readonly unknown[],
+  budgetChars: number,
+): string {
+  const facts = [...coreFacts];
+  const memories = [...coreMemories];
+  for (;;) {
+    const text = JSON.stringify(
+      {
+        coreFacts: facts,
+        coreMemories: memories,
+        truncated:
+          facts.length < coreFacts.length ||
+          memories.length < coreMemories.length,
+      },
+      null,
+      2,
+    );
+    if (text.length <= budgetChars) return text;
+    if (memories.length > 0) memories.pop();
+    else if (facts.length > 0) facts.pop();
+    else return text;
+  }
 }
 
 export function createMcpServer(convexAuthToken: string) {
@@ -722,6 +809,51 @@ export function createMcpServer(convexAuthToken: string) {
           },
         ],
         _meta: { "anthropic/maxResultSizeChars": 50000 },
+      };
+    },
+  );
+
+  const listCoreMemoriesTool = server.tool(
+    MCP_TOOL_NAMES.listCoreMemories,
+    "List the account's current core facts and core memories without a query. Core context is the small, explicitly marked set of enduring identity facts, constraints, preferences, and active-project state. Cheap and read-only: no search runs. Use it to load standing context at the start of a session; use recall_context for context specific to a message. Newest core context comes first; if the result would exceed its size budget, trailing entries are dropped and truncated is true. Cite sources as fact:<id> or thought:<id>.",
+    {
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_CORE_MEMORY_LIMIT)
+        .default(DEFAULT_CORE_MEMORY_LIMIT)
+        .describe(
+          "Maximum core facts and, separately, core memories to return",
+        ),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.listCoreMemories],
+    async ({ limit }) => {
+      const [coreFacts, coreThoughts]: [FactResult[], CoreThought[]] =
+        await Promise.all([
+          convex.query(api.models.facts.mcpQueries.listCore, { limit }),
+          convex.query(api.models.thoughts.mcpQueries.listCore, { limit }),
+        ]);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: serializeCoreMemoriesWithinBudget(
+              coreFacts.map((fact) => ({
+                ...formatFactForMcp(fact),
+                memoryKind: "fact" as const,
+                source: "core" as const,
+              })),
+              coreThoughts.map(formatCoreThoughtForMcp),
+              LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS,
+            ),
+          },
+        ],
+        _meta: {
+          "anthropic/maxResultSizeChars":
+            LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS,
+        },
       };
     },
   );
@@ -1779,6 +1911,7 @@ export function createMcpServer(convexAuthToken: string) {
     [MCP_TOOL_NAMES.rememberFact]: rememberFactTool,
     [MCP_TOOL_NAMES.searchThoughts]: searchThoughtsTool,
     [MCP_TOOL_NAMES.recallContext]: recallContextTool,
+    [MCP_TOOL_NAMES.listCoreMemories]: listCoreMemoriesTool,
     [MCP_TOOL_NAMES.browseRecent]: browseRecentTool,
     [MCP_TOOL_NAMES.getThoughts]: getThoughtsTool,
     [MCP_TOOL_NAMES.timelineThoughts]: timelineThoughtsTool,

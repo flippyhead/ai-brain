@@ -46,6 +46,10 @@ For relevant prompts, `recall_context` combines a small set of explicitly
 marked core facts/memories with query-specific fact and thought search results.
 Clients are instructed to send the user's complete current message so exact
 names, identifiers, and version strings reach retrieval unchanged.
+`list_core_memories` returns the same explicitly marked core facts and
+memories on their own, without a query and without running a search, so a
+client can load standing context at the start of a session; the Claude Code
+plugin's SessionStart hook uses it to inject that context unprompted.
 
 Precise facts are account-isolated, source-labelled, and optionally associated
 with an import batch. A single-valued fact change creates a new current record
