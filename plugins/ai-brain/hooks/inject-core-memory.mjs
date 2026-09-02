@@ -56,6 +56,14 @@ export function isDisabled(env = process.env) {
   return ["0", "false", "off", "no"].includes(normalized);
 }
 
+/** The tool as Claude Code names it once the plugin's MCP server is attached. */
+export const RECALL_TOOL = "mcp__ai-brain__recall_context";
+
+function citationId(entry) {
+  const id = entry?.id;
+  return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
 function oneLine(text) {
   const collapsed = String(text ?? "")
     .replace(/\s+/g, " ")
@@ -76,21 +84,23 @@ export function formatCoreMemory(payload) {
     ? payload.coreMemories
     : [];
 
+  // Every injected line carries a citation. An entry without an id would land
+  // in context as an unattributable claim, so it is dropped rather than shown.
   const factLines = facts
     .map((fact) => {
+      const id = citationId(fact);
       const statement = oneLine(fact?.statement);
-      if (!statement) return null;
-      return fact?.id ? `- ${statement} (fact:${fact.id})` : `- ${statement}`;
+      if (!id || !statement) return null;
+      return `- ${statement} (fact:${id})`;
     })
     .filter(Boolean);
 
   const memoryLines = memories
     .map((memory) => {
+      const id = citationId(memory);
       const summary = oneLine(memory?.metadata?.summary || memory?.content);
-      if (!summary) return null;
-      return memory?.id
-        ? `- ${summary} (thought:${memory.id})`
-        : `- ${summary}`;
+      if (!id || !summary) return null;
+      return `- ${summary} (thought:${id})`;
     })
     .filter(Boolean);
 
@@ -100,7 +110,7 @@ export function formatCoreMemory(payload) {
   if (factLines.length > 0) lines.push("Facts:", ...factLines);
   if (memoryLines.length > 0) lines.push("Memories:", ...memoryLines);
   lines.push(
-    "Fuller, message-specific recall is available via the recall_context tool.",
+    `Fuller, message-specific recall is available via the ${RECALL_TOOL} tool.`,
   );
   return lines.join("\n");
 }
@@ -184,14 +194,23 @@ export async function buildSessionBlock({
   return payload ? formatCoreMemory(payload) : "";
 }
 
+// Writes to a piped stdout can be asynchronous, so exiting straight after
+// console.log could hand Claude Code a cut-off block. The block is written with
+// a flush callback and the process exits only once it has drained. Exiting
+// explicitly still matters: an aborted connect attempt or an idle keep-alive
+// socket can otherwise hold the process open for seconds after the work is
+// done, and the hook must not delay the session.
 async function main() {
+  let block = "";
   try {
-    const block = await buildSessionBlock();
-    if (block) console.log(block);
+    block = await buildSessionBlock();
   } catch {
-    // Any error — exit silently so the session always starts
+    // Any error — print nothing so the session always starts
   }
-  process.exit(0);
+  if (!block) {
+    process.exit(0);
+  }
+  process.stdout.write(`${block}\n`, () => process.exit(0));
 }
 
 const invokedDirectly =

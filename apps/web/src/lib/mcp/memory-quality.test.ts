@@ -427,10 +427,92 @@ describe("MCP memory quality contract", () => {
           memoryStatus: "current",
         }),
       ]);
+      expect(core).toMatchObject({ truncated: false });
       // Both stores are read at the default core limit; no search action runs.
       expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 10 });
       expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 10 });
       expect(convexMocks.action).not.toHaveBeenCalled();
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  test("holds list_core_memories to its advertised result budget", async () => {
+    const longThought = (index: number) => ({
+      _id: `core-${index}`,
+      _creationTime: Date.UTC(2026, 7, 25 - index),
+      content: `Memory ${index}. ${"x".repeat(5_000)}`,
+      metadata: {
+        type: "reference",
+        topics: ["long"],
+        people: [],
+        actionItems: [],
+        summary: `Memory ${index}`,
+      },
+      userId: "jordan",
+      memoryStatus: "current",
+      isCore: true,
+    });
+    convexMocks.query
+      .mockResolvedValueOnce([
+        {
+          id: "employer-fact",
+          statement: "Jordan works at Atlas Memory.",
+          subject: null,
+          predicate: "employer",
+          value: { type: "string", value: "Atlas Memory" },
+          sourceType: "user_stated",
+          confidence: 1,
+          isCore: true,
+          status: "current",
+          createdAt: Date.UTC(2026, 7, 1),
+        },
+      ])
+      .mockResolvedValueOnce(
+        Array.from({ length: 25 }, (_, index) => longThought(index)),
+      );
+
+    const server = createMcpServer("test-convex-auth-token");
+    const client = new Client({ name: "memory-quality-test", version: "1" });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const result = await client.callTool({
+        name: "list_core_memories",
+        arguments: { limit: 25 },
+      });
+      const text = (result as { content?: Array<{ text?: string }> })
+        .content?.[0]?.text;
+      expect(text).toBeDefined();
+      expect(text!.length).toBeLessThanOrEqual(50_000);
+      expect((result as { _meta?: Record<string, unknown> })._meta).toEqual({
+        "anthropic/maxResultSizeChars": 50_000,
+      });
+
+      const core = JSON.parse(text!) as {
+        coreFacts: Array<{ id: string }>;
+        coreMemories: Array<{ id: string; content: string }>;
+        truncated: boolean;
+      };
+      expect(core.truncated).toBe(true);
+      // Memories are dropped from the tail before any fact goes.
+      expect(core.coreFacts.map((fact) => fact.id)).toEqual(["employer-fact"]);
+      expect(core.coreMemories.length).toBeGreaterThan(0);
+      expect(core.coreMemories.length).toBeLessThan(25);
+      expect(core.coreMemories.map((memory) => memory.id)).toEqual(
+        core.coreMemories.map((_, index) => `core-${index}`),
+      );
+      for (const memory of core.coreMemories) {
+        expect(memory.content.endsWith("…")).toBe(true);
+      }
+      expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 25 });
+      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({ limit: 25 });
     } finally {
       await client.close();
       await server.close();

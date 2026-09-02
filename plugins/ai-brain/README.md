@@ -37,32 +37,37 @@ Both run once when a Claude Code session starts, and both stay silent when the b
   - <one-line fact statement> (fact:<id>)
   Memories:
   - <memory summary> (thought:<id>)
-  Fuller, message-specific recall is available via the recall_context tool.
+  Fuller, message-specific recall is available via the mcp__ai-brain__recall_context tool.
   ```
 
-  It reads at most 10 core facts and 10 core memories, keeps each on one bounded line, writes nothing to disk, and prints nothing at all when you have no core context yet. To turn it off, set `AI_BRAIN_SESSION_RECALL=0` in the environment Claude Code runs in.
+  It reads at most 10 core facts and 10 core memories, keeps each on one bounded line, only prints entries it can cite, writes nothing to disk, and prints nothing at all when you have no core context yet. To turn it off, set `AI_BRAIN_SESSION_RECALL=0` in the environment Claude Code runs in.
+
+Both hooks need an API key in the environment (see [Install](#install), step 3). Without one they are inert: they print nothing and the session starts normally. The skills are unaffected; they use the OAuth connection Claude Code holds.
 
 ## Install
 
-```
-/plugin marketplace add flippyhead/ai-brain-plugin
-/plugin install ai-brain@ai-brain-plugin
-```
+1. Add the marketplace and install the plugin:
+
+   ```
+   /plugin marketplace add flippyhead/ai-brain-plugin
+   /plugin install ai-brain@ai-brain-plugin
+   ```
+
+2. Connect the MCP server. The first time a skill reaches the brain, Claude Code opens your browser to sign in and authorize; that OAuth grant is what the skills and every `mcp__ai-brain__*` tool use from then on.
+
+3. Give the hooks a key. The two SessionStart hooks run as plain Node scripts outside Claude Code's MCP connection, so they cannot use the OAuth grant from step 2 and the server rejects unauthenticated calls. Generate an API key in the AI Brain web app under Settings, then export it in the environment Claude Code starts from (for example your shell profile):
+
+   ```
+   export AI_BRAIN_TOKEN=ob_...
+   ```
+
+   `AI_BRAIN_API_KEY` and `MCP_AUTH_TOKEN` are accepted as aliases, and `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATION` set the full `Authorization` header instead. Until one of these is set, both hooks stay inert: nothing is injected and nothing is printed. Treat the key like a password; the hooks send it only to the server URL in the plugin's `.mcp.json`.
 
 ## Requirements
 
 - Claude Code or compatible MCP client
 - An AI Brain server account (hosted at https://ai-brain-pi.vercel.app)
-
-### Authentication (optional)
-
-If your brain is protected by an API key, set one of:
-
-- `AI_BRAIN_TOKEN`
-- `AI_BRAIN_API_KEY`
-- `MCP_AUTH_TOKEN`
-
-Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATION`.
+- For the SessionStart hooks, an AI Brain API key in the environment (Install, step 3)
 
 ## Tips for getting the most out of it
 
@@ -86,7 +91,7 @@ node ~/.claude/plugins/cache/ai-brain-plugin/*/hooks/check-brain-status.mjs
 node ~/.claude/plugins/cache/ai-brain-plugin/*/hooks/inject-core-memory.mjs
 ```
 
-The core memory hook also prints nothing when no fact or memory is marked core yet; mark a few with `isCore` (or ask Claude to) and start a new session. If you set `AI_BRAIN_SESSION_RECALL=0`, the block is off by design.
+If both print nothing, the usual cause is a missing API key: the hooks cannot use Claude Code's OAuth grant, so `AI_BRAIN_TOKEN` (or an alias) must be set in the environment Claude Code starts from (Install, step 3). The core memory hook also prints nothing when no fact or memory is marked core yet; mark a few with `isCore` (or ask Claude to) and start a new session. If you set `AI_BRAIN_SESSION_RECALL=0`, the block is off by design.
 
 **Want to see what's in your brain without a skill?** Use `/mcp` to find the `ai-brain` server, then invoke `get_stats` or `browse_recent` directly.
 

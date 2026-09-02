@@ -322,6 +322,43 @@ function formatCoreThoughtForMcp(thought: CoreThought) {
   };
 }
 
+/**
+ * list_core_memories advertises this result budget to clients, so it has to
+ * hold it: at MAX_CORE_MEMORY_LIMIT the truncated contents alone can exceed it.
+ */
+const LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS = 50_000;
+
+/**
+ * Serialize the core payload within the budget by dropping trailing memories,
+ * then trailing facts. Both lists arrive newest-first, so what survives is the
+ * most recent core context, and the output is always complete JSON.
+ */
+export function serializeCoreMemoriesWithinBudget(
+  coreFacts: readonly unknown[],
+  coreMemories: readonly unknown[],
+  budgetChars: number,
+): string {
+  const facts = [...coreFacts];
+  const memories = [...coreMemories];
+  for (;;) {
+    const text = JSON.stringify(
+      {
+        coreFacts: facts,
+        coreMemories: memories,
+        truncated:
+          facts.length < coreFacts.length ||
+          memories.length < coreMemories.length,
+      },
+      null,
+      2,
+    );
+    if (text.length <= budgetChars) return text;
+    if (memories.length > 0) memories.pop();
+    else if (facts.length > 0) facts.pop();
+    else return text;
+  }
+}
+
 export function createMcpServer(convexAuthToken: string) {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
   if (!convexUrl) {
@@ -784,7 +821,7 @@ export function createMcpServer(convexAuthToken: string) {
 
   const listCoreMemoriesTool = server.tool(
     MCP_TOOL_NAMES.listCoreMemories,
-    "List the account's current core facts and core memories without a query. Core context is the small, explicitly marked set of enduring identity facts, constraints, preferences, and active-project state. Cheap and read-only: no search runs. Use it to load standing context at the start of a session; use recall_context for context specific to a message. Cite sources as fact:<id> or thought:<id>.",
+    "List the account's current core facts and core memories without a query. Core context is the small, explicitly marked set of enduring identity facts, constraints, preferences, and active-project state. Cheap and read-only: no search runs. Use it to load standing context at the start of a session; use recall_context for context specific to a message. Newest core context comes first; if the result would exceed its size budget, trailing entries are dropped and truncated is true. Cite sources as fact:<id> or thought:<id>.",
     {
       limit: z
         .number()
@@ -808,21 +845,21 @@ export function createMcpServer(convexAuthToken: string) {
         content: [
           {
             type: "text" as const,
-            text: JSON.stringify(
-              {
-                coreFacts: coreFacts.map((fact) => ({
-                  ...formatFactForMcp(fact),
-                  memoryKind: "fact" as const,
-                  source: "core" as const,
-                })),
-                coreMemories: coreThoughts.map(formatCoreThoughtForMcp),
-              },
-              null,
-              2,
+            text: serializeCoreMemoriesWithinBudget(
+              coreFacts.map((fact) => ({
+                ...formatFactForMcp(fact),
+                memoryKind: "fact" as const,
+                source: "core" as const,
+              })),
+              coreThoughts.map(formatCoreThoughtForMcp),
+              LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS,
             ),
           },
         ],
-        _meta: { "anthropic/maxResultSizeChars": 50000 },
+        _meta: {
+          "anthropic/maxResultSizeChars":
+            LIST_CORE_MEMORIES_RESULT_BUDGET_CHARS,
+        },
       };
     },
   );

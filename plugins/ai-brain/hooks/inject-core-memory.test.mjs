@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process";
 
 import {
   CORE_MEMORY_LIMIT,
+  RECALL_TOOL,
   buildSessionBlock,
   fetchCoreMemory,
   formatCoreMemory,
@@ -91,8 +92,42 @@ describe("formatCoreMemory", () => {
         "Memories:",
         "- Prefers concise, direct answers (thought:thought-tone)",
         "- Jordan avoids meetings before 9 AM. (thought:thought-no-summary)",
-        "Fuller, message-specific recall is available via the recall_context tool.",
+        "Fuller, message-specific recall is available via the mcp__ai-brain__recall_context tool.",
       ].join("\n"),
+    );
+    assert.equal(RECALL_TOOL, "mcp__ai-brain__recall_context");
+  });
+
+  test("drops entries without an id instead of injecting uncited claims", () => {
+    const block = formatCoreMemory({
+      coreFacts: [
+        { statement: "Uncited fact." },
+        { id: "", statement: "Blank id fact." },
+        { id: 42, statement: "Numeric id fact." },
+        { id: "fact-ok", statement: "Cited fact." },
+      ],
+      coreMemories: [
+        { content: "Uncited memory.", metadata: { summary: "Uncited" } },
+        { id: "thought-ok", content: "Cited memory." },
+      ],
+    });
+    assert.equal(
+      block,
+      [
+        "## Core memory (AI Brain)",
+        "Facts:",
+        "- Cited fact. (fact:fact-ok)",
+        "Memories:",
+        "- Cited memory. (thought:thought-ok)",
+        `Fuller, message-specific recall is available via the ${RECALL_TOOL} tool.`,
+      ].join("\n"),
+    );
+    assert.equal(
+      formatCoreMemory({
+        coreFacts: [{ statement: "Uncited fact." }],
+        coreMemories: [{ content: "Uncited memory." }],
+      }),
+      "",
     );
   });
 
@@ -303,11 +338,62 @@ describe("hook process", () => {
     assert.equal(result.stdout, "");
   });
 
+  /** Preload that makes global fetch answer the handshake with one payload. */
+  function answeringPreload(answer) {
+    return (
+      "data:text/javascript," +
+      encodeURIComponent(
+        `const payload = ${JSON.stringify(answer)};
+globalThis.fetch = async (_url, init) => {
+  const body = JSON.parse(init.body);
+  if (body.method === "initialize") {
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), { status: 200 });
+  }
+  if (body.method === "notifications/initialized") return new Response(null, { status: 202 });
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id: 2, result: { content: [{ type: "text", text: JSON.stringify(payload) }] } }), { status: 200 });
+};`,
+      )
+    );
+  }
+
   test("prints the block when the brain answers", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["--import", answeringPreload(payload), script],
+      {
+        encoding: "utf8",
+        env: { ...process.env, AI_BRAIN_SESSION_RECALL: "" },
+        timeout: 10_000,
+      },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, `${formatCoreMemory(payload)}\n`);
+    assert.equal(result.stderr, "");
+  });
+
+  test("delivers a block larger than a pipe buffer intact", () => {
+    // Well past the 64 KiB a POSIX pipe holds, so an early exit would cut it.
+    // The fixture is generated on both sides so the preload stays small enough
+    // for an argument.
+    const generator = `({
+      coreFacts: Array.from({ length: 300 }, (_, i) => ({
+        id: "fact-" + i,
+        statement: ("Fact " + i + ": " + "detail ".repeat(38)).trim(),
+      })),
+      coreMemories: Array.from({ length: 100 }, (_, i) => ({
+        id: "thought-" + i,
+        content: ("Memory " + i + ": " + "context ".repeat(33)).trim(),
+        metadata: { summary: "" },
+      })),
+    })`;
+    const large = new Function(`return ${generator};`)();
+    const expected = `${formatCoreMemory(large)}\n`;
+    assert.ok(expected.length > 100_000, "the fixture must exceed the buffer");
+
     const preload =
       "data:text/javascript," +
       encodeURIComponent(
-        `const payload = ${JSON.stringify(payload)};
+        `const payload = ${generator};
 globalThis.fetch = async (_url, init) => {
   const body = JSON.parse(init.body);
   if (body.method === "initialize") {
@@ -321,9 +407,10 @@ globalThis.fetch = async (_url, init) => {
       encoding: "utf8",
       env: { ...process.env, AI_BRAIN_SESSION_RECALL: "" },
       timeout: 10_000,
+      maxBuffer: 4 * 1024 * 1024,
     });
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(result.stdout, `${formatCoreMemory(payload)}\n`);
-    assert.equal(result.stderr, "");
+    assert.equal(result.stdout.length, expected.length);
+    assert.equal(result.stdout, expected);
   });
 });
