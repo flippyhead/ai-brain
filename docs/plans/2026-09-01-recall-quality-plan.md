@@ -16,7 +16,7 @@ data already in hand.
 
 **Design doc:** `docs/plans/2026-09-01-recall-quality-design.md`
 
-**W0 (blend policy) is implemented** in PR #PRNUM: one core slot at the
+**W0 (blend policy) is implemented** in PR #40: one core slot at the
 default limit, facts only, and no guaranteed fact share of the relevance
 slots. It precedes everything below and is not repeated here.
 
