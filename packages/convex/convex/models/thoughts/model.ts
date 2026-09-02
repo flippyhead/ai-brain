@@ -6,6 +6,7 @@ import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import {
   assertValidMemoryValidity,
   isCurrentMemory,
+  normalizeForgetReason,
   safeSupersededValidTo,
   type MemoryStatus,
   type MemoryValidity,
@@ -196,10 +197,12 @@ export async function _transitionMemory(
 }
 
 /**
- * Caller-declared retraction: the user asserts this memory should never have
- * been stored. Unlike the RETRACT branch of `_transitionMemory`, no replacement
+ * Caller-declared retraction: the user asserts this memory is wrong — it was
+ * never true. Unlike the RETRACT branch of `_transitionMemory`, no replacement
  * is written and no classifier has to agree — this mirrors the `changeKind:
- * "corrected"` argument the structured fact path already accepts.
+ * "corrected"` argument the structured fact path already accepts. The row is
+ * kept; `_forgetThought` is the path for content that must not remain in
+ * storage at all.
  *
  * `supersededBy` stays unset, which is what makes the memory restorable: a
  * memory retracted as part of a supersession has a current successor, and
@@ -252,6 +255,79 @@ export async function _setRetracted(
     supersededAt: undefined,
     changeReason: undefined,
   });
+}
+
+/**
+ * Hard delete. Retraction keeps the row and marks it never-true; forgetting is
+ * for content that should not exist in storage at all — a mis-captured
+ * credential, a third party's private detail — so there is nothing to mark
+ * and nowhere to write a tombstone. The reason is validated so the caller has
+ * to say why, but no row survives to record it on; it is echoed back instead.
+ *
+ * Any status can be forgotten. A retracted or superseded memory still holds
+ * its content, and the point of forgetting is that the content goes.
+ *
+ * Supersession links are bidirectional, so both sides are repaired rather
+ * than left pointing at a missing id:
+ *
+ * - A predecessor whose `supersededBy` is the forgotten memory has that
+ *   pointer cleared but keeps its `superseded` or `retracted` status.
+ *   Forgetting the successor is not an undo of the change it recorded — the
+ *   user said the successor should never have existed, not that the earlier
+ *   memory is true again — and a retracted predecessor was never true
+ *   regardless. The ids are returned so a caller can re-state the earlier
+ *   memory deliberately if that is what the user wants.
+ * - A successor listing the forgotten memory in `supersedes` drops it from
+ *   the list; an emptied list is removed.
+ */
+export async function _forgetThought(
+  ctx: MutationCtx,
+  userId: Id<"users">,
+  id: Id<"thoughts">,
+  reason: string,
+) {
+  const memory = await ctx.db.get(id);
+  if (!memory || memory.userId !== userId) {
+    throw new Error("Memory not found");
+  }
+  const normalizedReason = normalizeForgetReason(reason);
+
+  const detachedPredecessors: Array<Id<"thoughts">> = [];
+  for (const previousId of memory.supersedes ?? []) {
+    const previous = await ctx.db.get(previousId);
+    if (
+      previous &&
+      previous.userId === userId &&
+      previous.supersededBy === id
+    ) {
+      await ctx.db.patch(previousId, { supersededBy: undefined });
+      detachedPredecessors.push(previousId);
+    }
+  }
+
+  let detachedSuccessor: Id<"thoughts"> | undefined;
+  if (memory.supersededBy !== undefined) {
+    const successor = await ctx.db.get(memory.supersededBy);
+    if (
+      successor &&
+      successor.userId === userId &&
+      successor.supersedes?.includes(id)
+    ) {
+      const remaining = successor.supersedes.filter((other) => other !== id);
+      await ctx.db.patch(successor._id, {
+        supersedes: remaining.length > 0 ? remaining : undefined,
+      });
+      detachedSuccessor = successor._id;
+    }
+  }
+
+  await ctx.db.delete(id);
+  return {
+    thoughtId: id,
+    reason: normalizedReason,
+    detachedPredecessors,
+    detachedSuccessor,
+  };
 }
 
 export async function _setCoreStatus(
