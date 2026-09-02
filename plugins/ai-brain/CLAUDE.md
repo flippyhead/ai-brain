@@ -4,7 +4,7 @@ This file guides Claude Code when making changes to the plugin source at `plugin
 
 ## Purpose
 
-Thin client plugin for the AI Brain MCP server. Five skills + one SessionStart hook. The MCP server (same repo, under `apps/web/src/lib/mcp/`) does all the real work — this plugin's job is to prompt Claude to use the server's tools well.
+Thin client plugin for the AI Brain MCP server. Five skills + two SessionStart hooks. The MCP server (same repo, under `apps/web/src/lib/mcp/`) does all the real work — this plugin's job is to prompt Claude to use the server's tools well.
 
 ## Version
 
@@ -13,6 +13,7 @@ Single source of truth: `plugins/ai-brain/.claude-plugin/plugin.json` — the `v
 The root `.claude-plugin/marketplace.json` (dev install) and the distribution repo's generated `marketplace.json` both pull from that one place. Don't hand-edit marketplace versions.
 
 **Bump rules:**
+
 - Patch (`3.0.0` → `3.0.1`) — typo fixes, nudge text tweaks, CI changes that don't affect behavior
 - Minor (`3.0.0` → `3.1.0`) — new skills, non-breaking prompt improvements
 - Major (`3.0.0` → `4.0.0`) — breaking skill contracts, rename, or any change that forces users to reinstall
@@ -36,7 +37,7 @@ All skills follow these invariants. If you break one of them, fix it before comm
    /plugin install ai-brain@ai-brain
    ```
 3. Run the skill you changed. Verify expected behavior.
-4. If you changed the hook, open a brand-new session to trigger SessionStart.
+4. If you changed a hook, open a brand-new session to trigger SessionStart. Hook unit tests live next to the hooks (`hooks/*.test.mjs`) and run under `pnpm test:once` from the repo root.
 
 ## CI checks
 

@@ -24,9 +24,23 @@ calls a tool.
 - **`/brain-thread <topic>`** — Reconstruct the evolution of your thinking on a topic. Walks the chronological neighbors around a seed thought.
 - **`/brain-context <date>`** — Restore what was on your mind at a specific moment. Anchors on a date or event-like phrase.
 
-### One hook
+### Two hooks
 
-- **SessionStart:** Checks if your brain is empty and nudges you to `/brain-init` if so. Silent otherwise.
+Both run once when a Claude Code session starts, and both stay silent when the brain is unreachable, slow, or rejects the credentials, so they never block a session.
+
+- **Empty-brain nudge** (`check-brain-status.mjs`): if your brain has no thoughts, prints a one-line suggestion to run `/brain-init`. Silent otherwise.
+- **Core memory injection** (`inject-core-memory.mjs`): fetches your explicitly marked core facts and core memories through the server's `list_core_memories` tool and prints them so they become part of the session context before you type anything. No MCP server can make a client call `recall_context` on its own; this hook is how standing context reaches Claude unprompted. What lands in context is a short block:
+
+  ```
+  ## Core memory (AI Brain)
+  Facts:
+  - <one-line fact statement> (fact:<id>)
+  Memories:
+  - <memory summary> (thought:<id>)
+  Fuller, message-specific recall is available via the recall_context tool.
+  ```
+
+  It reads at most 10 core facts and 10 core memories, keeps each on one bounded line, writes nothing to disk, and prints nothing at all when you have no core context yet. To turn it off, set `AI_BRAIN_SESSION_RECALL=0` in the environment Claude Code runs in.
 
 ## Install
 
@@ -65,11 +79,14 @@ Or pass an explicit auth header via `AI_BRAIN_AUTHORIZATION` / `MCP_AUTHORIZATIO
 
 **"MCP tools not available" errors.** Check that `mcp__ai-brain__*` tools appear in `/mcp`. If the server is reachable via curl but tools aren't listed, try `/mcp reload`.
 
-**SessionStart hook doesn't nudge on empty brain.** The hook silently exits on network errors (timeout, auth failure). Run the script directly to debug:
+**SessionStart hook doesn't nudge on empty brain, or no core memory block appears.** Both hooks silently exit on network errors (timeout, auth failure). Run the scripts directly to debug:
 
 ```
 node ~/.claude/plugins/cache/ai-brain-plugin/*/hooks/check-brain-status.mjs
+node ~/.claude/plugins/cache/ai-brain-plugin/*/hooks/inject-core-memory.mjs
 ```
+
+The core memory hook also prints nothing when no fact or memory is marked core yet; mark a few with `isCore` (or ask Claude to) and start a new session. If you set `AI_BRAIN_SESSION_RECALL=0`, the block is off by design.
 
 **Want to see what's in your brain without a skill?** Use `/mcp` to find the `ai-brain` server, then invoke `get_stats` or `browse_recent` directly.
 

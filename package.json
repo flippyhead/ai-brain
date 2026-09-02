@@ -8,7 +8,7 @@
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
-    "test:once": "turbo run test:once && node --test scripts/*.test.mjs",
+    "test:once": "turbo run test:once && node --test scripts/*.test.mjs plugins/ai-brain/hooks/*.test.mjs",
     "eval:recall": "pnpm --filter @repo/db exec convex run models/thoughts/evalRecall:runBaseline",
     "check:self-hosting": "node scripts/check-self-hosting.mjs --web",
     "check:self-hosting:convex": "node scripts/check-self-hosting.mjs --convex --prod",

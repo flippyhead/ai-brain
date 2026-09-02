@@ -99,7 +99,7 @@ async function collectHookFiles() {
   const hooksRoot = join(repoRoot, "plugins/ai-brain/hooks");
   const entries = await readdir(hooksRoot);
   return entries
-    .filter((e) => e.endsWith(".mjs"))
+    .filter((e) => e.endsWith(".mjs") && !e.endsWith(".test.mjs"))
     .map((e) => join(hooksRoot, e));
 }
 
@@ -158,9 +158,7 @@ async function main() {
       const rel = file.replace(repoRoot + "/", "");
       console.error(`  ${rel}: references unregistered tool "${tool}"`);
     }
-    console.error(
-      `\nRegistered tools: ${[...registered].sort().join(", ")}`,
-    );
+    console.error(`\nRegistered tools: ${[...registered].sort().join(", ")}`);
     process.exit(1);
   }
 

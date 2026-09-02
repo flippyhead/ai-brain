@@ -3,6 +3,7 @@ export const MCP_TOOL_NAMES = {
   rememberFact: "remember_fact",
   searchThoughts: "search_thoughts",
   recallContext: "recall_context",
+  listCoreMemories: "list_core_memories",
   browseRecent: "browse_recent",
   getThoughts: "get_thoughts",
   timelineThoughts: "timeline_thoughts",

@@ -4,6 +4,10 @@ import {
   blendRecallContext,
   coreLimitFor,
 } from "@repo/db/convex/models/recallBlend";
+import {
+  DEFAULT_CORE_MEMORY_LIMIT,
+  MAX_CORE_MEMORY_LIMIT,
+} from "@repo/db/convex/models/thoughts/model";
 import { ConvexHttpClient } from "convex/browser";
 import { z } from "zod";
 
@@ -256,6 +260,52 @@ function truncateContext(content: string, maxChars = 4_000): string {
   return chars.length > maxChars
     ? `${chars.slice(0, maxChars).join("")}…`
     : content;
+}
+
+/** A hydrated core memory row as `thoughts.mcpQueries.listCore` returns it. */
+type CoreThought = {
+  _id: string;
+  _creationTime: number;
+  content: string;
+  metadata: {
+    type: string;
+    topics: string[];
+    people: string[];
+    actionItems: string[];
+    summary: string;
+  };
+  userId: string;
+  updatedAt?: number;
+  memoryStatus?: "current" | "superseded" | "retracted";
+  isCore?: boolean;
+  validFrom?: number;
+  validTo?: number;
+  supersededAt?: number;
+  supersededBy?: string;
+  supersedes?: string[];
+  changeReason?: string;
+};
+
+function formatCoreThoughtForMcp(thought: CoreThought) {
+  return {
+    id: thought._id,
+    citation: `thought:${thought._id}`,
+    content: truncateContext(thought.content),
+    metadata: thought.metadata,
+    memoryKind: "thought" as const,
+    source: "core" as const,
+    memoryStatus: thought.memoryStatus ?? "current",
+    isCore: true,
+    validFrom:
+      thought.validFrom !== undefined
+        ? new Date(thought.validFrom).toISOString()
+        : undefined,
+    validTo:
+      thought.validTo !== undefined
+        ? new Date(thought.validTo).toISOString()
+        : undefined,
+    createdAt: new Date(thought._creationTime).toISOString(),
+  };
 }
 
 export function createMcpServer(convexAuthToken: string) {
@@ -574,28 +624,6 @@ export function createMcpServer(convexAuthToken: string) {
         supersededAt?: number;
         changeReason?: string;
       };
-      type CoreThought = {
-        _id: string;
-        _creationTime: number;
-        content: string;
-        metadata: {
-          type: string;
-          topics: string[];
-          people: string[];
-          actionItems: string[];
-          summary: string;
-        };
-        userId: string;
-        updatedAt?: number;
-        memoryStatus?: "current" | "superseded" | "retracted";
-        isCore?: boolean;
-        validFrom?: number;
-        validTo?: number;
-        supersededAt?: number;
-        supersededBy?: string;
-        supersedes?: string[];
-        changeReason?: string;
-      };
       type ContextFact = FactResult;
       const coreLimit = coreLimitFor(limit);
       const [coreFacts, coreThoughts, relevantFacts, index]: [
@@ -689,25 +717,7 @@ export function createMcpServer(convexAuthToken: string) {
         memoryKind: "fact" as const,
         source: "core" as const,
       }));
-      const coreContext = selectedCoreThoughts.map((thought) => ({
-        id: thought._id,
-        citation: `thought:${thought._id}`,
-        content: truncateContext(thought.content),
-        metadata: thought.metadata,
-        memoryKind: "thought" as const,
-        source: "core" as const,
-        memoryStatus: thought.memoryStatus ?? "current",
-        isCore: true,
-        validFrom:
-          thought.validFrom !== undefined
-            ? new Date(thought.validFrom).toISOString()
-            : undefined,
-        validTo:
-          thought.validTo !== undefined
-            ? new Date(thought.validTo).toISOString()
-            : undefined,
-        createdAt: new Date(thought._creationTime).toISOString(),
-      }));
+      const coreContext = selectedCoreThoughts.map(formatCoreThoughtForMcp);
       const relevanceFactContext = relevanceFacts.map((fact) => ({
         ...formatFactForMcp(fact),
         memoryKind: "fact" as const,
@@ -758,6 +768,51 @@ export function createMcpServer(convexAuthToken: string) {
           {
             type: "text" as const,
             text: JSON.stringify(context, null, 2),
+          },
+        ],
+        _meta: { "anthropic/maxResultSizeChars": 50000 },
+      };
+    },
+  );
+
+  const listCoreMemoriesTool = server.tool(
+    MCP_TOOL_NAMES.listCoreMemories,
+    "List the account's current core facts and core memories without a query. Core context is the small, explicitly marked set of enduring identity facts, constraints, preferences, and active-project state. Cheap and read-only: no search runs. Use it to load standing context at the start of a session; use recall_context for context specific to a message. Cite sources as fact:<id> or thought:<id>.",
+    {
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(MAX_CORE_MEMORY_LIMIT)
+        .default(DEFAULT_CORE_MEMORY_LIMIT)
+        .describe(
+          "Maximum core facts and, separately, core memories to return",
+        ),
+    },
+    MCP_TOOL_ANNOTATIONS[MCP_TOOL_NAMES.listCoreMemories],
+    async ({ limit }) => {
+      const [coreFacts, coreThoughts]: [FactResult[], CoreThought[]] =
+        await Promise.all([
+          convex.query(api.models.facts.mcpQueries.listCore, { limit }),
+          convex.query(api.models.thoughts.mcpQueries.listCore, { limit }),
+        ]);
+
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify(
+              {
+                coreFacts: coreFacts.map((fact) => ({
+                  ...formatFactForMcp(fact),
+                  memoryKind: "fact" as const,
+                  source: "core" as const,
+                })),
+                coreMemories: coreThoughts.map(formatCoreThoughtForMcp),
+              },
+              null,
+              2,
+            ),
           },
         ],
         _meta: { "anthropic/maxResultSizeChars": 50000 },
@@ -1832,6 +1887,7 @@ export function createMcpServer(convexAuthToken: string) {
     [MCP_TOOL_NAMES.rememberFact]: rememberFactTool,
     [MCP_TOOL_NAMES.searchThoughts]: searchThoughtsTool,
     [MCP_TOOL_NAMES.recallContext]: recallContextTool,
+    [MCP_TOOL_NAMES.listCoreMemories]: listCoreMemoriesTool,
     [MCP_TOOL_NAMES.browseRecent]: browseRecentTool,
     [MCP_TOOL_NAMES.getThoughts]: getThoughtsTool,
     [MCP_TOOL_NAMES.timelineThoughts]: timelineThoughtsTool,
