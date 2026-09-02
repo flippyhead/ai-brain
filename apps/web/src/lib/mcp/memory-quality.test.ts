@@ -101,6 +101,7 @@ describe("MCP memory quality contract", () => {
         2_000,
       );
       expect(searchFacts?.annotations?.readOnlyHint).toBe(true);
+      expect(searchFacts?.description).toContain("by meaning");
       expect(rememberFact?.description).toContain("Never store a derived age");
       expect(rememberFact?.inputSchema.properties).toHaveProperty("subject");
       expect(rememberFact?.inputSchema.properties).toHaveProperty("predicate");
@@ -199,10 +200,10 @@ describe("MCP memory quality contract", () => {
       factRow("fact-role", "role", "Atlas Memory maintainer"),
       factRow("fact-editor", "editor", "Atlas Memory Studio"),
     ];
-    convexMocks.query
-      .mockResolvedValueOnce(coreFacts)
-      .mockResolvedValueOnce(keywordFacts);
+    convexMocks.query.mockResolvedValueOnce(coreFacts);
+    // Fact search embeds the query, so it is an action like thought search.
     convexMocks.action
+      .mockResolvedValueOnce(keywordFacts)
       .mockResolvedValueOnce([
         // A core memory that matched the question arrives through the ranking
         // like any other; nothing reserves it a slot.
@@ -341,19 +342,20 @@ describe("MCP memory quality contract", () => {
       ]);
       // Core is asked for exactly the slots it can use, and core memories are
       // not fetched at all.
-      expect(convexMocks.query).toHaveBeenCalledTimes(2);
+      expect(convexMocks.query).toHaveBeenCalledTimes(1);
       expect(convexMocks.query.mock.calls[0]?.[1]).toEqual({ limit: 1 });
-      expect(convexMocks.query.mock.calls[1]?.[1]).toEqual({
+      // Fact and thought search stay parallel and receive the same request.
+      expect(convexMocks.action.mock.calls[0]?.[1]).toEqual({
         query,
         limit: 5,
         includeHistorical: false,
       });
-      expect(convexMocks.action.mock.calls[0]?.[1]).toMatchObject({
+      expect(convexMocks.action.mock.calls[1]?.[1]).toMatchObject({
         query,
         limit: 5,
         includeHistorical: false,
       });
-      expect(convexMocks.action.mock.calls[1]?.[1]).toEqual({
+      expect(convexMocks.action.mock.calls[2]?.[1]).toEqual({
         ids: ["core-preference", "atlas-version", "atlas-migration"],
       });
     } finally {
@@ -363,8 +365,8 @@ describe("MCP memory quality contract", () => {
   });
 
   test("spends a window of two entirely on the answer", async () => {
-    convexMocks.query.mockResolvedValueOnce([]);
     convexMocks.action
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
         {
           _id: "atlas-version",
@@ -439,10 +441,10 @@ describe("MCP memory quality contract", () => {
         "atlas-version",
         "atlas-migration",
       ]);
-      // No core slot exists at this limit, so core is never queried: the one
-      // query call is the fact search.
-      expect(convexMocks.query).toHaveBeenCalledTimes(1);
-      expect(convexMocks.query.mock.calls[0]?.[1]).toMatchObject({
+      // No core slot exists at this limit, so core is never queried; the only
+      // reads are the two search actions and the hydration.
+      expect(convexMocks.query).not.toHaveBeenCalled();
+      expect(convexMocks.action.mock.calls[0]?.[1]).toMatchObject({
         query: "Atlas Memory status?",
         limit: 2,
       });
@@ -657,7 +659,8 @@ describe("MCP memory quality contract", () => {
           text: "Run /brain-init to add initial context, then try recall_context again.",
         },
       ]);
-      expect(convexMocks.action).toHaveBeenCalledTimes(1);
+      // One fact search, one thought search; nothing to hydrate.
+      expect(convexMocks.action).toHaveBeenCalledTimes(2);
     } finally {
       await client.close();
       await server.close();
@@ -870,7 +873,9 @@ describe("MCP memory quality contract", () => {
   });
 
   test("passes a typed relationship fact with explicit provenance and time", async () => {
-    convexMocks.mutation.mockResolvedValue({
+    // remember_fact is an action: the fact commits, then its search text is
+    // embedded, and the write must not depend on that second step.
+    convexMocks.action.mockResolvedValue({
       factId: "pcp-fact",
       statement: "Jordan — primary care provider: Dr. Rivera.",
       operation: "stored",
@@ -912,7 +917,8 @@ describe("MCP memory quality contract", () => {
       });
 
       expect(result.isError).not.toBe(true);
-      expect(convexMocks.mutation.mock.calls[0]?.[1]).toEqual({
+      expect(convexMocks.mutation).not.toHaveBeenCalled();
+      expect(convexMocks.action.mock.calls[0]?.[1]).toEqual({
         subject: {
           key: "person:jordan",
           kind: "person",
