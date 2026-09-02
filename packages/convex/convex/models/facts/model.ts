@@ -429,6 +429,13 @@ export async function rememberFact(
       factId: duplicate._id,
       statement,
       operation: "noop" as const,
+      searchText,
+      // A repeat write can widen the subject's aliases, and a fact stored while
+      // the embedding provider was down has no vector yet. Either way the stored
+      // embedding no longer describes `searchText`.
+      needsEmbedding:
+        duplicate.embedding === undefined ||
+        duplicate.searchText !== searchText,
     };
   }
 
@@ -488,7 +495,31 @@ export async function rememberFact(
         : args.changeKind === "corrected"
           ? ("corrected" as const)
           : ("superseded" as const),
+    searchText,
+    needsEmbedding: true,
   };
+}
+
+export type RememberFactResult = Awaited<ReturnType<typeof rememberFact>>;
+
+/**
+ * Attaches the embedding of `searchText` to a fact, but only while that is
+ * still the text the fact carries. Embedding happens in an action after the
+ * fact has committed, so a rewrite of the same fact in between would otherwise
+ * end up tagged with a vector describing text it no longer holds. A superseded
+ * or retracted fact keeps its embedding: historical recall needs it, and at
+ * this volume dropping it saves nothing.
+ */
+export async function setFactEmbedding(
+  ctx: MutationCtx,
+  factId: Id<"facts">,
+  searchText: string,
+  embedding: number[],
+): Promise<boolean> {
+  const fact = await ctx.db.get(factId);
+  if (fact === null || fact.searchText !== searchText) return false;
+  await ctx.db.patch(factId, { embedding });
+  return true;
 }
 
 export async function hydrateFact(ctx: QueryCtx, fact: Doc<"facts">) {
@@ -542,6 +573,31 @@ export async function hydrateFact(ctx: QueryCtx, fact: Doc<"facts">) {
     createdAt: fact._creationTime,
     updatedAt: fact.updatedAt,
   };
+}
+
+export type HydratedFact = Awaited<ReturnType<typeof hydrateFact>>;
+
+/**
+ * Hydrates the facts among `ids` that belong to `userId` and that a read may
+ * return, preserving the order of `ids`. This is the post-filter behind the
+ * vector path: a vector index can filter on `userId` but not on the optional
+ * lifecycle fields, so ownership is re-checked and lifecycle applied here.
+ */
+export async function getRetrievableFacts(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  ids: Id<"facts">[],
+  options: { includeHistorical?: boolean; activeAt?: number } = {},
+) {
+  const activeAt = options.activeAt ?? Date.now();
+  const docs = await Promise.all(ids.map((id) => ctx.db.get(id)));
+  const retrievable = docs.filter(
+    (fact): fact is Doc<"facts"> =>
+      fact !== null &&
+      fact.userId === userId &&
+      isFactRetrievable(fact, options.includeHistorical, activeAt),
+  );
+  return await Promise.all(retrievable.map((fact) => hydrateFact(ctx, fact)));
 }
 
 export async function listFacts(
@@ -598,19 +654,47 @@ export async function listFacts(
   return await Promise.all(selected.map((fact) => hydrateFact(ctx, fact)));
 }
 
+/**
+ * Validates and bounds a fact search request. Shared by the keyword query and
+ * the fused action so both reject the same input the same way, before an
+ * embedding call is spent on it.
+ */
+export function normalizeFactSearch(
+  query: string,
+  limit: number | undefined,
+): { query: string; limit: number } {
+  const cleanedQuery = boundedText(query, "Fact search query", 12_000);
+  const requested = limit ?? DEFAULT_FACT_SEARCH_LIMIT;
+  if (!Number.isInteger(requested) || requested < 1) {
+    throw new Error("Fact search limit must be a positive integer");
+  }
+  return {
+    query: cleanedQuery,
+    limit: Math.min(requested, MAX_FACT_SEARCH_LIMIT),
+  };
+}
+
+/**
+ * Keyword search over `searchText`. Semantic recall lives in `actions.ts`
+ * (`hybridSearchFacts`), which fuses this with a vector search. This remains
+ * the path for callers that cannot spend an embedding call, and the fallback
+ * when the embedding provider is unavailable.
+ */
 export async function searchFacts(
   ctx: QueryCtx,
   userId: Id<"users">,
   query: string,
-  options: { limit?: number; includeHistorical?: boolean } = {},
+  options: {
+    limit?: number;
+    includeHistorical?: boolean;
+    activeAt?: number;
+  } = {},
 ) {
-  const cleanedQuery = boundedText(query, "Fact search query", 12_000);
-  const requested = options.limit ?? DEFAULT_FACT_SEARCH_LIMIT;
-  if (!Number.isInteger(requested) || requested < 1) {
-    throw new Error("Fact search limit must be a positive integer");
-  }
-  const limit = Math.min(requested, MAX_FACT_SEARCH_LIMIT);
-  const activeAt = Date.now();
+  const { query: cleanedQuery, limit } = normalizeFactSearch(
+    query,
+    options.limit,
+  );
+  const activeAt = options.activeAt ?? Date.now();
   const selected = await ctx.db
     .query("facts")
     .withSearchIndex("by_searchText", (q) => {

@@ -26,7 +26,7 @@ describe("structured durable facts", () => {
     const userId = await t.run((ctx) => ctx.db.insert("users", {}));
     const owner = t.withIdentity({ issuer, subject: userId });
 
-    const result = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const result = await owner.action(api.models.facts.mcpActions.remember, {
       subject: {
         key: "person:zevin",
         kind: "person",
@@ -60,7 +60,7 @@ describe("structured durable facts", () => {
     const owner = t.withIdentity({ issuer, subject: userId });
 
     await expect(
-      owner.mutation(api.models.facts.mcpActions.remember, {
+      owner.action(api.models.facts.mcpActions.remember, {
         subject: { kind: "person", name: "Zevin" },
         predicate: "age",
         value: { type: "number", value: 17, unit: "years" },
@@ -92,17 +92,14 @@ describe("structured durable facts", () => {
       sourceType: "user_stated" as const,
     };
 
-    const first = await owner.mutation(
+    const first = await owner.action(
       api.models.facts.mcpActions.remember,
       args,
     );
-    const duplicate = await owner.mutation(
-      api.models.facts.mcpActions.remember,
-      {
-        ...args,
-        subject: { ...args.subject, name: "Jordan", aliases: ["J. Schwartz"] },
-      },
-    );
+    const duplicate = await owner.action(api.models.facts.mcpActions.remember, {
+      ...args,
+      subject: { ...args.subject, name: "Jordan", aliases: ["J. Schwartz"] },
+    });
 
     expect(duplicate).toMatchObject({
       factId: first.factId,
@@ -139,7 +136,7 @@ describe("structured durable facts", () => {
       sourceType: "user_stated" as const,
     };
 
-    const oldFact = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const oldFact = await owner.action(api.models.facts.mcpActions.remember, {
       ...base,
       value: {
         type: "entity" as const,
@@ -151,7 +148,7 @@ describe("structured durable facts", () => {
       },
       validFrom: startedOld,
     });
-    const newFact = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const newFact = await owner.action(api.models.facts.mcpActions.remember, {
       ...base,
       value: {
         type: "entity" as const,
@@ -193,19 +190,16 @@ describe("structured durable facts", () => {
       predicate: "date_of_birth",
       sourceType: "user_stated" as const,
     };
-    const wrong = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const wrong = await owner.action(api.models.facts.mcpActions.remember, {
       ...base,
       value: { type: "date", value: "2009-05-11" },
       validFrom: Date.UTC(2009, 4, 11),
     });
-    const corrected = await owner.mutation(
-      api.models.facts.mcpActions.remember,
-      {
-        ...base,
-        value: { type: "date", value: "2009-05-12" },
-        changeKind: "corrected",
-      },
-    );
+    const corrected = await owner.action(api.models.facts.mcpActions.remember, {
+      ...base,
+      value: { type: "date", value: "2009-05-12" },
+      changeKind: "corrected",
+    });
 
     expect(corrected.operation).toBe("corrected");
     const prior = await t.run((ctx) => ctx.db.get(wrong.factId));
@@ -230,7 +224,7 @@ describe("structured durable facts", () => {
     const owner = t.withIdentity({ issuer, subject: userId });
 
     await expect(
-      owner.mutation(api.models.facts.mcpActions.remember, {
+      owner.action(api.models.facts.mcpActions.remember, {
         subject: {
           key: "organization:acme",
           kind: "person",
@@ -255,18 +249,15 @@ describe("structured durable facts", () => {
       predicate: "date_of_birth",
       sourceType: "user_stated" as const,
     };
-    const wrong = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const wrong = await owner.action(api.models.facts.mcpActions.remember, {
       ...base,
       value: { type: "date", value: "2009-05-11" },
     });
-    const corrected = await owner.mutation(
-      api.models.facts.mcpActions.remember,
-      {
-        ...base,
-        value: { type: "date", value: "2009-05-12" },
-        changeKind: "corrected",
-      },
-    );
+    const corrected = await owner.action(api.models.facts.mcpActions.remember, {
+      ...base,
+      value: { type: "date", value: "2009-05-12" },
+      changeKind: "corrected",
+    });
 
     // Coverage decides whether narrative capture is refused. Offering a
     // retracted fact would refuse a capture on the strength of a value the
@@ -289,14 +280,14 @@ describe("structured durable facts", () => {
     // Two core facts. The older one is also the best keyword match, so at the
     // default limit it belongs in the relevance slot: core takes one, and the
     // newer fact takes it.
-    const older = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const older = await owner.action(api.models.facts.mcpActions.remember, {
       subject: { key: "person:zevin", kind: "person", name: "Zevin" },
       predicate: "school",
       value: { type: "text", value: "Redwood Academy" },
       sourceType: "user_stated",
       isCore: true,
     });
-    const newer = await owner.mutation(api.models.facts.mcpActions.remember, {
+    const newer = await owner.action(api.models.facts.mcpActions.remember, {
       subject: { key: "person:avery", kind: "person", name: "Avery" },
       predicate: "home_city",
       value: { type: "text", value: "Fernwood" },
@@ -312,7 +303,7 @@ describe("structured durable facts", () => {
       owner.query(api.models.facts.mcpQueries.listCore, {
         limit: coreLimitFor(limit),
       }),
-      owner.query(api.models.facts.mcpQueries.search, { query, limit }),
+      owner.action(api.models.facts.mcpActions.search, { query, limit }),
     ]);
     const mcpWindow = blendRecallContext({
       coreFacts: mcpCore,
@@ -329,14 +320,12 @@ describe("structured durable facts", () => {
     // What the harness fetches, then blends. A wider core fetch than the
     // blend will select must not hide the older fact from the relevance
     // slot: dedup belongs to the blend, against the core it selected.
-    const rows = await t.run((ctx) =>
-      ctx.runQuery(internal.models.facts.private.recallFacts, {
-        userId,
-        query,
-        limit,
-        coreLimit: 5,
-      }),
-    );
+    const rows = await t.action(internal.models.facts.actions.recall, {
+      userId,
+      query,
+      limit,
+      coreLimit: 5,
+    });
     expect(
       rows
         .filter((row: { source: string }) => row.source === "relevant")
@@ -369,7 +358,7 @@ describe("structured durable facts", () => {
     ]);
     const owner = t.withIdentity({ issuer, subject: ownerId });
     const other = t.withIdentity({ issuer, subject: otherId });
-    await owner.mutation(api.models.facts.mcpActions.remember, {
+    await owner.action(api.models.facts.mcpActions.remember, {
       subject: { kind: "person", name: "Jordan" },
       predicate: "home_city",
       value: { type: "text", value: "Seattle" },

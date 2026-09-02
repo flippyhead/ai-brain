@@ -18,7 +18,7 @@ async function seedProviderChange(owner: TestClient) {
     predicate: "primary_care_provider",
     sourceType: "user_stated" as const,
   };
-  const oldFact = await owner.mutation(api.models.facts.mcpActions.remember, {
+  const oldFact = await owner.action(api.models.facts.mcpActions.remember, {
     ...base,
     value: {
       type: "entity",
@@ -26,7 +26,7 @@ async function seedProviderChange(owner: TestClient) {
     },
     validFrom: Date.UTC(2020, 0, 1),
   });
-  const newFact = await owner.mutation(api.models.facts.mcpActions.remember, {
+  const newFact = await owner.action(api.models.facts.mcpActions.remember, {
     ...base,
     value: {
       type: "entity",
@@ -157,7 +157,7 @@ describe("forgetting facts and entities", () => {
       const { t, owner } = await seed();
       const { oldFactId, newFactId } = await seedProviderChange(owner);
       // A fact about Dr. Old, and one about Jordan that must survive.
-      const drOldClinic = await owner.mutation(
+      const drOldClinic = await owner.action(
         api.models.facts.mcpActions.remember,
         {
           subject: { key: "person:dr-old", kind: "person", name: "Dr. Old" },
@@ -166,7 +166,7 @@ describe("forgetting facts and entities", () => {
           sourceType: "user_stated",
         },
       );
-      const jordanCity = await owner.mutation(
+      const jordanCity = await owner.action(
         api.models.facts.mcpActions.remember,
         {
           subject: { key: "person:jordan", kind: "person", name: "Jordan" },
@@ -308,7 +308,7 @@ describe("forgetting facts and entities", () => {
         ["school", "Redwood Academy"],
         ["favorite_color", "green"],
       ] as const) {
-        await owner.mutation(api.models.facts.mcpActions.remember, {
+        await owner.action(api.models.facts.mcpActions.remember, {
           subject: zevin,
           predicate,
           value: { type: "text", value },
@@ -316,7 +316,7 @@ describe("forgetting facts and entities", () => {
         });
       }
       for (const parent of ["Jordan", "Sam"]) {
-        await owner.mutation(api.models.facts.mcpActions.remember, {
+        await owner.action(api.models.facts.mcpActions.remember, {
           subject: { kind: "person", name: parent },
           predicate: "child",
           value: { type: "entity", entity: zevin },

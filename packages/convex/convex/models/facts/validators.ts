@@ -28,6 +28,35 @@ export const factValueInput = v.union(
   v.object({ type: v.literal("entity"), entity: entitySelector }),
 );
 
+export const factSourceType = v.union(
+  v.literal("user_stated"),
+  v.literal("user_confirmed"),
+);
+
+/** Arguments of a fact write, shared by the MCP action and internal callers. */
+export const rememberFactArgs = {
+  subject: entitySelector,
+  predicate: v.string(),
+  value: factValueInput,
+  sourceType: factSourceType,
+  sourceRef: v.optional(v.string()),
+  observedAt: v.optional(v.number()),
+  batchId: v.optional(v.string()),
+  isCore: v.optional(v.boolean()),
+  validFrom: v.optional(v.number()),
+  validTo: v.optional(v.number()),
+  cardinality: v.optional(v.union(v.literal("single"), v.literal("multiple"))),
+  changeKind: v.optional(v.union(v.literal("changed"), v.literal("corrected"))),
+  changeReason: v.optional(v.string()),
+};
+
+export const factOperation = v.union(
+  v.literal("stored"),
+  v.literal("noop"),
+  v.literal("superseded"),
+  v.literal("corrected"),
+);
+
 export const factValue = v.union(
   v.object({ type: v.literal("text"), value: v.string() }),
   v.object({ type: v.literal("date"), value: v.string() }),
@@ -39,11 +68,6 @@ export const factValue = v.union(
   }),
   v.object({ type: v.literal("boolean"), value: v.boolean() }),
   v.object({ type: v.literal("entity"), entityId: v.id("entities") }),
-);
-
-export const factSourceType = v.union(
-  v.literal("user_stated"),
-  v.literal("user_confirmed"),
 );
 
 export const factStatus = v.union(
@@ -70,6 +94,12 @@ export const factFields = {
   value: factValue,
   statement: v.string(),
   searchText: v.string(),
+  /**
+   * Embedding of `searchText`. Optional: facts written before semantic recall
+   * existed have none until the backfill runs, and a fact written while the
+   * embedding provider is down is stored without one rather than lost.
+   */
+  embedding: v.optional(v.array(v.float64())),
   sourceType: factSourceType,
   sourceRef: v.optional(v.string()),
   observedAt: v.optional(v.number()),
