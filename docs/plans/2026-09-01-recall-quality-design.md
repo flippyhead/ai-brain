@@ -36,6 +36,10 @@ commitment and is gated on a decision, not scheduled.
 
 ## W0 — The blend policy buries the right memory (found by the bake-off)
 
+**Status: implemented** in PR #PRNUM — `coreLimitFor(5)` is 1 (one more per
+further five), core slots are facts only, and facts fill at most a third of
+the relevance slots with no floor. The five lost shapes are eval cases.
+
 **Evidence.** In the 2026-09-02 bake-off (`docs/comparisons/gbrain-bakeoff.md`)
 AI Brain lost five of twelve questions on retrieval: the right memory existed
 and `recall_context` did not return it. The diagnostic: at the default limit of

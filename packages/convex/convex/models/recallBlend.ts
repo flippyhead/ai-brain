@@ -11,81 +11,89 @@
  * sequence that gets evaluated.
  */
 
-// Core and relevant thoughts arrive in different shapes — a hydrated core row
-// and a search index row — so they are separate type parameters rather than
-// forced into one.
-export type RecallBlendInput<Fact, CoreThought, RelevantThought> = {
+export type RecallBlendInput<Fact, Thought> = {
   coreFacts: readonly Fact[];
-  coreThoughts: readonly CoreThought[];
   relevantFacts: readonly Fact[];
-  relevantThoughts: readonly RelevantThought[];
+  relevantThoughts: readonly Thought[];
   limit: number;
   factId: (fact: Fact) => string;
-  coreThoughtId: (thought: CoreThought) => string;
-  relevantThoughtId: (thought: RelevantThought) => string;
 };
 
-export type RecallBlend<Fact, CoreThought, RelevantThought> = {
+export type RecallBlend<Fact, Thought> = {
   coreFacts: Fact[];
-  coreThoughts: CoreThought[];
   relevanceFacts: Fact[];
-  relevanceThoughts: RelevantThought[];
+  relevanceThoughts: Thought[];
 };
 
-/** Core slots available at a given result limit. */
+/**
+ * Core slots available at a given result limit.
+ *
+ * Core is context the question did not ask for, so it takes one slot at the
+ * default limit of five and gains one more for every further five requested:
+ * `coreLimitFor(5) === 1`, `coreLimitFor(10) === 2`. It used to take three of
+ * five, which sent the same core set on every call and left two slots for the
+ * answer (docs/comparisons/gbrain-bakeoff.md, run 1).
+ *
+ * Below three results core takes nothing. A caller asking for one or two
+ * memories wants the answer, and a window that small cannot spare a slot for
+ * something the question did not ask for.
+ *
+ * Core slots are filled from core facts only. A narrative memory flagged
+ * `isCore` competes on relevance like any other memory; it no longer rides
+ * along on every question.
+ */
 export function coreLimitFor(limit: number): number {
-  return Math.min(3, limit);
+  if (limit < 3) return 0;
+  return Math.max(1, Math.floor(limit / 5));
 }
 
-export function blendRecallContext<Fact, CoreThought, RelevantThought>({
+/**
+ * Relevance slots facts may fill when thoughts also matched: at most a third,
+ * rounded down, so one fact at the default limit.
+ *
+ * This is a cap, not a floor. The former guarantee that facts get at least
+ * half the relevance slots is deliberately absent until W1 (fact embeddings)
+ * lands: fact search is keyword-only and cannot rank semantically, so on any
+ * question the keyword index cannot serve, a guaranteed fact slot is a
+ * guaranteed junk slot. One slot keeps exact fact recall on the questions the
+ * index can serve — the top keyword hit is the rank worth trusting — and
+ * bounds the cost on the questions it cannot.
+ */
+function factRelevanceCap(relevanceLimit: number): number {
+  return Math.floor(relevanceLimit / 3);
+}
+
+export function blendRecallContext<Fact, Thought>({
   coreFacts,
-  coreThoughts,
   relevantFacts,
   relevantThoughts,
   limit,
   factId,
-  coreThoughtId,
-  relevantThoughtId,
-}: RecallBlendInput<Fact, CoreThought, RelevantThought>): RecallBlend<
-  Fact,
-  CoreThought,
-  RelevantThought
-> {
-  const coreLimit = coreLimitFor(limit);
-
-  // Facts take at most two core slots so an account with many core facts cannot
-  // crowd out every core memory.
-  const selectedCoreFacts = coreFacts.slice(0, Math.min(2, coreLimit));
-  const selectedCoreThoughts = coreThoughts.slice(
-    0,
-    Math.max(0, coreLimit - selectedCoreFacts.length),
-  );
-
+}: RecallBlendInput<Fact, Thought>): RecallBlend<Fact, Thought> {
+  const selectedCoreFacts = coreFacts.slice(0, coreLimitFor(limit));
   const coreFactIds = new Set(selectedCoreFacts.map(factId));
-  const coreThoughtIds = new Set(selectedCoreThoughts.map(coreThoughtId));
 
-  const relevanceLimit = Math.max(
-    0,
-    limit - selectedCoreFacts.length - selectedCoreThoughts.length,
+  const relevanceLimit = Math.max(0, limit - selectedCoreFacts.length);
+  // Thoughts that did not match leave their slots to facts, so an account
+  // whose only matches are facts still fills the window.
+  const factRelevanceLimit = Math.min(
+    relevanceLimit,
+    Math.max(
+      factRelevanceCap(relevanceLimit),
+      relevanceLimit - relevantThoughts.length,
+    ),
   );
-  // When both stores have something to say, facts get at least one relevance
-  // slot and at most half, so a precise answer is never entirely displaced by
-  // narrative and never entirely displaces it.
-  const factRelevanceLimit =
-    relevantThoughts.length === 0
-      ? relevanceLimit
-      : Math.min(relevanceLimit, Math.max(1, Math.ceil(relevanceLimit / 2)));
 
   const relevanceFacts = relevantFacts
     .filter((fact) => !coreFactIds.has(factId(fact)))
     .slice(0, factRelevanceLimit);
-  const relevanceThoughts = relevantThoughts
-    .filter((thought) => !coreThoughtIds.has(relevantThoughtId(thought)))
-    .slice(0, Math.max(0, relevanceLimit - relevanceFacts.length));
+  const relevanceThoughts = relevantThoughts.slice(
+    0,
+    Math.max(0, relevanceLimit - relevanceFacts.length),
+  );
 
   return {
     coreFacts: selectedCoreFacts,
-    coreThoughts: selectedCoreThoughts,
     relevanceFacts,
     relevanceThoughts,
   };

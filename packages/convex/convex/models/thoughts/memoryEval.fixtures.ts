@@ -146,20 +146,18 @@ export type RecordedRecallRanking = {
   queryName: string;
   /** Core facts as `listCore` returns them, newest first. */
   coreFactKeys: string[];
-  /** Core narrative memories as `listCore` returns them, newest first. */
-  coreThoughtKeys: string[];
   /** Keyword fact hits in the order the search index returned them. */
   relevantFactKeys: string[];
   /** Hybrid thought hits in fused rank order. */
   relevantThoughtKeys: string[];
 };
 
-// The account's core set on every question: two core facts and one core
-// narrative memory, none of which answers any of the questions below.
+// The account's core set: two core facts, neither of which answers any of the
+// questions below. It also holds a core narrative memory ("diet"); that used
+// to ride along on every question, and now appears only where it ranks.
 const averyCore = {
   account: "avery",
   coreFactKeys: ["fact-home", "fact-diet"],
-  coreThoughtKeys: ["diet"],
 };
 
 /**

@@ -218,17 +218,13 @@ describe("blend policy on the bake-off shapes", () => {
   const windowAt = (ranking: RecordedRecallRanking, limit: number) => {
     const blend = blendRecallContext({
       coreFacts: rowsFor(ranking.account, ranking.coreFactKeys),
-      coreThoughts: rowsFor(ranking.account, ranking.coreThoughtKeys),
       relevantFacts: rowsFor(ranking.account, ranking.relevantFactKeys),
       relevantThoughts: rowsFor(ranking.account, ranking.relevantThoughtKeys),
       limit,
       factId: (row) => row.id,
-      coreThoughtId: (row) => row.id,
-      relevantThoughtId: (row) => row.id,
     });
     return [
       ...blend.coreFacts,
-      ...blend.coreThoughts,
       ...blend.relevanceFacts,
       ...blend.relevanceThoughts,
     ];
