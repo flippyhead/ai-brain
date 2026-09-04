@@ -112,6 +112,12 @@ Twelve questions across six shapes, two each. Write the specific questions
 locally before starting — deciding them after seeing an answer is how a
 bake-off becomes a justification.
 
+Then commit them with the run. Question text and the citation ids of the pinned
+reference answers are privacy-safe; the memory contents they resolve to are not,
+and do not belong in the repo. Run 1's questions were never preserved, so Run 2
+had to ask new ones and could compare only at the shape level — the cheapest
+possible loss to avoid, and it costs one file.
+
 | #     | Shape                                                                                             | What it tests                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | 1–2   | **Exact recall.** A specific attribute of a specific person or project.                           | Precision. AI Brain's typed facts should shine; keyword-only fact search is its known weak point. |
@@ -263,3 +269,85 @@ Concretely, ahead of W1:
 Then re-run this bake-off on the full export with the prod key. The corpus
 here was a window, and the export path proper has yet to be exercised against
 the real deployment.
+
+### Run 2 — 2026-09-04, live prod store, AI Brain only
+
+**Setup.** Solo run: AI Brain only, no GBrain side. The point of run 1 was the
+move-or-stay decision, and that is settled; the point here is whether W0–W4
+fixed the five retrieval losses. Run 1's verbatim questions were never
+committed, so these are **new** questions on the same six shapes — per-question
+comparison with run 1 is invalid, shape-level comparison is valid. Questions and
+reference answers were pinned from `browse_recent` and `search_thoughts` and
+frozen before any `recall_context` call.
+
+Answered from the live prod store (~488 thoughts, 23 facts) through the deployed
+MCP endpoint, confirmed running current `main` by tool-description fingerprint.
+`recall_context` at default limit 5 (limit 8 on the two synthesis questions),
+client composing strictly from the payload. Self-scored — no independent judge,
+which is the run's main methodological weakness and is why the finding that
+matters is the *shape* of the failures, not the total.
+
+| #   | Shape                       | Run 1 | Run 2 | What happened                                                                                    |
+| --- | --------------------------- | ----- | ----- | ------------------------------------------------------------------------------------------------ |
+| 1   | exact                       | 3     | 3     | Rates and deposit exact.                                                                         |
+| 2   | exact                       | 3     | 3     | Tax amount and due date exact.                                                                   |
+| 3   | semantic                    | 0     | 0     | Run-model memory never surfaced. Two slots went to unrelated personal money facts.               |
+| 4   | semantic                    | 0     | 0     | Pinecone rule never surfaced; returned the older Neon pgvector plan it revises.                  |
+| 5   | open loops                  | 1     | 3     | Task memory returned with both sides of the ledger in `actionItems`.                             |
+| 6   | open loops                  | 3     | 3     | Smoke test #190 plus PR 2 and PR 3, exact.                                                       |
+| 7   | change                      | 2     | 3     | Both the original ≈$98k/yr figure and the corrected $104,736.76 returned together.               |
+| 8   | change                      | 0     | 3     | "NOT operative marching orders" returned in full.                                                |
+| 9   | synthesis                   | 3     | 1     | Build cost and existing spend, but the buy-side price book never surfaced — at limit 8.          |
+| 10  | synthesis                   | 0     | 2     | Oversight call and Erik's history returned; the Ontomaton $63k thread did not.                   |
+| 11  | ignorance ×2                | 3     | 3     | Payload carried "Verify copa.fyi domain registrant" as an open item. Honest.                     |
+| 12  | ignorance ×2                | 3     | 3     | **Gaps block fired**: "no fact recording a school for this question; it may not be stored."      |
+|     | **Weighted total (max 42)** | 27    | 33    | GBrain scored 33 in run 1.                                                                       |
+
+### The read
+
+**Zero confabulations again.** No −2 in either run. The trust axis holds.
+
+**W0, W3 and W4 are working.** Core dropped from three slots to one. The gaps
+block fired unprompted on the one question with no stored answer — the honest
+"I don't know" is now a feature of the envelope, not of the client's manners.
+The budget note reports trimming and drops instead of silently truncating.
+Change-over-time went 2/0 → 3/3, and open loops 1/3 → 3/3.
+
+**Semantic recall did not move: 0 and 0, exactly as in run 1.** This is the
+finding. W1 gave *facts* embeddings, but both semantic misses are *thought*
+shaped. The proof is Q11: the run-model memory Q3 could not reach came back
+immediately when the query contained the literal string "copa.fyi". The memory
+is retrievable by keyword and not by paraphrase, which is the original W1
+complaint relocated to the thought store.
+
+**W1 introduced a new precision problem.** With only 23 facts, most of them
+personal, fact embeddings now let `money_dynamic_with_julia`,
+`money_sensitivity_pattern` and `feels_loved_by` match business-finance
+questions on the word "money". They took relevance slots on Q3, Q5, Q8 and Q10.
+Semantic fact search is working exactly as specified and making the blend worse,
+because the fact corpus is too small and too personal to be matched on affect.
+
+**The core fact slot is spent on the same fact every time.** The therapist fact
+appeared in all twelve payloads. Core *memories* are already relevance-gated —
+"a core memory appears only when it is relevant" — and core *facts* are not.
+That asymmetry is the remaining half of the run-1 core-hygiene defect.
+
+**One latent −2.** Q4 returned the 3 Sep forum-search plan (a pgvector index on
+Neon) which the 4 Sep Pinecone rule revises. Neither memory is formally
+superseded, so a client answers with the retired plan stated as current. Scored
+0, not −2, because nothing was fabricated — but that is the shape a confident
+wrong answer would take.
+
+### The call
+
+Stay, again, and the next three fixes are named by this run, in order:
+
+1. **Relevance-gate the core fact slot** the way core memories already are.
+   One line of blend policy; it frees a slot on every single call.
+2. **Thought semantic recall.** Find why paraphrase does not reach a thought the
+   literal token reaches instantly. This is the whole remaining gap.
+3. **Link the forum-search memory to the Pinecone rule**, or supersede it.
+
+Not urgent, but worth naming: fact relevance should weight predicate over prose,
+or personal facts will keep answering business questions while the fact corpus
+is small.
