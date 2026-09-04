@@ -112,6 +112,12 @@ Twelve questions across six shapes, two each. Write the specific questions
 locally before starting — deciding them after seeing an answer is how a
 bake-off becomes a justification.
 
+Then commit them with the run. Question text and the citation ids of the pinned
+reference answers are privacy-safe; the memory contents they resolve to are not,
+and do not belong in the repo. Run 1's questions were never preserved, so Run 2
+had to ask new ones and could compare only at the shape level — the cheapest
+possible loss to avoid, and it costs one file.
+
 | #     | Shape                                                                                             | What it tests                                                                                     |
 | ----- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | 1–2   | **Exact recall.** A specific attribute of a specific person or project.                           | Precision. AI Brain's typed facts should shine; keyword-only fact search is its known weak point. |
