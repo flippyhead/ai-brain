@@ -886,6 +886,8 @@ describe("MCP memory quality contract", () => {
   });
 
   test("returns short memories whole with no budget note by default", async () => {
+    // Fix the test clock so the memory stays within the freshness window.
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.UTC(2026, 7, 3, 12) });
     // Core and exact queries find nothing at limit 5.
     convexMocks.query.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
     convexMocks.action
@@ -943,6 +945,7 @@ describe("MCP memory quality contract", () => {
       expect(row?.content.length).toBeGreaterThan(4_000);
       expect(row?.truncated).toBeUndefined();
     } finally {
+      vi.useRealTimers();
       await client.close();
       await server.close();
     }
